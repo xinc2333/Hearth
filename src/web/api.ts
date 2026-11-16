@@ -19,10 +19,24 @@ export interface Summary {
     lorebookIds?: string[];
 }
 
+export interface PluginView {
+    id: string;
+    name: string;
+    description: string;
+    version: string;
+    source: 'builtin' | 'installed';
+    compat?: { name: string; url: string };
+    repository?: string;
+    enabled: boolean;
+    autoUpdate: boolean;
+    error?: string;
+    update: { checkedAt?: number; latest?: string; error?: string; updatedFrom?: string; updatedAt?: number } | null;
+}
+
 export interface Bootstrap {
     settings: Settings & { connections: (Connection & { hasKey: boolean })[] };
     resources: Record<ResourceKind, Summary[]>;
-    plugins: { id: string; name: string; error?: string }[];
+    plugins: PluginView[];
 }
 
 export class ApiError extends Error {
@@ -68,6 +82,11 @@ export const api = {
     deleteConnection: (id: string) => request<Bootstrap['settings']>('DELETE', `/api/connections/${id}`),
     models: (id: string) => request<{ models: string[] }>('POST', `/api/connections/${id}/models`),
     testConnection: (id: string) => request<{ text: string; ms: number }>('POST', `/api/connections/${id}/test`),
+    plugins: () => request<PluginView[]>('GET', '/api/plugins'),
+    setPlugin: (id: string, patch: { enabled?: boolean; autoUpdate?: boolean }) => request<PluginView[]>('PUT', `/api/plugins/${id}`, patch),
+    updatePlugin: (id: string, apply = true) => request<PluginView[]>('POST', `/api/plugins/${id}/update`, { apply }),
+    installPlugin: (url: string) => request<{ installed: { id: string; name: string; version: string }; plugins: PluginView[] }>('POST', '/api/plugins/install', { url }),
+    removePlugin: (id: string) => request<PluginView[]>('DELETE', `/api/plugins/${id}`),
 };
 
 export interface ChatContext {

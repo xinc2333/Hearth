@@ -92,6 +92,17 @@ npm run build
 | 预设 | 当前预设的条目开关 |
 | 历史 | 所有修改，可以逐条撤销 |
 
+### 插件
+
+「设置 → 插件」里可以开关插件、检查更新，或者粘贴 GitHub 链接安装新插件。Hearth 自带两个插件：
+
+| 插件 | 兼容 | 作用 |
+| --- | --- | --- |
+| 提示词模板 | [ST-Prompt-Template](https://github.com/zonde306/ST-Prompt-Template) | 运行预设、角色卡和世界书里的 EJS 模板 |
+| 酒馆助手 | [JS-Slash-Runner](https://github.com/N0VI028/JS-Slash-Runner) | 消息里的状态栏等前端界面、MVU 变量、SPreset 类预设（如 Meowssiah） |
+
+插件会自动更新，每个插件都可以单独关掉自动更新。关闭某个插件后，卡片和预设里对应的内容原样保存，只是不再处理。
+
 ### 阅读
 
 点聊天窗口右上角的「Aa」可以调整正文的字体、字号、行距、栏宽，以及段首缩进、两端对齐和对话着色。「自定义」字体可以填电脑上已安装的任何字体名（例如霞鹜文楷）。
@@ -128,7 +139,7 @@ npm run build
 
 ## 数据与安全
 
-- 所有数据都在 `data/` 目录里，每个角色、世界书、预设、对话各是一个 JSON 文件。备份时复制整个目录即可。
+- 所有数据都在 `data/` 目录里，每个角色、世界书、预设、对话各是一个 JSON 文件；安装的插件和插件更新在 `data/plugins/`。备份时复制整个目录即可。
 - 服务只监听本机（`127.0.0.1`），并拒绝来自其他网站的请求。
 - 角色卡和预设里的代码在沙箱中运行：EJS 模板运行在 QuickJS（WebAssembly）里，访问不到文件和网络；消息里的 HTML 界面运行在隔离的 iframe 里。
 - 预设脚本引用的远程代码不会下载或执行。
@@ -141,16 +152,17 @@ npm run build
 src/core/     数据模型、提示词组装、世界书、宏、正则、MVU、酒馆格式导入（不依赖界面，可单独测试）
 src/server/   本地服务：存储、模型接口、生成流程、插件、内置适配
 src/web/      界面（React）
+src/plugins/  内置插件的源码（构建到 plugins/）
 tests/        测试
 docs/         设计说明
-plugins/      第三方插件目录
+plugins/      内置插件（构建结果，也是插件的更新来源）
 ```
 
 ### 常用命令
 
 | 命令 | 作用 |
 | --- | --- |
-| `npm run build` | 构建界面和服务，输出到 `dist/` |
+| `npm run build` | 构建界面、服务和内置插件，输出到 `dist/` 和 `plugins/` |
 | `npm test` | 运行测试 |
 | `npm run typecheck` | 类型检查 |
 | `npm run dev:server` / `npm run dev:web` | 开发模式 |

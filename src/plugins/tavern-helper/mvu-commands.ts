@@ -5,7 +5,7 @@
 // legacy commands (_.set('世界.地点', '旧', '新');//原因). Updates apply to the previous state
 // and the result is stored on the reply's swipe, so swipes and branches each keep their own state.
 
-import { getPath, setPath, toPath, unsetPath } from './state.ts';
+import { getPath, setPath, toPath, unsetPath } from '../../core/state.ts';
 
 export interface MvuCommand {
     op: 'replace' | 'delta' | 'insert' | 'remove' | 'move';

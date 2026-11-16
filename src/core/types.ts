@@ -433,6 +433,15 @@ export interface Settings {
     reading?: Partial<ReadingSettings>;
     /** {{setglobalvar}} storage. */
     globalVariables: Record<string, unknown>;
+    /** Per-plugin switches and settings, keyed by plugin id. Missing means enabled, auto-update on. */
+    plugins?: Record<string, PluginSettings>;
+}
+
+export interface PluginSettings {
+    enabled?: boolean;
+    autoUpdate?: boolean;
+    /** The plugin's own settings. */
+    config?: Record<string, unknown>;
 }
 
 export const DEFAULT_LORE_SETTINGS: LoreSettings = {

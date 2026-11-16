@@ -51,6 +51,12 @@ export function registerMacro(names: string | string[], handler: MacroHandler): 
     }
 }
 
+export function unregisterMacro(names: string | string[]): void {
+    for (const name of Array.isArray(names) ? names : [names]) {
+        registry.delete(name.toLowerCase());
+    }
+}
+
 export function listMacros(): string[] {
     return [...registry.keys()].sort();
 }

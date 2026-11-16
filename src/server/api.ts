@@ -8,6 +8,7 @@ import type { Op } from '../core/ops.ts';
 import type { AnyResource, Character, Chat, Connection, Lorebook, Persona, Preset, ResourceKind } from '../core/types.ts';
 import { isRecord, newId } from '../core/util.ts';
 import { serveFile, startSse, type Router } from './http.ts';
+import type { PluginUpdater } from './plugin-updates.ts';
 import type { PluginHost } from './plugins.ts';
 import { listModels, streamChat } from './providers/openai.ts';
 import type { Runtime } from './runtime.ts';
@@ -50,11 +51,12 @@ function publicSettings(store: Store) {
     };
 }
 
-export function registerApi(router: Router, store: Store, runtime: Runtime, plugins: PluginHost) {
+export function registerApi(router: Router, store: Store, runtime: Runtime, plugins: PluginHost, updater?: PluginUpdater) {
+    const pluginList = () => plugins.list().map(p => ({ ...p, update: updater?.status.get(p.id) ?? null }));
     router.get('/api/bootstrap', () => ({
         settings: publicSettings(store),
         resources: Object.fromEntries(KINDS.map(k => [k, store.list(k).map(r => summary(store, r)).sort((a, b) => b.updatedAt - a.updatedAt)])),
-        plugins: plugins.loaded,
+        plugins: pluginList(),
     }));
 
     router.get('/api/resources/:kind/:id', req => store.require(kindParam(req.params.kind), req.params.id));
@@ -193,9 +195,53 @@ export function registerApi(router: Router, store: Store, runtime: Runtime, plug
 
     router.post('/api/jobs/:id/abort', req => ({ ok: runtime.abort(req.params.id) }));
 
+    // Plugins --------------------------------------------------------------------------------
+    router.get('/api/plugins', () => pluginList());
+
+    router.put('/api/plugins/:id', async req => {
+        const id = req.params.id;
+        if (!plugins.plugins.has(id)) throw Object.assign(new Error('没有这个插件'), { status: 404 });
+        const body = await req.json<{ enabled?: boolean; autoUpdate?: boolean }>();
+        const current = store.settings.plugins?.[id] ?? {};
+        const next = { ...current };
+        if (typeof body.enabled === 'boolean') next.enabled = body.enabled;
+        if (typeof body.autoUpdate === 'boolean') next.autoUpdate = body.autoUpdate;
+        await store.saveSettings({ plugins: { ...store.settings.plugins, [id]: next } });
+        plugins.syncEnabled(id);
+        return pluginList();
+    });
+
+    router.post('/api/plugins/:id/update', async req => {
+        if (!updater) throw Object.assign(new Error('更新不可用'), { status: 400 });
+        const body = await req.json<{ apply?: boolean }>().catch(() => ({} as { apply?: boolean }));
+        await updater.update(req.params.id, body.apply !== false);
+        return pluginList();
+    });
+
+    router.post('/api/plugins/install', async req => {
+        if (!updater) throw Object.assign(new Error('安装不可用'), { status: 400 });
+        const body = await req.json<{ url?: string }>();
+        try {
+            const manifest = await updater.install(String(body.url ?? ''));
+            return { installed: { id: manifest.id, name: manifest.name, version: manifest.version }, plugins: pluginList() };
+        } catch (error) {
+            throw Object.assign(error as Error, { status: 400 });
+        }
+    });
+
+    router.delete('/api/plugins/:id', async req => {
+        if (!updater) throw Object.assign(new Error('删除不可用'), { status: 400 });
+        const info = plugins.plugins.get(req.params.id);
+        if (!info) throw Object.assign(new Error('没有这个插件'), { status: 404 });
+        if (info.source === 'builtin') throw Object.assign(new Error('内置插件不能删除，可以关闭'), { status: 400 });
+        await updater.remove(req.params.id);
+        return pluginList();
+    });
+
     router.put('/api/settings', async req => {
         const patch = await req.json<Record<string, unknown>>();
         delete patch.connections;
+        delete patch.plugins;
         await store.saveSettings(patch);
         return publicSettings(store);
     });

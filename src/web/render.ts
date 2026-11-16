@@ -136,11 +136,12 @@ export function countChars(text: string): number {
     return text.replace(/```[\s\S]*?(?:```|$)/g, '').replace(/<[^>]+>/g, '').replace(/[\s*_#>`~-]+/g, '').length;
 }
 
-export function renderSegments(text: string): Segment[] {
+/** `frames`: render HTML documents in sandboxed frames (the 酒馆助手 plugin is on); otherwise they stay code. */
+export function renderSegments(text: string, frames = true): Segment[] {
     const segments: Segment[] = [];
     let last = 0;
     for (const m of text.matchAll(FENCE)) {
-        if (!isDocument(m[1])) continue;
+        if (!frames || !isDocument(m[1])) continue;
         const before = text.slice(last, m.index);
         if (before.trim()) segments.push({ type: 'html', html: toHtml(before) });
         segments.push({ type: 'frame', html: m[1] });

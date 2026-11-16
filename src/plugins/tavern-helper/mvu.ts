@@ -4,11 +4,10 @@
 
 import YAML from 'yaml';
 
-import { applyMvuCommands, parseMvuCommands } from '../../core/mvu.ts';
-import { createMacroContext, evaluateMacros } from '../../core/macros.ts';
 import { deepMerge, stateAt, toYaml } from '../../core/state.ts';
 import type { Character, Lorebook } from '../../core/types.ts';
-import type { HearthPlugin, PluginApi } from '../plugins.ts';
+import type { PluginApi } from '../../server/plugins.ts';
+import { applyMvuCommands, parseMvuCommands } from './mvu-commands.ts';
 
 const PLACEHOLDER = '<StatusPlaceHolderImpl/>';
 
@@ -49,12 +48,12 @@ export function isMvuCard(character: Character, list: Lorebook[]): boolean {
 async function requestUpdate(api: PluginApi, list: Lorebook[], stat: Record<string, unknown>, reply: string, userName: string, charName: string, lastUser: string): Promise<string | null> {
     const rules = list.flatMap(b => b.entries).filter(e => /\[mvu_update\]/i.test(e.title)).map(e => e.content.trim());
     if (!rules.length) return null;
-    const ctx = createMacroContext({ user: userName, char: charName });
+    const ctx = api.macros.context({ user: userName, char: charName });
     const system = [
         '你负责维护一个角色扮演游戏的变量。根据【最新回复】里发生的剧情，按照下面的规则判断哪些变量需要变化，',
         '并且只输出一个 <UpdateVariable> 块（严格遵守输出格式），不要输出任何其他内容。没有变量需要变化时，输出空的 JSONPatch 数组 []。',
         '',
-        evaluateMacros(rules.join('\n\n'), ctx),
+        api.macros.evaluate(rules.join('\n\n'), ctx),
     ].join('\n');
     const user = `【当前变量】\n${toYaml(stat)}\n\n【上一条用户消息】\n${lastUser}\n\n【最新回复】\n${reply.replace(PLACEHOLDER, '').trim()}`;
     const out = await api.complete({ messages: [{ role: 'system', content: system }, { role: 'user', content: user }], maxTokens: 1500, temperature: 0.2 });
@@ -66,10 +65,9 @@ function usesPlaceholder(character: Character): boolean {
     return character.regex.some(r => r.find.includes('StatusPlaceHolderImpl'));
 }
 
-export const mvuPlugin: HearthPlugin = {
-    id: 'builtin.mvu',
-    name: 'MVU 变量（兼容 MagVarUpdate）',
-    setup(api) {
+/** Native MagVarUpdate: what a card's MVU script does in SillyTavern. */
+export function setupMvu(api: PluginApi) {
+    {
         api.onChatCreate(({ chat, character }) => {
             const list = books(api, character);
             if (!isMvuCard(character, list)) return;
@@ -118,5 +116,5 @@ export const mvuPlugin: HearthPlugin = {
                 }],
             };
         });
-    },
-};
+    }
+}

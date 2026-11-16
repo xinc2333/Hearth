@@ -5,10 +5,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { assemble } from '../src/core/assemble.ts';
 import { importCardFile } from '../src/core/compat/st-card.ts';
 import { defaultPreset } from '../src/core/compat/st-preset.ts';
-import { applyMvuCommands, parseMvuCommands } from '../src/core/mvu.ts';
+import { applyMvuCommands, parseMvuCommands } from '../src/plugins/tavern-helper/mvu-commands.ts';
 import { DEFAULT_LORE_SETTINGS, type ChatMessage } from '../src/core/types.ts';
-import { compileEjs, ejsPlugin, renderEjs } from '../src/server/builtin/ejs.ts';
-import { initialVariables, isMvuCard } from '../src/server/builtin/mvu.ts';
+import { compileEjs, ejsPlugin, renderEjs } from '../src/plugins/prompt-template/ejs.ts';
+import { runSandboxed } from '../src/server/sandbox.ts';
+import { initialVariables, isMvuCard } from '../src/plugins/tavern-helper/mvu.ts';
 import { PluginHost } from '../src/server/plugins.ts';
 
 import { MVU_CARD as CARD } from './fixtures.ts';
@@ -36,7 +37,7 @@ _.set('诗.出处', '松尾芭蕉', '泰戈尔');//换一位诗人
 });
 
 test('EJS whitespace slurping and output tags behave like ejs', async () => {
-    const env = { vars: { global: {}, chat: {}, message: {} }, books: [], character: { name: '', description: '', personality: '', scenario: '' }, macros: (t: string) => t };
+    const env = { vars: { global: {}, chat: {}, message: {} }, books: [], character: { name: '', description: '', personality: '', scenario: '' }, macros: (t: string) => t, run: runSandboxed };
     assert.equal(await renderEjs('a\n  <%_ if (true) { _%>\nyes <%= 1 + 1 %>\n<%_ } _%>\nb', env), 'a\nyes 2\nb');
     assert.equal(await renderEjs('<%# comment %>x<%- "<b>" -%>\ny', env), 'x<b>y');
     assert.ok(compileEjs('<%% literal %%>').includes('<%'));
@@ -73,7 +74,7 @@ test('the user card: MVU init vars, macros and chapter controller', { skip: !exi
     assert.ok(!all().includes('StatusPlaceHolderImpl'));
 
     const host = new PluginHost({ get: () => undefined, list: () => [], apply: async () => ({}) } as never);
-    await host.use(ejsPlugin);
+    await host.use({ id: 'prompt-template', ...ejsPlugin });
     for (const fn of host.after) await fn(result, { chat: {} as never, character, input, injections: [] });
     const chapterA = lorebook.entries.find(e => e.title === '今日似旧')!.content.slice(0, 30);
     assert.ok(all().includes(chapterA.replace(/{{user}}/g, 'Alex')), 'stage A pulls in 今日似旧');
@@ -86,6 +87,7 @@ test('the user card: MVU init vars, macros and chapter controller', { skip: !exi
         books: [lorebook],
         character: { name: character.name, description: '', personality: '', scenario: '' },
         macros: (t: string) => t,
+        run: runSandboxed,
     };
     const controller = lorebook.entries.find(e => e.title === '章节控制器')!.content;
     const out = await renderEjs(controller, env);
@@ -93,14 +95,14 @@ test('the user card: MVU init vars, macros and chapter controller', { skip: !exi
 });
 
 test('sandboxed templates cannot reach Node', async () => {
-    const env = { vars: { global: {}, chat: {}, message: {} }, books: [], character: { name: '', description: '', personality: '', scenario: '' }, macros: (t: string) => t };
+    const env = { vars: { global: {}, chat: {}, message: {} }, books: [], character: { name: '', description: '', personality: '', scenario: '' }, macros: (t: string) => t, run: runSandboxed };
     const out = await renderEjs('<%= typeof process %>/<%= typeof require %>/<%= typeof fetch %>', env);
     assert.equal(out, 'undefined/undefined/undefined');
     await assert.rejects(renderEjs('<% while (true) {} %>', env));
 });
 
 test('MVU asks for the update when the model forgets it', { skip: !existsSync(CARD) }, async () => {
-    const { mvuPlugin } = await import('../src/server/builtin/mvu.ts');
+    const { setupMvu } = await import('../src/plugins/tavern-helper/mvu.ts');
     const { character, lorebook } = importCardFile(new Uint8Array(readFileSync(CARD)), '1.png');
     const init = initialVariables([lorebook!])!;
     let asked = '';
@@ -109,7 +111,7 @@ test('MVU asks for the update when the model forgets it', { skip: !existsSync(CA
         asked = req.messages[0].content;
         return '好的\n<UpdateVariable><JSONPatch>[{"op":"replace","path":"/世界/时间/时间","value":"14:00"}]</JSONPatch></UpdateVariable>';
     };
-    await host.use(mvuPlugin);
+    await host.use({ id: 'tavern-helper', setup: setupMvu });
     const reply: ChatMessage = { id: 'm2', role: 'assistant', name: character.name, hidden: false, createdAt: 0, activeSwipe: 0, swipes: [{ id: 's2', content: '', createdAt: 0 }] };
     const chat = { messages: [{ id: 'm0', role: 'assistant', name: '', hidden: false, createdAt: 0, activeSwipe: 0, swipes: [{ id: 's0', content: '', createdAt: 0, state: { stat_data: init } }] }, reply] };
     const out = await host.receive[0]({ chat: chat as never, character, preset: {} as never, message: reply, swipe: reply.swipes[0], text: '她点了点头。', finish: 'stop' });

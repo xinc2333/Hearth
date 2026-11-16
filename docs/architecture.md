@@ -52,22 +52,42 @@ assemble(角色卡, 用户角色, 预设, 世界书, 聊天记录, 状态) → �
 
 ## 4. 插件
 
-插件是 `plugins/<名字>/index.mjs`，导出 `{ id, setup(api) }`。内置功能也用同一套接口：
+内核只做两件事：按酒馆的规则拼好提示词，把模型的输出好好地显示出来。其余功能都是插件，内置插件和第三方插件用同一套接口，可以在「设置 → 插件」里开关、安装、删除和自动更新。
 
-| 接口 | 用途 | 内置的例子 |
+| 插件 | 对应的酒馆扩展 | 做什么 |
 | --- | --- | --- |
-| `registerMacro(name, fn)` | 新的宏 | — |
-| `onBeforeAssemble(ctx)` | 往提示词里加内容（`ctx.injections`，对应酒馆的扩展提示词） | 以后的记忆图 |
-| `onAfterAssemble(result, ctx)` | 调整最终消息 | EJS 模板、Meowssiah 适配 |
-| `onAfterReceive(ctx)` | 处理回复，返回新文本和对资源的修改 | MVU 变量更新 |
-| `onChatCreate(ctx)` | 新对话创建时初始化 | MVU 初始变量 |
-| `complete(req)` | 用当前模型连接发一次请求 | MVU 漏写时补全 |
-| `store.get / list / apply` | 读写资源（走修改通道） | — |
+| 提示词模板 | ST-Prompt-Template | 运行提示词里的 EJS 模板 |
+| 酒馆助手 | JS-Slash-Runner | 消息里的前端界面、MVU 变量、SPreset 类预设（回复工具和控制标记） |
+
+关闭插件时，卡片和预设里对应的内容原样保存，只是不再处理。比如关掉酒馆助手，状态栏的 HTML 会显示成代码，预设的控制标记会原样发给模型。
+
+### 插件的组成
+
+插件是一个文件夹，包含 `manifest.json` 和入口模块（默认 `server.mjs`）：
+
+```json
+{
+  "id": "hello",
+  "name": "打招呼",
+  "description": "在提示词里加一句打招呼的提醒。",
+  "version": "1.0.0",
+  "hearth": ">=0.3.0",
+  "main": "server.mjs",
+  "files": ["server.mjs"],
+  "order": 50,
+  "compat": { "name": "对应的酒馆扩展", "url": "https://github.com/…" },
+  "repository": "https://github.com/作者/仓库/tree/main/hello"
+}
+```
+
+- `hearth`：兼容的 Hearth 版本。不满足时插件不会加载。
+- `files`：插件的全部文件。更新时会按这个列表下载。
+- `order`：多个插件处理同一环节时，数值小的先运行。
+- `repository`：更新来源，填插件文件夹在 GitHub 上的链接。
 
 ```js
-// plugins/hello/index.mjs
+// server.mjs
 export default {
-    id: 'hello',
     setup(api) {
         api.registerMacro('hello', () => '你好');
         api.onBeforeAssemble(ctx => {
@@ -76,6 +96,30 @@ export default {
     },
 };
 ```
+
+### 接口
+
+| 接口 | 用途 | 内置插件的例子 |
+| --- | --- | --- |
+| `registerMacro(name, fn)` | 新的宏 | — |
+| `onBeforeAssemble(ctx)` | 往提示词里加内容（`ctx.injections`，对应酒馆的扩展提示词） | — |
+| `onAfterAssemble(result, ctx)` | 调整最终消息，或附加请求字段（`result.request`） | EJS 模板；SPreset 的控制标记和回复工具 |
+| `onAfterReceive(ctx)` | 处理回复，返回新文本和对资源的修改 | SPreset 的工具回复格式化、MVU 变量更新 |
+| `onChatCreate(ctx)` | 新对话创建时初始化 | MVU 初始变量 |
+| `complete(req)` | 用当前模型连接发一次请求 | MVU 漏写时补全 |
+| `macros.evaluate / context` | 展开宏（包括其他插件注册的宏） | EJS 里的 `getwi` |
+| `sandbox.run(code, host)` | 在 QuickJS 沙箱里运行卡片或预设的代码 | EJS 模板 |
+| `config()` | 插件自己的设置 | — |
+| `store.get / list / apply` | 读写资源（走修改通道，可以撤销） | — |
+
+插件只能通过 `api` 使用内核，不能直接引用内核的代码。这样插件可以单独更新，不需要和 Hearth 一起发版。
+
+### 存放位置和更新
+
+- **内置插件**随 Hearth 一起发布，放在安装目录的 `plugins/`。源码在 `src/plugins/<id>`，由 `npm run build:plugins` 构建到 `plugins/<id>`。构建结果会提交到仓库，所以仓库里的这个文件夹本身就是更新来源。
+- **安装的插件和下载的更新**放在 `data/plugins/<id>`，更新 Hearth 时不会被覆盖。同一个插件同时有内置版和下载版时，用版本更新、并且和当前 Hearth 兼容的那一份。
+- **自动更新**：启动 20 秒后检查一次，之后每 6 小时检查一次（每个插件都可以关掉）。发现新版本就下载，等当前回复生成完再替换，不用重启。被替换的版本保留在 `data/plugins/.previous/<id>`。新版本加载失败时，会自动退回原来的版本。
+- **删除**只针对下载的插件。删除内置插件的下载版，会恢复为内置版；内置插件本身不能删除，只能关闭。
 
 ## 5. 卡片代码的安全边界
 

@@ -17,7 +17,7 @@
 | `test` | 测试 |
 | `chore` | 构建、依赖、发布等杂项 |
 
-范围示例：`core`、`lore`、`preset`、`mvu`、`ejs`、`web`、`server`。
+范围示例：`core`、`lore`、`preset`、`plugins`、`prompt-template`、`tavern-helper`、`web`、`server`。
 
 ## 版本号
 
@@ -28,6 +28,12 @@
 - **主版本**：不兼容的变更（例如数据格式需要迁移）。
 
 1.0.0 之前，次版本也可能包含不兼容变更，但必须在更新日志里写明。
+
+## 内置插件
+
+- 源码在 `src/plugins/<id>`，`npm run build:plugins` 把它构建到 `plugins/<id>`。改了插件源码后，构建结果要一起提交，因为 `plugins/<id>` 就是插件的更新来源。
+- 插件有自己的版本号（`src/plugins/<id>/manifest.json` 里的 `version`），同样遵循语义化版本。只要改动了插件，就要提高它的版本号；否则已经装了旧版的用户不会收到更新。
+- 插件用到的新接口需要更新的 Hearth 时，同时提高 `hearth` 里的最低版本。
 
 ## 发布步骤
 

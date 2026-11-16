@@ -1,4 +1,5 @@
-// Built-in adapter for presets driven by the SPreset / "Cat Oracle" runtime (e.g. Meowssiah).
+// SPreset support (part of the 酒馆助手 plugin) for presets driven by the SPreset / "Cat Oracle"
+// runtime (e.g. Meowssiah). In SillyTavern a 酒馆助手 script in the preset loads that runtime.
 //
 // Those presets mark their entries with control macros (<<<|catgodml|…>>>, <|sep|>, <|merge|>,
 // <run_tool_replacement>) that their own runtime strips before sending, and they expect the model to
@@ -14,7 +15,7 @@
 import { normalizeModelOutput } from '../../core/output.ts';
 import { estimateTokens, MESSAGE_OVERHEAD } from '../../core/tokens.ts';
 import type { Preset } from '../../core/types.ts';
-import type { HearthPlugin } from '../plugins.ts';
+import type { PluginApi } from '../../server/plugins.ts';
 
 const CONTROL = /<<<\|\s*catgodml\s*\|[\s\S]*?>>>|<\|(?:sep|merge)\|>|<run_tool_replacement>/;
 
@@ -80,10 +81,9 @@ export function cleanCatgodText(text: string): string {
     return text.replace(new RegExp(`(?:${CONTROL.source})[ \\t]*(?:\\r?\\n)?`, 'g'), '').trim();
 }
 
-export const catgodAdapter: HearthPlugin = {
-    id: 'builtin.catgod',
-    name: '猫神预设适配（Meowssiah / SPreset）',
-    setup(api) {
+/** What the preset's SPreset runtime does in SillyTavern, for the parts its configuration declares. */
+export function setupSpreset(api: PluginApi) {
+    {
         api.onAfterAssemble((result, ctx) => {
             if (!isCatgodPreset(ctx.input.preset)) return;
             const texts = result.parts.filter(p => !p.messageId).map(p => p.content);
@@ -107,5 +107,5 @@ export const catgodAdapter: HearthPlugin = {
             if (!isCatgodPreset(ctx.preset)) return;
             return { text: normalizeModelOutput(ctx.text) };
         });
-    },
-};
+    }
+}

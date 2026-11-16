@@ -1,12 +1,11 @@
 // EJS prompt templates, compatible with the common ST-Prompt-Template API (getvar / setvar /
 // incvar / decvar / getwi / getchar / print / variables / _). Templates run in the QuickJS sandbox.
 
-import { createMacroContext, evaluateMacros } from '../../core/macros.ts';
 import { getPath, setPath, stateAt } from '../../core/state.ts';
 import { estimateTokens, MESSAGE_OVERHEAD } from '../../core/tokens.ts';
 import type { Lorebook } from '../../core/types.ts';
-import type { HearthPlugin } from '../plugins.ts';
-import { runSandboxed, type HostCall } from '../sandbox.ts';
+import type { HearthPlugin, PluginApi } from '../../server/plugins.ts';
+import type { HostCall } from '../../server/sandbox.ts';
 
 /** Compiles an EJS template into the body of an async function that returns the output. */
 export function compileEjs(src: string): string {
@@ -75,6 +74,8 @@ export interface EjsEnv {
     books: Lorebook[];
     character: { name: string; description: string; personality: string; scenario: string };
     macros: (text: string) => string;
+    /** The sandbox to run templates in (the plugin API's sandbox.run). */
+    run: PluginApi['sandbox']['run'];
 }
 
 export async function renderEjs(template: string, env: EjsEnv, depth = 0): Promise<string> {
@@ -115,7 +116,7 @@ export async function renderEjs(template: string, env: EjsEnv, depth = 0): Promi
         }
     };
     const code = `${PRELUDE}\n(async () => { let __out = ''; const __append = v => { __out += v === undefined || v === null ? '' : String(v); }; const print = (...a) => a.forEach(__append);\n${compileEjs(template)}\nreturn __out; })()`;
-    const output = String(await runSandboxed(code, host) ?? '');
+    const output = String(await env.run(code, host) ?? '');
     // Included entries may contain templates of their own.
     if (depth < 3 && output.includes('<%')) {
         return renderEjs(output, env, depth + 1);
@@ -124,13 +125,11 @@ export async function renderEjs(template: string, env: EjsEnv, depth = 0): Promi
 }
 
 export const ejsPlugin: HearthPlugin = {
-    id: 'builtin.ejs',
-    name: 'EJS 提示词模板（兼容 ST-Prompt-Template）',
     setup(api) {
         api.onAfterAssemble(async (result, ctx) => {
             if (!result.parts.some(p => p.content.includes('<%'))) return;
             const input = ctx.input;
-            const macroCtx = createMacroContext({ user: input.userName, char: input.character.name, seed: input.chatId });
+            const macroCtx = api.macros.context({ user: input.userName, char: input.character.name, seed: input.chatId });
             const env: EjsEnv = {
                 vars: {
                     global: structuredClone(input.variables.global),
@@ -144,7 +143,8 @@ export const ejsPlugin: HearthPlugin = {
                     personality: input.character.fields.personality,
                     scenario: input.character.fields.scenario,
                 },
-                macros: text => evaluateMacros(text, macroCtx),
+                macros: text => api.macros.evaluate(text, macroCtx),
+                run: api.sandbox.run,
             };
             let failed = false;
             for (const part of result.parts) {

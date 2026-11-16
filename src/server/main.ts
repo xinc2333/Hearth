@@ -8,9 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { defaultPreset } from '../core/compat/st-preset.ts';
 import { registerApi } from './api.ts';
 import { Router, serveFile } from './http.ts';
-import { catgodAdapter } from './builtin/catgod.ts';
-import { ejsPlugin } from './builtin/ejs.ts';
-import { mvuPlugin } from './builtin/mvu.ts';
+import { PluginUpdater } from './plugin-updates.ts';
 import { PluginHost } from './plugins.ts';
 import { Runtime } from './runtime.ts';
 import { Store } from './store.ts';
@@ -86,17 +84,20 @@ async function main() {
         await store.saveSettings({ presetId: preset.id });
     }
 
-    const plugins = new PluginHost(store);
-    await plugins.use(ejsPlugin);
-    // The preset adapter normalizes replies before MVU reads their <UpdateVariable> block.
-    await plugins.use(catgodAdapter);
-    await plugins.use(mvuPlugin);
-    await plugins.loadDirectory(path.join(root, 'plugins'));
+    // Built-in plugins ship with Hearth; installed plugins and downloaded updates live with the data,
+    // so updating Hearth never removes them.
+    const builtinPlugins = path.join(root, 'plugins');
+    const installedPlugins = path.join(dataDir, 'plugins');
+    const plugins = new PluginHost(store, version);
+    await plugins.loadAll(builtinPlugins, installedPlugins);
     const runtime = new Runtime(store, plugins);
     plugins.completer = req => runtime.complete(req);
+    const updater = new PluginUpdater(plugins, installedPlugins, version, () => runtime.idle(120000));
+    updater.setBuiltinDir(builtinPlugins);
+    updater.schedule(id => store.settings.plugins?.[id]?.autoUpdate !== false);
 
     const router = new Router();
-    registerApi(router, store, runtime, plugins);
+    registerApi(router, store, runtime, plugins, updater);
     router.get('/api/version', () => ({ app: 'hearth', version, build: BUILD, latest: currentBuild() }));
     // Lets a newly started Hearth replace this instance (Start.bat after an update).
     router.post('/api/shutdown', async (_req, res) => {
@@ -134,7 +135,8 @@ async function main() {
         const url = `http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}`;
         console.log(`Hearth ${version} 已启动：${url}`);
         console.log(`数据目录：${dataDir}`);
-        if (plugins.loaded.length) console.log(`插件：${plugins.loaded.map(p => p.name + (p.error ? '（失败）' : '')).join('、')}`);
+        const list = plugins.list();
+        if (list.length) console.log(`插件：${list.map(p => `${p.name} ${p.version}${p.error ? '（加载失败）' : p.enabled ? '' : '（已关闭）'}`).join('、')}`);
         if (process.argv.includes('--open')) openWindow(url);
     });
     server.on('error', async (error: NodeJS.ErrnoException) => {

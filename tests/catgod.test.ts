@@ -7,7 +7,7 @@ import { importCardFile } from '../src/core/compat/st-card.ts';
 import { importStPreset } from '../src/core/compat/st-preset.ts';
 import { normalizeModelOutput, unescapeLiteral } from '../src/core/output.ts';
 import { DEFAULT_LORE_SETTINGS } from '../src/core/types.ts';
-import { catgodAdapter, cleanCatgodText, isCatgodPreset } from '../src/server/builtin/catgod.ts';
+import { cleanCatgodText, isCatgodPreset, setupSpreset } from '../src/plugins/tavern-helper/spreset.ts';
 import { PluginHost } from '../src/server/plugins.ts';
 
 import { MEOWSSIAH as MEOW, SERAPHINA } from './fixtures.ts';
@@ -64,7 +64,7 @@ test('Meowssiah prompt has no control markers after the adapter runs', { skip: !
     };
     const result = assemble(input);
     const host = new PluginHost({ get: () => undefined, list: () => [], apply: async () => ({}) } as never);
-    await host.use(catgodAdapter);
+    await host.use({ id: 'tavern-helper', setup: setupSpreset });
     for (const fn of host.after) await fn(result, { chat: {} as never, character, input, injections: [] });
     const all = result.messages.map(m => m.content).join('\n');
     assert.ok(!/catgodml|<\|sep\|>|<\|merge\|>|run_tool_replacement/.test(all));

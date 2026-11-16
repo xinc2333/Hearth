@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 
 import type { Connection, LoreSettings, Persona } from '../../core/types.ts';
-import { api } from '../api.ts';
-import { change, refresh, reportError, setState, toast, useAppState } from '../state.ts';
-import { Button, Field, LongText, Modal, Segmented, Toggle } from './common.tsx';
+import { api, type PluginView } from '../api.ts';
+import { change, confirmAction, refresh, reportError, setState, toast, useAppState } from '../state.ts';
+import { Button, Field, LongText, Modal, Segmented, Toggle, timeAgo } from './common.tsx';
 import { PresetManager } from './PresetManager.tsx';
 import { ReadingControls } from './Reading.tsx';
 
-type Section = 'connection' | 'preset' | 'persona' | 'lore' | 'appearance';
+type Section = 'connection' | 'preset' | 'persona' | 'lore' | 'plugins' | 'appearance';
 
 function ConnectionSection() {
     const settings = useAppState(s => s.boot?.settings);
@@ -225,9 +225,98 @@ const SHORTCUTS: [string, string][] = [
     ['Ctrl Enter', '保存正在编辑的消息'],
 ];
 
+function updateText(p: PluginView): { text: string; tone?: 'error' | 'new' } | null {
+    const u = p.update;
+    if (u?.error) return { text: u.error, tone: 'error' };
+    if (u?.updatedFrom && u.updatedAt) return { text: `已从 ${u.updatedFrom} 自动更新到 ${p.version}（${timeAgo(u.updatedAt)}）` };
+    if (u?.latest && u.latest !== p.version) return { text: `有新版本 ${u.latest}`, tone: 'new' };
+    if (u?.checkedAt) return { text: `已是最新（${timeAgo(u.checkedAt)}检查）` };
+    return null;
+}
+
+function PluginsSection() {
+    const plugins = useAppState(s => s.boot?.plugins ?? []);
+    const [busy, setBusy] = useState('');
+    const [link, setLink] = useState('');
+    const run = async (key: string, action: () => Promise<unknown>, done?: string) => {
+        setBusy(key);
+        try {
+            await action();
+            await refresh();
+            if (done) toast(done, 'success');
+        } catch (error) {
+            reportError(error);
+        } finally {
+            setBusy('');
+        }
+    };
+    const install = async () => {
+        const ok = await confirmAction({
+            title: '安装这个插件？',
+            body: '插件能访问你电脑上的文件和网络。只安装你信任的来源。安装后会按它提供的地址自动更新。',
+            confirm: '安装',
+        });
+        if (!ok) return;
+        await run('install', async () => {
+            const { installed } = await api.installPlugin(link);
+            setLink('');
+            toast(`已安装「${installed.name}」${installed.version}`, 'success');
+        });
+    };
+    const remove = async (p: PluginView) => {
+        const ok = await confirmAction({ title: `删除「${p.name}」？`, body: '如果 Hearth 自带这个插件，会恢复为自带的版本。插件的设置会保留。', confirm: '删除', danger: true });
+        if (ok) await run(`rm:${p.id}`, () => api.removePlugin(p.id), '已删除');
+    };
+    return (
+        <div className="settings-section">
+            <p className="muted small">插件在提示词组装和回复处理的各个环节加入功能。关闭插件后，卡片和预设里对应的内容会原样保存、不再处理。</p>
+            <div className="plugin-list">
+                {plugins.map(p => {
+                    const status = updateText(p);
+                    return (
+                        <div key={p.id} className={`plugin${p.enabled && !p.error ? '' : ' off'}`}>
+                            <div className="plugin-head">
+                                <span className="plugin-name">{p.name}</span>
+                                <span className="tag subtle">{p.version}</span>
+                                <span className="tag subtle">{p.source === 'builtin' ? '内置' : '已下载'}</span>
+                                <span className="grow" />
+                                <Toggle checked={p.enabled} label={`启用${p.name}`} onChange={v => void run(`on:${p.id}`, () => api.setPlugin(p.id, { enabled: v }), v ? `已开启「${p.name}」` : `已关闭「${p.name}」`)} />
+                            </div>
+                            {p.description && <p className="plugin-desc">{p.description}</p>}
+                            {p.error && <div className="msg-error">加载失败：{p.error}</div>}
+                            <div className="plugin-meta">
+                                {p.compat && <span>兼容 <a href={p.compat.url} target="_blank" rel="noreferrer">{p.compat.name}</a></span>}
+                                {p.repository && <a href={p.repository} target="_blank" rel="noreferrer">更新来源</a>}
+                                {status && <span className={status.tone === 'error' ? 'plugin-error' : status.tone === 'new' ? 'plugin-new' : ''}>{status.text}</span>}
+                            </div>
+                            <div className="plugin-actions">
+                                {p.repository && (
+                                    <label className="check-row small">
+                                        <Toggle checked={p.autoUpdate} label="自动更新" onChange={v => void run(`au:${p.id}`, () => api.setPlugin(p.id, { autoUpdate: v }))} />
+                                        <span>自动更新</span>
+                                    </label>
+                                )}
+                                <span className="grow" />
+                                {p.repository && <Button variant="ghost" disabled={busy !== ''} onClick={() => void run(`up:${p.id}`, () => api.updatePlugin(p.id))}>{busy === `up:${p.id}` ? '检查中…' : '检查更新'}</Button>}
+                                {p.source === 'installed' && <Button variant="danger" disabled={busy !== ''} onClick={() => void remove(p)}>删除</Button>}
+                            </div>
+                        </div>
+                    );
+                })}
+                {!plugins.length && <p className="muted small">没有插件。</p>}
+            </div>
+            <Field label="安装插件" hint={<span>填写插件所在的 GitHub 文件夹链接</span>}>
+                <div className="inline-fields">
+                    <input className="grow" value={link} placeholder="https://github.com/作者/仓库/tree/main/插件文件夹" spellCheck={false} onChange={e => setLink(e.target.value)} />
+                    <Button variant="primary" disabled={!link.trim() || busy !== ''} onClick={() => void install()}>{busy === 'install' ? '安装中…' : '安装'}</Button>
+                </div>
+            </Field>
+        </div>
+    );
+}
+
 function AppearanceSection() {
     const settings = useAppState(s => s.boot?.settings);
-    const plugins = useAppState(s => s.boot?.plugins ?? []);
     const [version, setVersion] = useState('');
     useEffect(() => {
         void fetch('/api/version').then(r => r.json()).then((v: { version?: string }) => setVersion(v.version ?? '')).catch(() => {});
@@ -253,10 +342,6 @@ function AppearanceSection() {
             <Field label="版本">
                 <span className="muted small">Hearth {version || '未知'} · 更新记录见安装目录里的 CHANGELOG.md</span>
             </Field>
-            <Field label="插件">
-                {plugins.length ? <ul className="plain">{plugins.map(p => <li key={p.id}>{p.name}{p.error && <span className="msg-error"> 加载失败：{p.error}</span>}</li>)}</ul>
-                    : <span className="muted small">没有安装插件。把插件放到 Hearth 目录下的 plugins 文件夹后重启即可。</span>}
-            </Field>
         </div>
     );
 }
@@ -269,7 +354,7 @@ export function SettingsDialog() {
         if (open && requested) setSection(requested);
     }, [open, requested]);
     if (!open) return null;
-    const items: [Section, string][] = [['connection', '模型连接'], ['preset', '预设'], ['persona', '用户角色'], ['lore', '世界书'], ['appearance', '阅读与外观']];
+    const items: [Section, string][] = [['connection', '模型连接'], ['preset', '预设'], ['persona', '用户角色'], ['lore', '世界书'], ['plugins', '插件'], ['appearance', '阅读与外观']];
     return (
         <Modal title="设置" onClose={() => setState({ settingsOpen: false, settingsSection: null })} size="wide">
             <div className="settings">
@@ -281,6 +366,7 @@ export function SettingsDialog() {
                     {section === 'preset' && <PresetManager />}
                     {section === 'persona' && <PersonaSection />}
                     {section === 'lore' && <LoreSection />}
+                    {section === 'plugins' && <PluginsSection />}
                     {section === 'appearance' && <AppearanceSection />}
                 </div>
             </div>

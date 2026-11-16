@@ -64,7 +64,9 @@ function SandboxFrame({ html, vars }: { html: string; vars: FrameVars }) {
 }
 
 const Rendered = memo(function Rendered({ text, vars }: { text: string; vars: FrameVars }) {
-    const segments = useMemo(() => renderSegments(text), [text]);
+    // Message HTML (status bars and other card interfaces) belongs to the 酒馆助手 plugin.
+    const frames = useAppState(s => s.boot?.plugins.some(p => p.id === 'tavern-helper' && p.enabled && !p.error) ?? false);
+    const segments = useMemo(() => renderSegments(text, frames), [text, frames]);
     return (
         <>
             {segments.map((s, i) => s.type === 'frame'
