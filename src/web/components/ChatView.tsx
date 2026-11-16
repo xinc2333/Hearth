@@ -7,7 +7,7 @@ import { normalizeModelOutput } from '../../core/output.ts';
 import { stateAt } from '../../core/state.ts';
 import { countChars, displayText, frameDocument, renderSegments, type FrameVars } from '../render.ts';
 import {
-    changeChat, getState, openChat, reportError, runGeneration, setState, stopGeneration, toast, toggleInspector, toggleSidebar,
+    branchChat, changeChat, getState, openChat, reportError, runGeneration, setState, stopGeneration, toast, toggleInspector, toggleSidebar,
     useAppState, useReading, type Streaming,
 } from '../state.ts';
 import { AutoTextarea, Avatar, Button, clockTime, Empty, IconButton, isModalOpen } from './common.tsx';
@@ -203,6 +203,7 @@ const MessageView = memo(function MessageView({ chat, message, index, isLast, co
                     )}
                     <IconButton icon="copy" label="复制" size={14} onClick={() => { void navigator.clipboard.writeText(swipe.content); toast('已复制'); }} />
                     <IconButton icon="edit" label="编辑" size={14} disabled={busy} onClick={() => setEditing(swipe.content)} />
+                    {!isUser && <IconButton icon="branch" label="从这里创建分支（新对话，原对话不变）" size={14} disabled={busy} onClick={() => void branchChat(chat.id, message.id, swipe.id).catch(reportError)} />}
                     {!isUser && isLast && <IconButton icon="refresh" label="重新生成" size={14} disabled={busy} onClick={() => void runGeneration(chat.id, 'regenerate')} />}
                     {!isUser && isLast && <IconButton icon="forward" label="继续写" size={14} disabled={busy} onClick={() => void runGeneration(chat.id, 'continue')} />}
                     <IconButton icon="trash" label="删除" size={14} tone="danger" disabled={busy} onClick={() => void remove()} />

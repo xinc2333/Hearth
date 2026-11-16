@@ -124,7 +124,7 @@ export function Sidebar() {
                                             <div key={chat.id} className={`chat-row${chat.id === activeChatId ? ' active' : ''}`}>
                                                 <button className="chat-open" onClick={() => void openChat(chat.id).catch(reportError)}>
                                                     <span className="chat-preview">{chatPreview(chat)}</span>
-                                                    <span className="chat-meta">{timeAgo(chat.updatedAt)} · {chat.messages} 条</span>
+                                                    <span className="chat-meta">{chat.branch ? `分支自第 ${chat.branch.index} 条 · ` : ''}{timeAgo(chat.updatedAt)} · {chat.messages} 条</span>
                                                 </button>
                                                 <IconButton icon="trash" label="删除这段对话" size={13} tone="danger" onClick={() => void removeChat(chat)} />
                                             </div>

@@ -9,6 +9,7 @@ const PATHS: Record<string, string> = {
     right: 'M9 6l6 6-6 6',
     refresh: 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7',
     copy: 'M9 9h10v10H9zM5 15V5h10',
+    branch: 'M6 3v12M6 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm12-9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm0 0a9 9 0 0 1-9 9H6',
     edit: 'M4 20h4L19 9l-4-4L4 16v4Zm9-13 4 4',
     trash: 'M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13',
     x: 'M6 6l12 12M18 6 6 18',

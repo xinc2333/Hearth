@@ -17,6 +17,7 @@ export interface Summary {
     scripts?: number;
     description?: string;
     lorebookIds?: string[];
+    branch?: { chatId: string; index: number };
 }
 
 export interface PluginView {
@@ -72,6 +73,8 @@ export const api = {
     history: (kind?: string, id?: string) => request<any[]>('GET', `/api/history?${kind && id ? `kind=${kind}&id=${id}&` : ''}limit=100`),
     importFile: (file: File) => request<{ created: { kind: ResourceKind; id: string; name: string }[] }>('POST', `/api/import?filename=${encodeURIComponent(file.name)}`, undefined, file),
     createChat: (characterId: string) => request<Chat>('POST', '/api/chats', { characterId }),
+    branchChat: (chatId: string, messageId: string, swipeId: string) =>
+        request<Chat>('POST', `/api/chats/${chatId}/messages/${messageId}/swipes/${swipeId}/branch`),
     context: (chatId: string) => request<ChatContext>('GET', `/api/chats/${chatId}/context`),
     preview: (chatId: string, text?: string) => request<PromptSnapshot>('POST', `/api/chats/${chatId}/preview`, { text }),
     lastPrompt: (chatId: string) => request<PromptSnapshot | null>('GET', `/api/chats/${chatId}/last-prompt`),

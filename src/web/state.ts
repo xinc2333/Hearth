@@ -198,6 +198,13 @@ export async function newChat(characterId: string) {
     await openChat(chat.id);
 }
 
+export async function branchChat(chatId: string, messageId: string, swipeId: string) {
+    const chat = await api.branchChat(chatId, messageId, swipeId);
+    await refresh();
+    await openChat(chat.id);
+    toast(`已从第 ${chat.branch?.index ?? ''} 条创建分支，原对话保持不变`, 'success', { label: '回到原对话', run: () => void openChat(chatId).catch(reportError) });
+}
+
 export async function deleteChat(chatId: string) {
     await api.remove('chat', chatId);
     if (getState().activeChatId === chatId) {

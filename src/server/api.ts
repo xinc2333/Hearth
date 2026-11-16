@@ -32,7 +32,7 @@ function summary(store: Store, res: AnyResource) {
             const texts = res.messages.map(m => m.swipes[m.activeSwipe]?.content ?? '');
             const last = [...texts].reverse().find(t => t.trim()) ?? '';
             const preview = last.replace(/<(think|thinking|think_nya)[\s\S]*?<\/\1>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
-            return { ...base, characterId: res.characterId, messages: res.messages.length, preview };
+            return { ...base, characterId: res.characterId, messages: res.messages.length, preview, branch: res.branch };
         }
         case 'lorebook':
             return { ...base, entries: res.entries.length };
@@ -159,6 +159,9 @@ export function registerApi(router: Router, store: Store, runtime: Runtime, plug
         const body = await req.json<{ characterId: string }>();
         return runtime.createChat(body.characterId);
     });
+
+    router.post('/api/chats/:id/messages/:messageId/swipes/:swipeId/branch', req =>
+        runtime.branchChat(req.params.id, req.params.messageId, req.params.swipeId));
 
     router.get('/api/chats/:id/context', req => {
         const chat = store.require<Chat>('chat', req.params.id);

@@ -44,6 +44,8 @@ export class Store extends EventEmitter {
     readonly dir: string;
     private resources = new Map<ResourceKind, Map<string, AnyResource>>();
     private pendingSaves = new Map<string, NodeJS.Timeout>();
+    /** Writes to the same file run one after another, so an older version never lands last. */
+    private writes = new Map<string, Promise<void>>();
     settings: Settings = structuredClone(DEFAULT_SETTINGS);
     private secrets: Record<string, string> = {};
     private journal: ChangeSet[] = [];
@@ -107,7 +109,15 @@ export class Store extends EventEmitter {
     }
 
     private async persist(res: AnyResource) {
-        await writeAtomic(this.file(res.kind, res.id), JSON.stringify(res, null, 1));
+        const file = this.file(res.kind, res.id);
+        const data = JSON.stringify(res, null, 1);
+        const write = (this.writes.get(file) ?? Promise.resolve()).catch(() => {}).then(() => writeAtomic(file, data));
+        this.writes.set(file, write);
+        try {
+            await write;
+        } finally {
+            if (this.writes.get(file) === write) this.writes.delete(file);
+        }
     }
 
     /** Debounced save for high-frequency updates (streaming). */

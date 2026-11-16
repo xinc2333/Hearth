@@ -204,6 +204,38 @@ export class Runtime {
         };
     }
 
+    /**
+     * A new chat holding the messages up to the given reply version (only that version of it). It
+     * starts with the chat variables as they were after that reply; later edits in either chat do
+     * not affect the other. Cards and lorebooks stay shared.
+     */
+    async branchChat(chatId: string, messageId: string, swipeId: string): Promise<Chat> {
+        if (this.isBusy(chatId)) {
+            throw Object.assign(new Error('请等当前回复生成结束后再创建分支'), { status: 409 });
+        }
+        const source = this.store.require<Chat>('chat', chatId);
+        const index = source.messages.findIndex(m => m.id === messageId && m.role === 'assistant');
+        const anchor = source.messages[index];
+        const swipe = anchor?.swipes.find(s => s.id === swipeId);
+        if (!anchor || !swipe) {
+            throw Object.assign(new Error('找不到要创建分支的回复版本'), { status: 404 });
+        }
+        const atEnd = index === source.messages.length - 1 && anchor.swipes[anchor.activeSwipe] === swipe;
+        const chatState = atEnd ? { variables: source.variables, runtime: source.runtime } : swipe.chatState;
+        const now = Date.now();
+        return this.store.create(structuredClone({
+            ...source,
+            id: newId('chat'),
+            name: `${source.name} · 分支 #${index + 1}`,
+            messages: [...source.messages.slice(0, index), { ...anchor, swipes: [swipe], activeSwipe: 0 }],
+            variables: chatState?.variables ?? source.variables,
+            runtime: chatState?.runtime ?? {},
+            branch: { chatId: source.id, messageId, swipeId, index: index + 1 },
+            createdAt: now,
+            updatedAt: now,
+        }));
+    }
+
     async createChat(characterId: string): Promise<Chat> {
         const character = this.store.require<Character>('character', characterId);
         const now = Date.now();
@@ -407,6 +439,7 @@ export class Runtime {
             if (out?.text !== undefined) content = out.text;
             if (out?.ops) extraOps.push(...out.ops);
         }
+        const latest = this.store.require<Chat>('chat', chatId);
         const finalSwipe: Swipe = {
             ...swipe,
             content,
@@ -414,6 +447,7 @@ export class Runtime {
             finish,
             ...(error ? { error } : {}),
             model: link.conn.model,
+            chatState: structuredClone({ variables: latest.variables, runtime: latest.runtime }),
         };
         const committed = await this.store.apply({
             target: { kind: 'chat', id: chatId },

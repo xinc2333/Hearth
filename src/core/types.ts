@@ -311,6 +311,8 @@ export interface Swipe {
      * of the timeline, so switching swipes or branches switches state for free.
      */
     state?: Record<string, unknown>;
+    /** Chat-scoped engine state when this reply was saved, so a branch from it starts in that state. */
+    chatState?: { variables: Chat['variables']; runtime: Chat['runtime'] };
 }
 
 export interface ChatMessage {
@@ -345,6 +347,8 @@ export interface Chat extends ResourceBase {
     /** Chat-scoped variables ({{setvar}} / {{getvar}}). */
     variables: Record<string, unknown>;
     authorsNote: AuthorsNote;
+    /** Set on a chat created as a branch of another. */
+    branch?: { chatId: string; messageId: string; swipeId: string; index: number };
     /** Engine bookkeeping (e.g. world info sticky/cooldown timers). */
     runtime: {
         timedLore?: TimedLoreState;
