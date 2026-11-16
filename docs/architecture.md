@@ -106,6 +106,8 @@ export default {
 | `onAfterAssemble(result, ctx)` | 调整最终消息，或附加请求字段（`result.request`） | EJS 模板；SPreset 的控制标记和回复工具 |
 | `onAfterReceive(ctx)` | 处理回复，返回新文本和对资源的修改 | SPreset 的工具回复格式化、MVU 变量更新 |
 | `onChatCreate(ctx)` | 新对话创建时初始化 | MVU 初始变量 |
+| `onRequest(body, ctx)` | 请求发出前，查看或替换最终的请求体（对应酒馆的 `CHAT_COMPLETION_SETTINGS_READY`）。改写后的内容会出现在提示词追踪的「实际发送」里 | 运行预设自己的 Stage 1 |
+| `registerControls({ list, change })` | 在输入框旁边放开关：`mode` 会替换模式切换里的「剧情」，`toggle` 是开关，`note` 是随下一条回复发送的文字 | 小猫之神控制台 |
 | `complete(req)` | 用当前模型连接发一次请求 | MVU 漏写时补全 |
 | `macros.evaluate / context` | 展开宏（包括其他插件注册的宏） | EJS 里的 `getwi` |
 | `sandbox.run(code, host)` | 在 QuickJS 沙箱里运行卡片或预设的代码 | EJS 模板 |
@@ -127,7 +129,8 @@ export default {
 
 - **EJS 模板**在 QuickJS（WebAssembly）里执行：访问不到文件、网络和系统，并且有时间和内存上限。
 - **消息里的 HTML 界面**（状态栏、前端卡）在 `sandbox` iframe 里运行：拿不到主界面和本地接口，只能通过消息通道读变量、发 `/send` 之类的指令。
-- 预设脚本引用的**远程代码不会下载或执行**。例如 SPreset 会从外部网址加载代码，还会把调试会话上传到第三方服务器；Hearth 没有实现这两项，只按它的配置在本地复刻格式处理。
+- **预设自带的请求脚本**（SPreset 的 Stage 1，`FinalRequestProcessing`）在 QuickJS 沙箱里运行。它拿到的是一个按酒馆形状搭出来的小环境：上下文、对话元数据、酒馆助手变量接口、localStorage。这些数据都来自当前对话，脚本访问不到网络和页面；它对这些数据的修改会写回对话。脚本运行失败时，这一次改用 Hearth 的内置适配，并在提示词追踪里说明。
+- 预设脚本引用的**远程代码不会下载或执行**。例如 SPreset 本身的运行时会从外部网址加载，它的「日志上传」还会把调试会话发到第三方服务器；Hearth 不加载这个运行时，也不实现日志上传。
 
 ## 6. AI 改卡
 

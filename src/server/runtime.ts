@@ -11,12 +11,13 @@ import type { Character, Chat, ChatMessage, ChatMode, Connection, Lorebook, Pers
 import { newId } from '../core/util.ts';
 import { applyCardEdits, buildEditPrompt, type EditPrompt } from './card-edit.ts';
 import type { PluginHost } from './plugins.ts';
-import { streamChat } from './providers/openai.ts';
+import { buildBody, streamChat } from './providers/openai.ts';
+import { estimateTokens, MESSAGE_OVERHEAD } from '../core/tokens.ts';
 import type { Store } from './store.ts';
 
 export type GenerateEvent =
     | { type: 'job'; jobId: string; messageId: string; swipeId: string; prefix: string }
-    | { type: 'prompt'; parts: AssembleResult['parts']; warnings: string[]; tokens: AssembleResult['tokens']; lore: AssembleResult['lore']['activated']; tools: string[] }
+    | { type: 'prompt'; parts: AssembleResult['parts']; warnings: string[]; tokens: AssembleResult['tokens']; lore: AssembleResult['lore']['activated']; tools: string[]; sent?: AssembleResult['parts'] }
     | { type: 'text'; text: string }
     | { type: 'reasoning'; text: string }
     | { type: 'finalizing' }
@@ -39,6 +40,20 @@ export interface PromptSnapshot {
     lore: AssembleResult['lore']['activated'];
     /** Tools the preset attached to the request (e.g. its reply tool). */
     tools: string[];
+    /** What was actually sent, when a plugin's request hook rewrote the assembled messages. */
+    sent?: AssembleResult['parts'];
+}
+
+/** The final request's messages as trace parts. */
+function sentParts(messages: unknown): AssembleResult['parts'] {
+    if (!Array.isArray(messages)) return [];
+    return messages.map((m: Record<string, unknown>) => {
+        const text = typeof m.content === 'string' ? m.content : m.content == null ? '' : JSON.stringify(m.content);
+        const calls = Array.isArray(m.tool_calls) ? (m.tool_calls as { function?: { name?: string; arguments?: string } }[]).map(c => `→ ${c.function?.name ?? ''} ${c.function?.arguments ?? ''}`).join('\n') : '';
+        const content = [text, calls].filter(Boolean).join('\n');
+        const role = m.role === 'user' || m.role === 'assistant' ? m.role : 'system';
+        return { role, content, sources: [m.role === 'tool' ? 'sentTool' : 'sent'], tokens: estimateTokens(content) + MESSAGE_OVERHEAD } as AssembleResult['parts'][number];
+    });
 }
 
 /** Names of tools in request extras, for the prompt trace. */
@@ -420,13 +435,35 @@ export class Runtime {
         let reasoning = '';
         let finish: Swipe['finish'] = 'stop';
         let error: string | undefined;
-        const run = async (extra?: Record<string, unknown>) => {
-            const stream = streamChat(link.conn, link.key, {
-                messages: result.messages,
-                preset: input.preset,
-                names: { user: input.userName, char: character.name },
-                extra,
-            }, job.controller.signal);
+        let usedTools = Boolean(result.request?.tools);
+        const run = async (extra?: Record<string, unknown>, plain = false) => {
+            const request = { messages: result.messages, preset: input.preset, names: { user: input.userName, char: character.name }, extra };
+            // Plugins see the final body (a preset's own request script rewrites it here). 编辑 requests are Hearth's own.
+            let body: Record<string, unknown> | undefined;
+            if (!edit && this.plugins.request.length) {
+                body = buildBody(link.conn, request, input.preset.context.stream);
+                const before = JSON.stringify(body);
+                const ctx = { chat: this.store.require<Chat>('chat', chatId), character, preset: input.preset, warn: (t: string) => { snapshot.warnings.push(t); } };
+                for (const fn of this.plugins.request) {
+                    try {
+                        body = (await fn(body, ctx)) ?? body;
+                    } catch (e) {
+                        snapshot.warnings.push(`插件处理请求时出错，已跳过：${(e as Error).message}`);
+                    }
+                }
+                if (plain) {
+                    delete body.tools;
+                    delete body.tool_choice;
+                    delete body.toolConfig;
+                }
+                usedTools ||= Boolean(body.tools);
+                if (JSON.stringify(body) !== before) {
+                    snapshot.sent = sentParts(body.messages);
+                    snapshot.tools = toolNames(body);
+                    emit({ type: 'prompt', parts: result.parts, warnings: snapshot.warnings, tokens: result.tokens, lore: snapshot.lore, tools: snapshot.tools, sent: snapshot.sent });
+                }
+            }
+            const stream = streamChat(link.conn, link.key, request, job.controller.signal, body);
             let lastFlush = Date.now();
             for await (const ev of stream) {
                 if (ev.type === 'text') {
@@ -451,9 +488,9 @@ export class Runtime {
                 await run(result.request);
             } catch (e) {
                 // Some endpoints reject tools; retry once with the plain request.
-                if (!result.request || text || job.controller.signal.aborted) throw e;
+                if (!usedTools || text || job.controller.signal.aborted) throw e;
                 console.warn('[runtime] 接口不接受预设附带的工具，改用普通请求重试：', (e as Error).message);
-                await run(undefined);
+                await run(undefined, true);
             }
         } catch (e) {
             if (job.controller.signal.aborted) {

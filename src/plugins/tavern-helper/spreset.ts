@@ -15,7 +15,10 @@
 import { normalizeModelOutput } from '../../core/output.ts';
 import { estimateTokens, MESSAGE_OVERHEAD } from '../../core/tokens.ts';
 import type { Preset } from '../../core/types.ts';
+import type { Op } from '../../core/ops.ts';
+import { stateAt } from '../../core/state.ts';
 import type { PluginApi } from '../../server/plugins.ts';
+import { runStage1, stage1Script } from './stage1.ts';
 
 const CONTROL = /<<<\|\s*catgodml\s*\|[\s\S]*?>>>|<\|(?:sep|merge)\|>|<run_tool_replacement>/;
 
@@ -26,16 +29,24 @@ const GAME_DESCRIPTION = '完整的正式回复内容（100%自由动态格式�
 const OPTIONAL_PARTS = new Set(['extra']);
 
 /** The reply tool bound in the preset's SPreset configuration, if enabled. */
-function boundReplyTool(preset: Preset): string | null {
+/** The preset's SPreset configuration: its SPresetSettings entry, else the copy in the preset's extensions. */
+export function spresetConfig(preset: Preset): Record<string, any> | null {
     const raw = preset.prompts.find(p => p.id === 'SPresetSettings')?.content;
-    if (!raw) return null;
-    try {
-        const config = JSON.parse(raw) as { ToolBindings?: Record<string, { enabled?: boolean; resolvedName?: string; form?: { name?: string } }> };
-        const binding = Object.values(config.ToolBindings ?? {}).find(b => b?.enabled);
-        return binding ? binding.resolvedName ?? binding.form?.name ?? null : null;
-    } catch {
-        return null;
+    if (raw) {
+        try {
+            return JSON.parse(raw);
+        } catch {
+            // Fall through to the extensions copy.
+        }
     }
+    const st = (preset.extra?.st as Record<string, any> | undefined)?.extensions?.SPreset;
+    return st && typeof st === 'object' ? st : null;
+}
+
+function boundReplyTool(preset: Preset): string | null {
+    const config = spresetConfig(preset) as { ToolBindings?: Record<string, { enabled?: boolean; resolvedName?: string; form?: { name?: string } }> } | null;
+    const binding = Object.values(config?.ToolBindings ?? {}).find(b => b?.enabled);
+    return binding ? binding.resolvedName ?? binding.form?.name ?? null : null;
 }
 
 /** Builds the reply tool like the preset's Stage 1 script does (registerPart fields or game_content). */
@@ -81,31 +92,77 @@ export function cleanCatgodText(text: string): string {
     return text.replace(new RegExp(`(?:${CONTROL.source})[ \\t]*(?:\\r?\\n)?`, 'g'), '').trim();
 }
 
+/** Strips control markers and attaches the bound reply tool: Hearth's own version of what Stage 1 does. */
+function nativeRequest(body: Record<string, unknown>, preset: Preset, model: string): Record<string, unknown> {
+    const messages = (body.messages as { role: string; content: unknown }[]).map(m => (typeof m.content === 'string' && CONTROL.test(m.content) ? { ...m, content: cleanCatgodText(m.content) } : m)).filter(m => m.content !== '');
+    const texts = (body.messages as { role: string; content: unknown }[]).filter(m => m.role === 'system' && typeof m.content === 'string').map(m => m.content as string);
+    const tool = boundReplyTool(preset);
+    return { ...body, messages, ...(tool && texts.some(t => t.includes('<run_tool_replacement>')) ? replyToolRequest(tool, texts, model) : {}) };
+}
+
+/** Values Stage 1 keeps on `window` between requests, per chat; like SillyTavern they last until restart. */
+const windowStates = new Map<string, Record<string, unknown>>();
+
 /** What the preset's SPreset runtime does in SillyTavern, for the parts its configuration declares. */
 export function setupSpreset(api: PluginApi) {
-    {
-        api.onAfterAssemble((result, ctx) => {
-            if (!isCatgodPreset(ctx.input.preset)) return;
-            const texts = result.parts.filter(p => !p.messageId).map(p => p.content);
-            const tool = boundReplyTool(ctx.input.preset);
-            if (tool && texts.some(t => t.includes('<run_tool_replacement>'))) {
-                result.request = { ...(result.request ?? {}), ...replyToolRequest(tool, texts, ctx.input.model) };
-            }
-            const parts = result.parts
-                .map(p => (CONTROL.test(p.content) ? { ...p, content: cleanCatgodText(p.content) } : p))
-                .filter(p => p.content);
-            for (const p of parts) {
-                p.tokens = estimateTokens(p.content) + MESSAGE_OVERHEAD;
-            }
-            result.parts = parts;
-            result.messages = parts.map(p => ({ role: p.role, content: p.content, ...(p.name ? { name: p.name } : {}) }));
-            result.tokens.total = parts.reduce((s, p) => s + p.tokens, 0);
-            result.warnings = result.warnings.filter(w => !w.includes('catgodml') && !w.includes('<|'));
-        });
+    api.onAfterAssemble((result, ctx) => {
+        if (!isCatgodPreset(ctx.input.preset)) return;
+        result.warnings = result.warnings.filter(w => !w.includes('catgodml') && !w.includes('<|'));
+        // With its own request script, the preset gets the messages as written (markers included),
+        // exactly as SillyTavern hands them to it.
+        if (stage1Script(ctx.input.preset)) return;
+        const texts = result.parts.filter(p => !p.messageId).map(p => p.content);
+        const tool = boundReplyTool(ctx.input.preset);
+        if (tool && texts.some(t => t.includes('<run_tool_replacement>'))) {
+            result.request = { ...(result.request ?? {}), ...replyToolRequest(tool, texts, ctx.input.model) };
+        }
+        const parts = result.parts
+            .map(p => (CONTROL.test(p.content) ? { ...p, content: cleanCatgodText(p.content) } : p))
+            .filter(p => p.content);
+        for (const p of parts) {
+            p.tokens = estimateTokens(p.content) + MESSAGE_OVERHEAD;
+        }
+        result.parts = parts;
+        result.messages = parts.map(p => ({ role: p.role, content: p.content, ...(p.name ? { name: p.name } : {}) }));
+        result.tokens.total = parts.reduce((s, p) => s + p.tokens, 0);
+    });
 
-        api.onAfterReceive(ctx => {
-            if (!isCatgodPreset(ctx.preset)) return;
-            return { text: normalizeModelOutput(ctx.text) };
-        });
-    }
+    api.onRequest(async (body, ctx) => {
+        const script = stage1Script(ctx.preset);
+        if (!script) return;
+        const chat = ctx.chat;
+        const own = (chat.plugins?.[api.id] ?? {}) as { chatMetadata?: Record<string, unknown>; localStorage?: Record<string, string> };
+        const story = chat.messages.filter(m => m.mode !== 'edit');
+        // The reply being written is not part of the chat yet, as in SillyTavern.
+        const last = story[story.length - 1];
+        const history = last?.role === 'assistant' && !last.swipes[last.activeSwipe]?.content ? story.slice(0, -1) : story;
+        try {
+            const out = await runStage1(api, script, {
+                request: body,
+                chatId: chat.id,
+                names: { user: history.findLast(m => m.role === 'user')?.name ?? 'User', char: ctx.character.name },
+                chat: history.map(m => ({ name: m.name, is_user: m.role === 'user', is_system: m.hidden, mes: m.swipes[m.activeSwipe]?.content ?? '', extra: {} })),
+                chatMetadata: own.chatMetadata ?? {},
+                vars: { chat: chat.variables ?? {}, message: stateAt(history) ?? {}, global: api.store.settings?.globalVariables ?? {}, preset: {} },
+                windowState: windowStates.get(chat.id) ?? {},
+                localStorage: own.localStorage ?? {},
+            });
+            windowStates.set(chat.id, out.windowState ?? {});
+            const ops: Op[] = [];
+            if (JSON.stringify(out.chatMetadata) !== JSON.stringify(own.chatMetadata ?? {})) ops.push({ op: 'set', path: ['plugins', api.id, 'chatMetadata'], value: out.chatMetadata });
+            if (JSON.stringify(out.localStorage) !== JSON.stringify(own.localStorage ?? {})) ops.push({ op: 'set', path: ['plugins', api.id, 'localStorage'], value: out.localStorage });
+            if (JSON.stringify(out.vars.chat) !== JSON.stringify(chat.variables ?? {})) ops.push({ op: 'set', path: ['variables'], value: out.vars.chat });
+            if (ops.length) await api.store.apply({ target: { kind: 'chat', id: chat.id }, ops, author: 'script', journal: false });
+            return out.request;
+        } catch (error) {
+            api.log('预设的请求脚本运行失败，改用内置适配：', (error as Error).message);
+            ctx.warn?.(`预设的请求脚本（SPreset）运行失败，这次改用 Hearth 的内置适配：${(error as Error).message}`);
+            return nativeRequest(body, ctx.preset, String(body.model ?? ''));
+        }
+    });
+
+    api.onAfterReceive(ctx => {
+        if (!isCatgodPreset(ctx.preset)) return;
+        return { text: normalizeModelOutput(ctx.text) };
+    });
 }

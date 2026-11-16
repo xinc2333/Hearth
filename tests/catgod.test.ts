@@ -47,8 +47,11 @@ test('strips SPreset control markers and leaves the preset text as written', () 
     assert.equal(cleanCatgodText('普通文本\n\n不变'), '普通文本\n\n不变');
 });
 
-test('Meowssiah prompt has no control markers after the adapter runs', { skip: !existsSync(MEOW) || !existsSync(SERAPHINA) }, async () => {
+test('without its own request script, the built-in adapter strips markers and attaches the reply tool', { skip: !existsSync(MEOW) || !existsSync(SERAPHINA) }, async () => {
     const preset = importStPreset(JSON.parse(readFileSync(MEOW, 'utf8')), 'Meowssiah', 'Meowssiah-2.1.6.json');
+    // Simulate an SPreset preset that has no Stage 1 script.
+    const settings = preset.prompts.find(p => p.id === 'SPresetSettings')!;
+    settings.content = JSON.stringify({ ...JSON.parse(settings.content), FinalRequestProcessing: { enabled: false, script: '' } });
     assert.ok(isCatgodPreset(preset));
     const { character } = importCardFile(new Uint8Array(readFileSync(SERAPHINA)), 'x.png');
     const msg = (id: string, role: 'user' | 'assistant', name: string, content: string) => ({ id, role, name, swipes: [{ id: `${id}s`, content, createdAt: 0 }], activeSwipe: 0, hidden: false, createdAt: 0 });

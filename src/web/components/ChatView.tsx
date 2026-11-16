@@ -8,7 +8,7 @@ import { normalizeModelOutput } from '../../core/output.ts';
 import { stateAt } from '../../core/state.ts';
 import { countChars, displayText, frameDocument, renderSegments, type FrameVars } from '../render.ts';
 import {
-    branchChat, changeChat, getState, openChat, reportError, runGeneration, setState, stopGeneration, toast, toggleInspector, toggleSidebar,
+    branchChat, changeChat, getState, openChat, setControl, reportError, runGeneration, setState, stopGeneration, toast, toggleInspector, toggleSidebar,
     useAppState, useReading, type Streaming,
 } from '../state.ts';
 import { AutoTextarea, Avatar, Button, clockTime, Empty, IconButton, isModalOpen, Segmented } from './common.tsx';
@@ -239,8 +239,21 @@ function Composer({ chatId }: { chatId: string }) {
     const busy = streaming?.chatId === chatId;
     const written = busy ? streaming.text.length : 0;
     const mode = useAppState(s => s.chats[chatId]?.mode ?? 'story');
+    const controls = useAppState(s => s.contexts[chatId]?.controls) ?? [];
+    const [noteOpen, setNoteOpen] = useState(false);
     const editing = mode === 'edit';
     const setMode = (next: 'story' | 'edit') => void changeChat(chatId, [{ op: 'set', path: ['mode'], value: next }]).catch(reportError);
+    // A plugin's reply modes (e.g. 剧场 / 聊天) take the place of 剧情.
+    const modeControl = controls.find(c => c.type === 'mode');
+    const modeOptions: [string, string][] = [...(modeControl?.options?.map(([v, l]) => [`p:${v}`, l] as [string, string]) ?? [['story', '剧情']]), ['edit', '编辑']];
+    const modeValue = editing ? 'edit' : modeControl ? `p:${String(modeControl.value)}` : 'story';
+    const chooseMode = (value: string) => {
+        if (value === 'edit') return setMode('edit');
+        if (editing) setMode('story');
+        if (modeControl && value !== modeValue) void setControl(chatId, modeControl.id, value.slice(2)).catch(reportError);
+    };
+    const modeHint = modeControl && !editing && modeControl.value !== modeControl.options?.[0]?.[0] ? modeControl.hint : undefined;
+    const note = controls.find(c => c.type === 'note');
     const send = () => {
         if (busy || (editing && !text.trim())) return;
         const value = text;
@@ -249,6 +262,7 @@ function Composer({ chatId }: { chatId: string }) {
     };
     return (
         <div className="composer">
+            {noteOpen && note && <NotePopover control={note} onClose={() => setNoteOpen(false)} onSave={value => void setControl(chatId, note.id, value).then(() => setNoteOpen(false)).catch(reportError)} />}
             <AutoTextarea
                 value={text}
                 minRows={1}
@@ -265,15 +279,42 @@ function Composer({ chatId }: { chatId: string }) {
                 }}
             />
             <div className="composer-bar">
-                <Segmented label="对话模式" value={mode} options={[['story', '剧情'], ['edit', '编辑']] as const} onChange={setMode} />
+                <Segmented label="对话模式" value={modeValue} options={modeOptions} onChange={chooseMode} />
+                {!editing && controls.filter(c => c.type === 'toggle').map(c => (
+                    <button key={c.id} type="button" className={`chip-btn${c.value ? ' on' : ''}`} title={c.hint} aria-pressed={Boolean(c.value)}
+                        onClick={() => void setControl(chatId, c.id, !c.value).catch(reportError)}>{c.label}</button>
+                ))}
+                {!editing && note && (
+                    <button type="button" className={`chip-btn${note.value ? ' on' : ''}`} title={note.value ? String(note.value) : note.hint} onClick={() => setNoteOpen(!noteOpen)}>
+                        {note.label}{note.value ? ' ·' : ''}
+                    </button>
+                )}
                 <span className="composer-hint grow">
                     {busy
                         ? <><span className="pulse" />{streaming.finalizing ? '正在整理回复…' : written ? `正在生成 · ${written.toLocaleString()} 字` : '正在等待回复…'}<kbd>Esc</kbd>停止</>
-                        : text ? <><kbd>Enter</kbd>发送<kbd>Shift</kbd>+<kbd>Enter</kbd>换行</> : editing ? <>改动会直接保存，可以撤销</> : <>留空发送，让角色继续说</>}
+                        : text ? <><kbd>Enter</kbd>发送<kbd>Shift</kbd>+<kbd>Enter</kbd>换行</> : editing ? <>改动会直接保存，可以撤销</> : modeHint ? <>{modeHint}</> : <>留空发送，让角色继续说</>}
                 </span>
                 {busy
                     ? <button className="send-btn stop" onClick={() => void stopGeneration()} title="停止（Esc）" aria-label="停止"><Icon name="stop" size={15} /></button>
                     : <button className="send-btn" onClick={send} title="发送（Enter）" aria-label="发送"><Icon name="send" size={16} /></button>}
+            </div>
+        </div>
+    );
+}
+
+function NotePopover({ control, onClose, onSave }: { control: { label: string; value: unknown; hint?: string }; onClose: () => void; onSave: (value: string) => void }) {
+    const [value, setValue] = useState(String(control.value ?? ''));
+    return (
+        <div className="popover note-popover" role="dialog" aria-label={control.label}>
+            <div className="popover-title">{control.label}</div>
+            <AutoTextarea minRows={3} maxHeight={240} value={value} autoFocus placeholder="写给小猫之神的场外指示，例如：这一轮多写环境描写" onChange={e => setValue(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) onSave(value); }} />
+            {control.hint && <p className="muted small">{control.hint}</p>}
+            <div className="row-end">
+                {String(control.value ?? '') && <Button variant="ghost" onClick={() => onSave('')}>清空</Button>}
+                <span className="grow" />
+                <Button variant="ghost" onClick={onClose}>取消</Button>
+                <Button variant="primary" onClick={() => onSave(value)}>保存</Button>
             </div>
         </div>
     );

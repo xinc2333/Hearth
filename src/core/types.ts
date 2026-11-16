@@ -379,6 +379,8 @@ export interface Chat extends ResourceBase {
     authorsNote: AuthorsNote;
     /** Channel new messages go to. */
     mode?: ChatMode;
+    /** Per-plugin state for this chat, keyed by plugin id. The kernel does not read it. */
+    plugins?: Record<string, Record<string, unknown>>;
     /** Set on a chat created as a branch of another. */
     branch?: { chatId: string; messageId: string; swipeId: string; index: number };
     /** Engine bookkeeping (e.g. world info sticky/cooldown timers). */

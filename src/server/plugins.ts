@@ -9,6 +9,9 @@
 //   - result:          api.onAfterAssemble((result, ctx) => …)                 (inspect / adjust messages)
 //   - model output:    api.onAfterReceive(ctx => ({ text, ops }))              (e.g. MVU variable updates)
 //   - new chats:       api.onChatCreate(ctx => { ctx.chat.… })                  (e.g. initial variables)
+//   - request:         api.onRequest((body, ctx) => body)                      (final request body, like ST's
+//                                                                                CHAT_COMPLETION_SETTINGS_READY)
+//   - controls:        api.registerControls({ list, change })                  (switches shown in the composer)
 //   - data:            api.store.get / list / apply                            (same change channel as the UI)
 //   - services:        api.macros, api.sandbox, api.complete, api.config
 
@@ -61,6 +64,32 @@ export interface CompleteRequest {
     signal?: AbortSignal;
 }
 
+export interface RequestContext {
+    chat: Chat;
+    character: Character;
+    preset: Preset;
+    /** Adds a notice to this request's prompt trace. */
+    warn?: (text: string) => void;
+}
+
+/** A switch a plugin shows next to the message box, stored in the chat (e.g. a preset's reply mode). */
+export interface ChatControl {
+    id: string;
+    /** 'mode' replaces 剧情 in the mode switch with its options; 'toggle' is on/off; 'note' holds text for the next reply. */
+    type: 'mode' | 'toggle' | 'note';
+    label: string;
+    value: unknown;
+    options?: [string, string][];
+    hint?: string;
+}
+
+export interface ControlProvider {
+    list: (ctx: RequestContext) => ChatControl[];
+    /** Returns the chat ops that store the new value. */
+    change: (id: string, value: unknown, ctx: RequestContext) => Op[] | Promise<Op[]>;
+}
+
+type RequestHook = (body: Record<string, unknown>, ctx: RequestContext) => Record<string, unknown> | void | Promise<Record<string, unknown> | void>;
 type BeforeHook = (ctx: AssembleContext) => void | Promise<void>;
 type AfterHook = (result: AssembleResult, ctx: AssembleContext) => void | Promise<void>;
 type ReceiveHook = (ctx: ReceiveContext) => ReceiveResult | void | Promise<ReceiveResult | void>;
@@ -74,9 +103,12 @@ export interface PluginApi {
     onAfterAssemble: (fn: AfterHook) => void;
     onAfterReceive: (fn: ReceiveHook) => void;
     onChatCreate: (fn: CreateHook) => void;
+    /** Sees (and may replace) the request body right before it is sent. 编辑 requests skip it. */
+    onRequest: (fn: RequestHook) => void;
+    registerControls: (provider: ControlProvider) => void;
     /** One-off completion with the active model connection (no streaming to the UI). */
     complete: (req: CompleteRequest) => Promise<string>;
-    store: Pick<Store, 'get' | 'list' | 'apply'>;
+    store: Pick<Store, 'get' | 'list' | 'apply' | 'settings'>;
     /** Macro evaluation with every registered macro, including other plugins'. */
     macros: { context: typeof createMacroContext; evaluate: typeof evaluateMacros };
     /** Runs untrusted code (card or preset scripts) in the QuickJS sandbox. */
@@ -162,6 +194,8 @@ export class PluginHost {
         after: [] as { plugin: string; fn: AfterHook }[],
         receive: [] as { plugin: string; fn: ReceiveHook }[],
         create: [] as { plugin: string; fn: CreateHook }[],
+        request: [] as { plugin: string; fn: RequestHook }[],
+        controls: [] as { plugin: string; fn: ControlProvider }[],
     };
     private macros = new Map<string, { names: string | string[]; handler: MacroHandler }[]>();
     private store: Store;
@@ -176,6 +210,28 @@ export class PluginHost {
     get after() { return this.active(this.hooks.after); }
     get receive() { return this.active(this.hooks.receive); }
     get create() { return this.active(this.hooks.create); }
+    get request() { return this.active(this.hooks.request); }
+
+    /** Controls of enabled plugins for a chat; ids are prefixed with the plugin id. */
+    controls(ctx: RequestContext): ChatControl[] {
+        return this.hooks.controls
+            .filter(h => this.enabled(h.plugin))
+            .flatMap(h => {
+                try {
+                    return h.fn.list(ctx).map(c => ({ ...c, id: `${h.plugin}:${c.id}` }));
+                } catch (error) {
+                    console.warn(`[plugins] ${h.plugin} 的控件出错：`, error);
+                    return [];
+                }
+            });
+    }
+
+    async changeControl(id: string, value: unknown, ctx: RequestContext): Promise<Op[]> {
+        const at = id.indexOf(':');
+        const owner = this.hooks.controls.find(h => h.plugin === id.slice(0, at) && this.enabled(h.plugin));
+        if (!owner) throw Object.assign(new Error('没有这个控件'), { status: 404 });
+        return owner.fn.change(id.slice(at + 1), value, ctx);
+    }
 
     /** Switched on in settings and loaded without errors. */
     enabled(id: string): boolean {
@@ -206,6 +262,8 @@ export class PluginHost {
             onAfterAssemble: fn => { this.hooks.after.push({ plugin: id, fn }); },
             onAfterReceive: fn => { this.hooks.receive.push({ plugin: id, fn }); },
             onChatCreate: fn => { this.hooks.create.push({ plugin: id, fn }); },
+            onRequest: fn => { this.hooks.request.push({ plugin: id, fn }); },
+            registerControls: provider => { this.hooks.controls.push({ plugin: id, fn: provider }); },
             complete: req => {
                 if (!this.completer) throw new Error('模型连接尚未就绪');
                 return this.completer(req);

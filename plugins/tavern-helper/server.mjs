@@ -7292,8 +7292,147 @@ var require_dist = __commonJS({
   }
 });
 
-// src/plugins/tavern-helper/mvu.ts
-var import_yaml = __toESM(require_dist(), 1);
+// src/core/output.ts
+var TAGS = {
+  think_nya: "think_nya",
+  game_content: "game",
+  game: "game",
+  options: "options",
+  summary: "summary",
+  comment: "comment"
+};
+var PRIORITY = ["think_nya", "game_content", "game", "story_body", "extra", "options", "summary", "comment"];
+function unescapeJson(str) {
+  return str.replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\t/g, "	").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+}
+function parsePartialArgs(raw) {
+  const result = {};
+  const re = /"([a-zA-Z0-9_]+)"\s*:\s*"((?:\\.|[^"\\])*)/g;
+  let m;
+  while ((m = re.exec(raw)) !== null) {
+    result[m[1]] = unescapeJson(m[2]);
+  }
+  return result;
+}
+function wrapTag(value, tag) {
+  const trimmed = value.trim();
+  if (!trimmed || !tag) return trimmed;
+  if (new RegExp(`<${tag}[\\s>]`, "i").test(trimmed) && new RegExp(`</${tag}[\\s>]`, "i").test(trimmed)) return trimmed;
+  if (tag === "comment" && /^<details[\s>]/i.test(trimmed)) return trimmed;
+  if (tag === "game" && /^<([a-zA-Z0-9_-]+)>[\s\S]*<\/\1>$/.test(trimmed)) return trimmed;
+  return `<${tag}>
+${trimmed}
+</${tag}>`;
+}
+function formatReplyArgs(args) {
+  if (typeof args.content === "string" && Object.keys(args).length === 1) {
+    return args.content;
+  }
+  const extra = Object.keys(args).filter((k) => !PRIORITY.includes(k) && k !== "nya_oath");
+  const parts = [];
+  for (const key of [...PRIORITY, ...extra]) {
+    if (!(key in args)) continue;
+    let value = String(args[key] ?? "").trim();
+    if (!value) continue;
+    if (key === "think_nya") {
+      value = value.replace(/`{3,}/g, "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+    let wrapped = wrapTag(value, TAGS[key] ?? null);
+    if (key === "think_nya" && wrapped && !wrapped.includes("<!--</think>-->")) {
+      wrapped += "<!--</think>-->";
+    }
+    parts.push(wrapped);
+  }
+  return parts.filter(Boolean).join("\n");
+}
+var REPLY_KEYS = /"(?:think_nya|game_content|game|story_body|options|summary|comment|content)"\s*:/;
+function repairJson(body) {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (const ch of body) {
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      else if (ch === "\n") {
+        out += "\\n";
+        continue;
+      } else if (ch === "\r") {
+        out += "\\r";
+        continue;
+      } else if (ch === "	") {
+        out += "\\t";
+        continue;
+      }
+    } else if (ch === '"') {
+      inString = true;
+    }
+    out += ch;
+  }
+  return out;
+}
+var WRAPPER_START = /^(?:\s*(?:<[|｜][^>\n]{0,48}[|｜]>|<\/?tool_call>|[a-z_]{2,40}(?=\s*(?:\(|\n|<[|｜]|\{))\s*\(?))+\s*(?=\{)/i;
+var WRAPPER_END = /\)?\s*(?:<\/?[|｜]?[^>\n]{0,48}[|｜]?>|<\/tool_call>)*\s*$/;
+function fromReplyJson(text) {
+  let body = text.trim();
+  const fence = body.match(/^```(?:json)?\s*\n?([\s\S]*?)(?:\n?```)?$/);
+  if (fence && fence[1].trim().startsWith("{")) body = fence[1].trim();
+  body = body.replace(WRAPPER_START, "");
+  if (!body.startsWith("{") || !REPLY_KEYS.test(body.slice(0, 400))) {
+    return null;
+  }
+  const lastBrace = body.lastIndexOf("}");
+  if (lastBrace > 0) {
+    body = body.slice(0, lastBrace + 1) + body.slice(lastBrace + 1).replace(WRAPPER_END, "");
+  }
+  let args = null;
+  try {
+    const parsed = JSON.parse(repairJson(body));
+    if (parsed && typeof parsed === "object") {
+      args = parsed.arguments && typeof parsed.arguments === "object" ? parsed.arguments : parsed;
+    }
+  } catch {
+    args = parsePartialArgs(body);
+  }
+  if (!args || !Object.keys(args).length) return null;
+  return formatReplyArgs(args);
+}
+function unescapeLiteral(text) {
+  if (!/\\[nrt"]/.test(text)) return text;
+  const segments = text.split(/(```[\s\S]*?```)/g);
+  const literalNewlines = segments.filter((_, i) => i % 2 === 0).join("").match(/(?<!\\)\\n/g)?.length ?? 0;
+  if (literalNewlines === 0) return text;
+  return segments.map(
+    (seg, i) => i % 2 === 1 ? seg : seg.replace(/(?<!\\)\\r\\n/g, "\n").replace(/(?<!\\)\\n/g, "\n").replace(/(?<!\\)\\t/g, "	").replace(/(?<!\\)\\"/g, '"')
+  ).join("");
+}
+var INLINE_CALL = /(?:<[|｜][^>\n]{0,48}[|｜]>\s*(?:[a-z_]{2,40}\s*)?)+(?=\{)/i;
+function normalizeModelOutput(text) {
+  if (!text) return text;
+  let formatted = fromReplyJson(text);
+  if (formatted === null) {
+    const m = text.match(INLINE_CALL);
+    if (m && m.index) {
+      const tail = fromReplyJson(text.slice(m.index));
+      if (tail !== null) formatted = `${text.slice(0, m.index).trimEnd()}
+${tail}`;
+    }
+  }
+  return unescapeLiteral(formatted ?? text);
+}
+
+// src/core/tokens.ts
+var CJK = /[　-〿぀-ヿ㐀-䶿一-鿿가-힯豈-﫿＀-￯]/g;
+function estimateTokens(text) {
+  if (!text) {
+    return 0;
+  }
+  const cjk = text.match(CJK)?.length ?? 0;
+  const rest = text.length - cjk;
+  return Math.ceil(cjk + rest / 3.6);
+}
+var MESSAGE_OVERHEAD = 4;
 
 // src/core/state.ts
 function toPath(path) {
@@ -7399,6 +7538,261 @@ ${toYaml(v, indent + 1)}`;
   }
   return pad + scalar(value);
 }
+
+// src/plugins/tavern-helper/spreset.ts
+var CONTROL = /<<<\|\s*catgodml\s*\|[\s\S]*?>>>|<\|(?:sep|merge)\|>|<run_tool_replacement>/;
+var TOOL_DESCRIPTION = "\u5C0F\u732B\u4E4B\u795E SoliUmbra \u7684\u795E\u57DF\u5267\u573A\u6B63\u5F0F\u8F93\u51FA\u901A\u9053\uFF08\u5148\u5728 think_nya \u4E2D\u5B8C\u6210\u8F6F\u840C\u601D\u8003\uFF0C\u518D\u8F93\u51FA\u6B63\u5F0F\u56DE\u590D\u5185\u5BB9\u55B5\uFF09\u3002";
+var THINK_DESCRIPTION = "\u5C0F\u732B\u4E4B\u795E\u5728<think_nya>\u4E2D\u7684\u8BE6\u7EC6\u8F6F\u840C\u601D\u8003\uFF08\u5168\u7A0B\u4FDD\u6301\u53EF\u7231\u7684\u201C\u55B5~\u201D\u8BED\u6C14\uFF0C\u56F4\u7ED5\u4EBA\u7269\u795E\u6001\u3001\u4E92\u52A8\u5F20\u529B\u3001\u52A8\u6001\u683C\u5F0F\u8981\u6C42\u4E0E\u5267\u60C5\u8D70\u5411\u8FDB\u884C\u6784\u601D\u55B5\uFF09\u3002";
+var GAME_DESCRIPTION = "\u5B8C\u6574\u7684\u6B63\u5F0F\u56DE\u590D\u5185\u5BB9\uFF08100%\u81EA\u7531\u52A8\u6001\u683C\u5F0F\uFF1A\u4E25\u683C\u6309\u7167\u5F53\u524D\u751F\u6548\u7684\u521B\u4F5C\u7EC6\u5219\u4E0E\u683C\u5F0F\u8981\u6C42\u8F93\u51FA\u6240\u6709\u6B63\u6587\u4E0E\u52A8\u6001\u683C\u5F0F\u5757\u55B5\uFF09\u3002";
+var OPTIONAL_PARTS = /* @__PURE__ */ new Set(["extra"]);
+function spresetConfig(preset) {
+  const raw = preset.prompts.find((p) => p.id === "SPresetSettings")?.content;
+  if (raw) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+    }
+  }
+  const st = preset.extra?.st?.extensions?.SPreset;
+  return st && typeof st === "object" ? st : null;
+}
+function boundReplyTool(preset) {
+  const config = spresetConfig(preset);
+  const binding = Object.values(config?.ToolBindings ?? {}).find((b) => b?.enabled);
+  return binding ? binding.resolvedName ?? binding.form?.name ?? null : null;
+}
+function replyToolRequest(name, texts, model) {
+  const parts = [];
+  let autoTool = /^pg-/i.test(model);
+  for (const text of texts) {
+    for (const m of text.matchAll(/<<<\|\s*catgodml\s*\|\s*([\s\S]*?)>>>/g)) {
+      const directive = m[1].trim();
+      if (/^autotool$/i.test(directive)) autoTool = true;
+      const part = directive.match(/^registerPart\s*:\s*([^:]+?)\s*:\s*([\s\S]*)$/i);
+      if (part && !parts.some((p) => p.name === part[1])) parts.push({ name: part[1], description: part[2].trim() });
+    }
+  }
+  const properties = { think_nya: { type: "string", description: THINK_DESCRIPTION } };
+  if (parts.length) {
+    for (const p of parts) properties[p.name] = { type: "string", description: p.description || `${p.name} content` };
+  } else {
+    properties.game_content = { type: "string", description: GAME_DESCRIPTION };
+  }
+  return {
+    tools: [{
+      type: "function",
+      function: {
+        name,
+        description: TOOL_DESCRIPTION,
+        parameters: { type: "object", properties, required: Object.keys(properties).filter((k) => !OPTIONAL_PARTS.has(k)) }
+      }
+    }],
+    tool_choice: autoTool ? "auto" : "required"
+  };
+}
+function isCatgodPreset(preset) {
+  return preset.prompts.some((p) => p.id === "SPresetSettings" || p.content.includes("catgodml|enableMenu"));
+}
+function cleanCatgodText(text) {
+  if (!CONTROL.test(text)) {
+    return text;
+  }
+  return text.replace(new RegExp(`(?:${CONTROL.source})[ \\t]*(?:\\r?\\n)?`, "g"), "").trim();
+}
+function nativeRequest(body, preset, model) {
+  const messages = body.messages.map((m) => typeof m.content === "string" && CONTROL.test(m.content) ? { ...m, content: cleanCatgodText(m.content) } : m).filter((m) => m.content !== "");
+  const texts = body.messages.filter((m) => m.role === "system" && typeof m.content === "string").map((m) => m.content);
+  const tool = boundReplyTool(preset);
+  return { ...body, messages, ...tool && texts.some((t) => t.includes("<run_tool_replacement>")) ? replyToolRequest(tool, texts, model) : {} };
+}
+var windowStates = /* @__PURE__ */ new Map();
+function setupSpreset(api) {
+  api.onAfterAssemble((result, ctx) => {
+    if (!isCatgodPreset(ctx.input.preset)) return;
+    result.warnings = result.warnings.filter((w) => !w.includes("catgodml") && !w.includes("<|"));
+    if (stage1Script(ctx.input.preset)) return;
+    const texts = result.parts.filter((p) => !p.messageId).map((p) => p.content);
+    const tool = boundReplyTool(ctx.input.preset);
+    if (tool && texts.some((t) => t.includes("<run_tool_replacement>"))) {
+      result.request = { ...result.request ?? {}, ...replyToolRequest(tool, texts, ctx.input.model) };
+    }
+    const parts = result.parts.map((p) => CONTROL.test(p.content) ? { ...p, content: cleanCatgodText(p.content) } : p).filter((p) => p.content);
+    for (const p of parts) {
+      p.tokens = estimateTokens(p.content) + MESSAGE_OVERHEAD;
+    }
+    result.parts = parts;
+    result.messages = parts.map((p) => ({ role: p.role, content: p.content, ...p.name ? { name: p.name } : {} }));
+    result.tokens.total = parts.reduce((s, p) => s + p.tokens, 0);
+  });
+  api.onRequest(async (body, ctx) => {
+    const script = stage1Script(ctx.preset);
+    if (!script) return;
+    const chat = ctx.chat;
+    const own = chat.plugins?.[api.id] ?? {};
+    const story = chat.messages.filter((m) => m.mode !== "edit");
+    const last = story[story.length - 1];
+    const history = last?.role === "assistant" && !last.swipes[last.activeSwipe]?.content ? story.slice(0, -1) : story;
+    try {
+      const out = await runStage1(api, script, {
+        request: body,
+        chatId: chat.id,
+        names: { user: history.findLast((m) => m.role === "user")?.name ?? "User", char: ctx.character.name },
+        chat: history.map((m) => ({ name: m.name, is_user: m.role === "user", is_system: m.hidden, mes: m.swipes[m.activeSwipe]?.content ?? "", extra: {} })),
+        chatMetadata: own.chatMetadata ?? {},
+        vars: { chat: chat.variables ?? {}, message: stateAt(history) ?? {}, global: api.store.settings?.globalVariables ?? {}, preset: {} },
+        windowState: windowStates.get(chat.id) ?? {},
+        localStorage: own.localStorage ?? {}
+      });
+      windowStates.set(chat.id, out.windowState ?? {});
+      const ops = [];
+      if (JSON.stringify(out.chatMetadata) !== JSON.stringify(own.chatMetadata ?? {})) ops.push({ op: "set", path: ["plugins", api.id, "chatMetadata"], value: out.chatMetadata });
+      if (JSON.stringify(out.localStorage) !== JSON.stringify(own.localStorage ?? {})) ops.push({ op: "set", path: ["plugins", api.id, "localStorage"], value: out.localStorage });
+      if (JSON.stringify(out.vars.chat) !== JSON.stringify(chat.variables ?? {})) ops.push({ op: "set", path: ["variables"], value: out.vars.chat });
+      if (ops.length) await api.store.apply({ target: { kind: "chat", id: chat.id }, ops, author: "script", journal: false });
+      return out.request;
+    } catch (error) {
+      api.log("\u9884\u8BBE\u7684\u8BF7\u6C42\u811A\u672C\u8FD0\u884C\u5931\u8D25\uFF0C\u6539\u7528\u5185\u7F6E\u9002\u914D\uFF1A", error.message);
+      ctx.warn?.(`\u9884\u8BBE\u7684\u8BF7\u6C42\u811A\u672C\uFF08SPreset\uFF09\u8FD0\u884C\u5931\u8D25\uFF0C\u8FD9\u6B21\u6539\u7528 Hearth \u7684\u5185\u7F6E\u9002\u914D\uFF1A${error.message}`);
+      return nativeRequest(body, ctx.preset, String(body.model ?? ""));
+    }
+  });
+  api.onAfterReceive((ctx) => {
+    if (!isCatgodPreset(ctx.preset)) return;
+    return { text: normalizeModelOutput(ctx.text) };
+  });
+}
+
+// src/plugins/tavern-helper/stage1.ts
+function stage1Script(preset) {
+  const frp = spresetConfig(preset)?.FinalRequestProcessing;
+  return frp?.enabled && typeof frp.script === "string" && frp.script.trim() ? frp.script : null;
+}
+var PRELUDE = `
+const __clone = v => v === undefined ? undefined : JSON.parse(JSON.stringify(v));
+const __merge = (a, b) => { const out = __clone(a ?? {}); for (const [k, v] of Object.entries(b ?? {})) out[k] = v && typeof v === 'object' && !Array.isArray(v) && out[k] && typeof out[k] === 'object' && !Array.isArray(out[k]) ? __merge(out[k], v) : __clone(v); return out; };
+const __store = Object.assign({}, __in.localStorage);
+const localStorage = {
+  getItem: k => (Object.prototype.hasOwnProperty.call(__store, k) ? __store[k] : null),
+  setItem: (k, v) => { __store[k] = String(v); },
+  removeItem: k => { delete __store[k]; },
+  clear: () => { for (const k of Object.keys(__store)) delete __store[k]; },
+  key: i => Object.keys(__store)[i] ?? null,
+  get length() { return Object.keys(__store).length; },
+};
+const __vars = { chat: __in.vars.chat ?? {}, message: __in.vars.message ?? {}, global: __in.vars.global ?? {}, preset: __in.vars.preset ?? {}, character: {}, script: {}, extension: {} };
+const __type = o => (o && typeof o.type === 'string' && __vars[o.type] ? o.type : 'chat');
+const getVariables = (o = {}) => __clone(__vars[__type(o)]);
+const replaceVariables = (v, o = {}) => { __vars[__type(o)] = __clone(v ?? {}); };
+const insertOrAssignVariables = (v, o = {}) => { const t = __type(o); __vars[t] = __merge(__vars[t], v); return __clone(__vars[t]); };
+const insertVariables = insertOrAssignVariables;
+const deleteVariable = (path, o = {}) => { const t = __type(o); const segs = String(path).split('.'); let c = __vars[t]; for (const s of segs.slice(0, -1)) { if (c == null) return { variables: __clone(__vars[t]), delete_occurred: false }; c = c[s]; } const had = c != null && Object.prototype.hasOwnProperty.call(c, segs[segs.length - 1]); if (had) delete c[segs[segs.length - 1]]; return { variables: __clone(__vars[t]), delete_occurred: had }; };
+const updateVariablesWith = (fn, o = {}) => { const t = __type(o); const r = fn(__clone(__vars[t])); const apply = v => { if (v && typeof v === 'object') __vars[t] = __clone(v); return __clone(__vars[t]); }; return r && typeof r.then === 'function' ? r.then(apply) : apply(r); };
+const __noop = () => {};
+const eventSource = { on: __noop, once: __noop, makeFirst: __noop, makeLast: __noop, removeListener: __noop, emit: async () => {} };
+const __ctx = {
+  chat: __in.chat, chatMetadata: __in.chatMetadata ?? {}, chatId: __in.chatId, getCurrentChatId: () => __in.chatId,
+  name1: __in.names.user, name2: __in.names.char, characterId: 0, characters: [], groupId: null,
+  extensionSettings: {}, extensionPrompts: {}, chatCompletionSettings: {}, powerUserSettings: {},
+  eventSource, eventTypes: {}, event_types: {},
+  saveMetadataDebounced: __noop, saveMetadata: async () => {}, saveSettingsDebounced: __noop,
+};
+const SillyTavern = Object.assign({ getContext: () => __ctx }, __ctx);
+const __window = Object.assign({}, __in.windowState, {
+  localStorage, SillyTavern, eventSource,
+  getVariables, replaceVariables, insertOrAssignVariables, insertVariables, deleteVariable, updateVariablesWith,
+  CustomEvent: class CustomEvent { constructor(type, init) { this.type = type; this.detail = init?.detail; } },
+  Event: class Event { constructor(type) { this.type = type; } },
+  dispatchEvent: () => true, addEventListener: __noop, removeEventListener: __noop,
+  setTimeout: (f) => { Promise.resolve().then(f); return 0; }, clearTimeout: __noop,
+  console: { log: __noop, warn: __noop, error: __noop, info: __noop, debug: __noop },
+});
+__window.window = __window; __window.top = __window; __window.parent = __window; __window.self = __window; __window.globalThis = __window;
+const window = __window, top = __window, parent = __window, self = __window;
+const TavernHelper = { getVariables, replaceVariables, insertOrAssignVariables, insertVariables, deleteVariable, updateVariablesWith };
+const console = __window.console;
+const setTimeout = __window.setTimeout, clearTimeout = __noop;
+const structuredClone = __clone;
+const __windowKeys = new Set(Object.keys(__window));
+`;
+var EPILOGUE = `
+.then(out => {
+  const state = {};
+  for (const [k, v] of Object.entries(__window)) {
+    if (__windowKeys.has(k) && !Object.prototype.hasOwnProperty.call(__in.windowState, k)) continue;
+    if (k.startsWith('__') || Object.prototype.hasOwnProperty.call(__in.windowState, k)) { try { state[k] = __clone(v); } catch {} }
+  }
+  return { request: out && typeof out === 'object' ? out : __in.request, chatMetadata: __ctx.chatMetadata, vars: { chat: __vars.chat, message: __vars.message, global: __vars.global, preset: __vars.preset }, windowState: state, localStorage: __store };
+})`;
+async function runStage1(api, script, input, timeoutMs = 8e3) {
+  const code = `(() => { const __in = ${JSON.stringify(input)};
+${PRELUDE}
+return Promise.resolve((${script})({ request: __clone(__in.request) }))${EPILOGUE}; })()`;
+  const out = await api.sandbox.run(code, () => void 0, timeoutMs);
+  if (!out || typeof out !== "object" || !out.request) throw new Error("\u9884\u8BBE\u7684\u8BF7\u6C42\u811A\u672C\u6CA1\u6709\u8FD4\u56DE\u8BF7\u6C42");
+  return out;
+}
+
+// src/plugins/tavern-helper/console.ts
+function consoleEnabled(preset) {
+  return preset.prompts.some((p) => p.content.includes("<<<|catgodml|enableMenu>>>")) && Boolean(stage1Script(preset));
+}
+function oracleState(chat, pluginId) {
+  const meta = chat.plugins?.[pluginId]?.chatMetadata;
+  const raw = meta?.catgod_oracle?.oracleState ?? {};
+  return {
+    schema: 1,
+    mode: raw.mode === "chat" ? "chat" : "theater",
+    chat: { autoReturn: raw.chat?.autoReturn !== false },
+    deepThink: raw.deepThink === true,
+    rebuildCache: raw.rebuildCache === true,
+    note: { text: typeof raw.note?.text === "string" ? raw.note.text : "", autoClear: raw.note?.autoClear !== false },
+    rev: Number.isFinite(raw.rev) ? Number(raw.rev) : 0,
+    updatedAt: Number.isFinite(raw.updatedAt) ? Number(raw.updatedAt) : 0
+  };
+}
+function save(pluginId, state, patch) {
+  const next = { ...state, ...patch, rev: state.rev + 1, updatedAt: Date.now() };
+  return [{ op: "set", path: ["plugins", pluginId, "chatMetadata", "catgod_oracle", "oracleState"], value: next }];
+}
+function setupConsole(api) {
+  const sent = /* @__PURE__ */ new Map();
+  api.registerControls({
+    list: ({ chat, preset }) => {
+      if (!consoleEnabled(preset)) return [];
+      const s = oracleState(chat, api.id);
+      return [
+        { id: "mode", type: "mode", label: "\u56DE\u590D\u6A21\u5F0F", value: s.mode, options: [["theater", "\u5267\u573A"], ["chat", "\u804A\u5929"]], hint: "\u804A\u5929\uFF1A\u6682\u505C\u5267\u60C5\uFF0C\u548C\u5C0F\u732B\u4E4B\u795E\u672C\u4F53\u76F4\u63A5\u804A\u5929" },
+        { id: "deepThink", type: "toggle", label: "\u6DF1\u5EA6\u601D\u8003", value: s.deepThink, hint: "\u6309\u9884\u8BBE\u767B\u8BB0\u7684\u601D\u8003\u6B65\u9AA4\uFF0C\u56DE\u590D\u524D\u5148\u6DF1\u5165\u63A8\u6F14" },
+        { id: "note", type: "note", label: "\u7EB8\u6761", value: s.note.text, hint: s.note.autoClear ? "\u968F\u4E0B\u4E00\u6761\u56DE\u590D\u9001\u8FBE\uFF0C\u9001\u8FBE\u540E\u81EA\u52A8\u6E05\u7A7A" : "\u6BCF\u6B21\u56DE\u590D\u90FD\u4F1A\u5E26\u4E0A" }
+      ];
+    },
+    change: (id, value, { chat }) => {
+      const s = oracleState(chat, api.id);
+      if (id === "mode") return save(api.id, s, { mode: value === "chat" ? "chat" : "theater" });
+      if (id === "deepThink") return save(api.id, s, { deepThink: value === true });
+      if (id === "note") return save(api.id, s, { note: { ...s.note, text: String(value ?? "").trim() } });
+      return [];
+    }
+  });
+  api.onRequest((_body, { chat, preset }) => {
+    if (!consoleEnabled(preset)) return;
+    const s = oracleState(chat, api.id);
+    sent.set(chat.id, { mode: s.mode, note: s.note.text });
+  });
+  api.onAfterReceive(({ chat, preset, text, finish }) => {
+    const was = sent.get(chat.id);
+    sent.delete(chat.id);
+    if (!was || !consoleEnabled(preset) || !text.trim() || finish !== "stop" && finish !== "length") return;
+    const s = oracleState(chat, api.id);
+    const patch = {};
+    if (was.note && s.note.autoClear && s.note.text === was.note) patch.note = { ...s.note, text: "" };
+    if (was.mode === "chat" && s.mode === "chat" && s.chat.autoReturn) patch.mode = "theater";
+    return Object.keys(patch).length ? { ops: save(api.id, s, patch) } : void 0;
+  });
+}
+
+// src/plugins/tavern-helper/mvu.ts
+var import_yaml = __toESM(require_dist(), 1);
 
 // src/plugins/tavern-helper/mvu-commands.ts
 function stripRoot(path) {
@@ -7690,232 +8084,11 @@ ${PLACEHOLDER}` : body;
   }
 }
 
-// src/core/output.ts
-var TAGS = {
-  think_nya: "think_nya",
-  game_content: "game",
-  game: "game",
-  options: "options",
-  summary: "summary",
-  comment: "comment"
-};
-var PRIORITY = ["think_nya", "game_content", "game", "story_body", "extra", "options", "summary", "comment"];
-function unescapeJson(str) {
-  return str.replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\t/g, "	").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
-}
-function parsePartialArgs(raw) {
-  const result = {};
-  const re = /"([a-zA-Z0-9_]+)"\s*:\s*"((?:\\.|[^"\\])*)/g;
-  let m;
-  while ((m = re.exec(raw)) !== null) {
-    result[m[1]] = unescapeJson(m[2]);
-  }
-  return result;
-}
-function wrapTag(value, tag) {
-  const trimmed = value.trim();
-  if (!trimmed || !tag) return trimmed;
-  if (new RegExp(`<${tag}[\\s>]`, "i").test(trimmed) && new RegExp(`</${tag}[\\s>]`, "i").test(trimmed)) return trimmed;
-  if (tag === "comment" && /^<details[\s>]/i.test(trimmed)) return trimmed;
-  if (tag === "game" && /^<([a-zA-Z0-9_-]+)>[\s\S]*<\/\1>$/.test(trimmed)) return trimmed;
-  return `<${tag}>
-${trimmed}
-</${tag}>`;
-}
-function formatReplyArgs(args) {
-  if (typeof args.content === "string" && Object.keys(args).length === 1) {
-    return args.content;
-  }
-  const extra = Object.keys(args).filter((k) => !PRIORITY.includes(k) && k !== "nya_oath");
-  const parts = [];
-  for (const key of [...PRIORITY, ...extra]) {
-    if (!(key in args)) continue;
-    let value = String(args[key] ?? "").trim();
-    if (!value) continue;
-    if (key === "think_nya") {
-      value = value.replace(/`{3,}/g, "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    }
-    let wrapped = wrapTag(value, TAGS[key] ?? null);
-    if (key === "think_nya" && wrapped && !wrapped.includes("<!--</think>-->")) {
-      wrapped += "<!--</think>-->";
-    }
-    parts.push(wrapped);
-  }
-  return parts.filter(Boolean).join("\n");
-}
-var REPLY_KEYS = /"(?:think_nya|game_content|game|story_body|options|summary|comment|content)"\s*:/;
-function repairJson(body) {
-  let out = "";
-  let inString = false;
-  let escaped = false;
-  for (const ch of body) {
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (ch === "\\") escaped = true;
-      else if (ch === '"') inString = false;
-      else if (ch === "\n") {
-        out += "\\n";
-        continue;
-      } else if (ch === "\r") {
-        out += "\\r";
-        continue;
-      } else if (ch === "	") {
-        out += "\\t";
-        continue;
-      }
-    } else if (ch === '"') {
-      inString = true;
-    }
-    out += ch;
-  }
-  return out;
-}
-var WRAPPER_START = /^(?:\s*(?:<[|｜][^>\n]{0,48}[|｜]>|<\/?tool_call>|[a-z_]{2,40}(?=\s*(?:\(|\n|<[|｜]|\{))\s*\(?))+\s*(?=\{)/i;
-var WRAPPER_END = /\)?\s*(?:<\/?[|｜]?[^>\n]{0,48}[|｜]?>|<\/tool_call>)*\s*$/;
-function fromReplyJson(text) {
-  let body = text.trim();
-  const fence = body.match(/^```(?:json)?\s*\n?([\s\S]*?)(?:\n?```)?$/);
-  if (fence && fence[1].trim().startsWith("{")) body = fence[1].trim();
-  body = body.replace(WRAPPER_START, "");
-  if (!body.startsWith("{") || !REPLY_KEYS.test(body.slice(0, 400))) {
-    return null;
-  }
-  const lastBrace = body.lastIndexOf("}");
-  if (lastBrace > 0) {
-    body = body.slice(0, lastBrace + 1) + body.slice(lastBrace + 1).replace(WRAPPER_END, "");
-  }
-  let args = null;
-  try {
-    const parsed = JSON.parse(repairJson(body));
-    if (parsed && typeof parsed === "object") {
-      args = parsed.arguments && typeof parsed.arguments === "object" ? parsed.arguments : parsed;
-    }
-  } catch {
-    args = parsePartialArgs(body);
-  }
-  if (!args || !Object.keys(args).length) return null;
-  return formatReplyArgs(args);
-}
-function unescapeLiteral(text) {
-  if (!/\\[nrt"]/.test(text)) return text;
-  const segments = text.split(/(```[\s\S]*?```)/g);
-  const literalNewlines = segments.filter((_, i) => i % 2 === 0).join("").match(/(?<!\\)\\n/g)?.length ?? 0;
-  if (literalNewlines === 0) return text;
-  return segments.map(
-    (seg, i) => i % 2 === 1 ? seg : seg.replace(/(?<!\\)\\r\\n/g, "\n").replace(/(?<!\\)\\n/g, "\n").replace(/(?<!\\)\\t/g, "	").replace(/(?<!\\)\\"/g, '"')
-  ).join("");
-}
-var INLINE_CALL = /(?:<[|｜][^>\n]{0,48}[|｜]>\s*(?:[a-z_]{2,40}\s*)?)+(?=\{)/i;
-function normalizeModelOutput(text) {
-  if (!text) return text;
-  let formatted = fromReplyJson(text);
-  if (formatted === null) {
-    const m = text.match(INLINE_CALL);
-    if (m && m.index) {
-      const tail = fromReplyJson(text.slice(m.index));
-      if (tail !== null) formatted = `${text.slice(0, m.index).trimEnd()}
-${tail}`;
-    }
-  }
-  return unescapeLiteral(formatted ?? text);
-}
-
-// src/core/tokens.ts
-var CJK = /[　-〿぀-ヿ㐀-䶿一-鿿가-힯豈-﫿＀-￯]/g;
-function estimateTokens(text) {
-  if (!text) {
-    return 0;
-  }
-  const cjk = text.match(CJK)?.length ?? 0;
-  const rest = text.length - cjk;
-  return Math.ceil(cjk + rest / 3.6);
-}
-var MESSAGE_OVERHEAD = 4;
-
-// src/plugins/tavern-helper/spreset.ts
-var CONTROL = /<<<\|\s*catgodml\s*\|[\s\S]*?>>>|<\|(?:sep|merge)\|>|<run_tool_replacement>/;
-var TOOL_DESCRIPTION = "\u5C0F\u732B\u4E4B\u795E SoliUmbra \u7684\u795E\u57DF\u5267\u573A\u6B63\u5F0F\u8F93\u51FA\u901A\u9053\uFF08\u5148\u5728 think_nya \u4E2D\u5B8C\u6210\u8F6F\u840C\u601D\u8003\uFF0C\u518D\u8F93\u51FA\u6B63\u5F0F\u56DE\u590D\u5185\u5BB9\u55B5\uFF09\u3002";
-var THINK_DESCRIPTION = "\u5C0F\u732B\u4E4B\u795E\u5728<think_nya>\u4E2D\u7684\u8BE6\u7EC6\u8F6F\u840C\u601D\u8003\uFF08\u5168\u7A0B\u4FDD\u6301\u53EF\u7231\u7684\u201C\u55B5~\u201D\u8BED\u6C14\uFF0C\u56F4\u7ED5\u4EBA\u7269\u795E\u6001\u3001\u4E92\u52A8\u5F20\u529B\u3001\u52A8\u6001\u683C\u5F0F\u8981\u6C42\u4E0E\u5267\u60C5\u8D70\u5411\u8FDB\u884C\u6784\u601D\u55B5\uFF09\u3002";
-var GAME_DESCRIPTION = "\u5B8C\u6574\u7684\u6B63\u5F0F\u56DE\u590D\u5185\u5BB9\uFF08100%\u81EA\u7531\u52A8\u6001\u683C\u5F0F\uFF1A\u4E25\u683C\u6309\u7167\u5F53\u524D\u751F\u6548\u7684\u521B\u4F5C\u7EC6\u5219\u4E0E\u683C\u5F0F\u8981\u6C42\u8F93\u51FA\u6240\u6709\u6B63\u6587\u4E0E\u52A8\u6001\u683C\u5F0F\u5757\u55B5\uFF09\u3002";
-var OPTIONAL_PARTS = /* @__PURE__ */ new Set(["extra"]);
-function boundReplyTool(preset) {
-  const raw = preset.prompts.find((p) => p.id === "SPresetSettings")?.content;
-  if (!raw) return null;
-  try {
-    const config = JSON.parse(raw);
-    const binding = Object.values(config.ToolBindings ?? {}).find((b) => b?.enabled);
-    return binding ? binding.resolvedName ?? binding.form?.name ?? null : null;
-  } catch {
-    return null;
-  }
-}
-function replyToolRequest(name, texts, model) {
-  const parts = [];
-  let autoTool = /^pg-/i.test(model);
-  for (const text of texts) {
-    for (const m of text.matchAll(/<<<\|\s*catgodml\s*\|\s*([\s\S]*?)>>>/g)) {
-      const directive = m[1].trim();
-      if (/^autotool$/i.test(directive)) autoTool = true;
-      const part = directive.match(/^registerPart\s*:\s*([^:]+?)\s*:\s*([\s\S]*)$/i);
-      if (part && !parts.some((p) => p.name === part[1])) parts.push({ name: part[1], description: part[2].trim() });
-    }
-  }
-  const properties = { think_nya: { type: "string", description: THINK_DESCRIPTION } };
-  if (parts.length) {
-    for (const p of parts) properties[p.name] = { type: "string", description: p.description || `${p.name} content` };
-  } else {
-    properties.game_content = { type: "string", description: GAME_DESCRIPTION };
-  }
-  return {
-    tools: [{
-      type: "function",
-      function: {
-        name,
-        description: TOOL_DESCRIPTION,
-        parameters: { type: "object", properties, required: Object.keys(properties).filter((k) => !OPTIONAL_PARTS.has(k)) }
-      }
-    }],
-    tool_choice: autoTool ? "auto" : "required"
-  };
-}
-function isCatgodPreset(preset) {
-  return preset.prompts.some((p) => p.id === "SPresetSettings" || p.content.includes("catgodml|enableMenu"));
-}
-function cleanCatgodText(text) {
-  if (!CONTROL.test(text)) {
-    return text;
-  }
-  return text.replace(new RegExp(`(?:${CONTROL.source})[ \\t]*(?:\\r?\\n)?`, "g"), "").trim();
-}
-function setupSpreset(api) {
-  {
-    api.onAfterAssemble((result, ctx) => {
-      if (!isCatgodPreset(ctx.input.preset)) return;
-      const texts = result.parts.filter((p) => !p.messageId).map((p) => p.content);
-      const tool = boundReplyTool(ctx.input.preset);
-      if (tool && texts.some((t) => t.includes("<run_tool_replacement>"))) {
-        result.request = { ...result.request ?? {}, ...replyToolRequest(tool, texts, ctx.input.model) };
-      }
-      const parts = result.parts.map((p) => CONTROL.test(p.content) ? { ...p, content: cleanCatgodText(p.content) } : p).filter((p) => p.content);
-      for (const p of parts) {
-        p.tokens = estimateTokens(p.content) + MESSAGE_OVERHEAD;
-      }
-      result.parts = parts;
-      result.messages = parts.map((p) => ({ role: p.role, content: p.content, ...p.name ? { name: p.name } : {} }));
-      result.tokens.total = parts.reduce((s, p) => s + p.tokens, 0);
-      result.warnings = result.warnings.filter((w) => !w.includes("catgodml") && !w.includes("<|"));
-    });
-    api.onAfterReceive((ctx) => {
-      if (!isCatgodPreset(ctx.preset)) return;
-      return { text: normalizeModelOutput(ctx.text) };
-    });
-  }
-}
-
 // src/plugins/tavern-helper/index.ts
 var plugin = {
   setup(api) {
     setupSpreset(api);
+    setupConsole(api);
     setupMvu(api);
   }
 };

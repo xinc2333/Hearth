@@ -205,6 +205,14 @@ export async function branchChat(chatId: string, messageId: string, swipeId: str
     toast(`已从第 ${chat.branch?.index ?? ''} 条创建分支，原对话保持不变`, 'success', { label: '回到原对话', run: () => void openChat(chatId).catch(reportError) });
 }
 
+export async function setControl(chatId: string, id: string, value: unknown) {
+    const { chat, controls } = await api.setControl(chatId, id, value);
+    setState(s => ({
+        chats: { ...s.chats, [chatId]: chat },
+        contexts: s.contexts[chatId] ? { ...s.contexts, [chatId]: { ...s.contexts[chatId], controls } } : s.contexts,
+    }));
+}
+
 export async function deleteChat(chatId: string) {
     await api.remove('chat', chatId);
     if (getState().activeChatId === chatId) {
@@ -296,6 +304,8 @@ export async function runGeneration(chatId: string, type: GenerationKind, text?:
         const chat = await api.get<Chat>('chat', chatId).catch(() => null);
         if (chat) setState(s => ({ chats: { ...s.chats, [chatId]: chat } }));
         void refresh();
+        // Plugins may change their switches after a reply (a note delivered, a mode returned).
+        void reloadContext(chatId).catch(() => {});
     }
 }
 

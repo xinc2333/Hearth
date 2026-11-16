@@ -21,6 +21,8 @@ export const SOURCE_LABELS: Record<string, string> = {
     cardEditor: 'AI 改卡说明',
     cardDocument: '卡片资料（目录和全文）',
     storyContext: '最近的剧情',
+    sent: '实际发送',
+    sentTool: '实际发送 · 工具结果',
     continueNudge: '继续提示',
     continuePrefill: '续写内容',
     impersonate: '代写提示',

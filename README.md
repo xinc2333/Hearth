@@ -142,7 +142,7 @@ npm run build
 | 前端卡（消息里的 HTML 界面、状态栏） | 在沙箱中渲染，提供酒馆助手常用接口和 jQuery、lodash |
 | MVU（MagVarUpdate） | 支持初始化、JSONPatch 和 `_.set` 更新，模型漏写时自动补全 |
 | EJS 提示词模板（ST-Prompt-Template） | 支持 `getvar`、`setvar`、`getwi`、`print` 等常用接口 |
-| Meowssiah / SPreset 类预设 | 内置适配：剥离控制标记，按预设配置附带回复工具 |
+| Meowssiah / SPreset 类预设 | 在沙箱中运行预设自带的请求脚本（Stage 1），发出的请求和酒馆里一致；小猫之神控制台（剧场 / 聊天、深度思考、纸条）在输入框里 |
 | 酒馆助手脚本、STscript 斜杠命令、酒馆第三方扩展 | 尚未支持（数据会保留） |
 | Text Completion / instruct 模板、群聊、`.charx` | 尚未支持 |
 
@@ -151,7 +151,7 @@ npm run build
 - 所有数据都在 `data/` 目录里，每个角色、世界书、预设、对话各是一个 JSON 文件；安装的插件和插件更新在 `data/plugins/`。备份时复制整个目录即可。
 - 服务只监听本机（`127.0.0.1`），并拒绝来自其他网站的请求。
 - 角色卡和预设里的代码在沙箱中运行：EJS 模板运行在 QuickJS（WebAssembly）里，访问不到文件和网络；消息里的 HTML 界面运行在隔离的 iframe 里。
-- 预设脚本引用的远程代码不会下载或执行。
+- 预设自带的请求脚本（如 SPreset 的 Stage 1）在沙箱中运行，访问不到网络。预设脚本引用的远程代码不会下载或执行，SPreset 的日志上传也没有实现。
 
 ## 开发
 

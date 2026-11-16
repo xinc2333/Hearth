@@ -70,12 +70,13 @@ async function errorText(res: Response): Promise<string> {
     }
 }
 
-export async function* streamChat(conn: Connection, key: string | undefined, req: ChatRequest, signal: AbortSignal): AsyncGenerator<StreamEvent> {
-    const stream = req.preset.context.stream;
+/** `prepared`: the final request body (after plugins' request hooks); built from `req` when absent. */
+export async function* streamChat(conn: Connection, key: string | undefined, req: ChatRequest, signal: AbortSignal, prepared?: Record<string, unknown>): AsyncGenerator<StreamEvent> {
+    const stream = prepared ? prepared.stream !== false : req.preset.context.stream;
     const res = await fetch(`${normalizeBase(conn.baseUrl)}/chat/completions`, {
         method: 'POST',
         headers: headers(conn, key),
-        body: JSON.stringify(buildBody(conn, req, stream)),
+        body: JSON.stringify(prepared ?? buildBody(conn, req, stream)),
         signal,
     });
     if (!res.ok) {

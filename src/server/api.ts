@@ -171,8 +171,20 @@ export function registerApi(router: Router, store: Store, runtime: Runtime, plug
             charName: character.name,
             regex: runtime.regexScripts(chat),
             preset: { id: runtime.preset(chat).id, name: runtime.preset(chat).name },
+            controls: plugins.controls({ chat, character, preset: runtime.preset(chat) }),
             busy: runtime.isBusy(chat.id) ?? null,
         };
+    });
+
+    // A plugin control (e.g. a preset's reply mode) changed in the composer.
+    router.post('/api/chats/:id/controls', async req => {
+        const body = await req.json<{ id: string; value: unknown }>();
+        const chat = store.require<Chat>('chat', req.params.id);
+        const character = store.require<Character>('character', chat.characterId);
+        const preset = runtime.preset(chat);
+        const ops = await plugins.changeControl(String(body.id), body.value, { chat, character, preset });
+        const next = ops.length ? (await store.apply({ target: { kind: 'chat', id: chat.id }, ops, author: 'user', journal: false })).resource as Chat : chat;
+        return { chat: next, controls: plugins.controls({ chat: next, character, preset }) };
     });
 
     router.post('/api/chats/:id/generate', async (req, res) => {

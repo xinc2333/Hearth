@@ -73,6 +73,7 @@ export const api = {
     history: (kind?: string, id?: string) => request<any[]>('GET', `/api/history?${kind && id ? `kind=${kind}&id=${id}&` : ''}limit=100`),
     importFile: (file: File) => request<{ created: { kind: ResourceKind; id: string; name: string }[] }>('POST', `/api/import?filename=${encodeURIComponent(file.name)}`, undefined, file),
     createChat: (characterId: string) => request<Chat>('POST', '/api/chats', { characterId }),
+    setControl: (chatId: string, id: string, value: unknown) => request<{ chat: Chat; controls: ChatControl[] }>('POST', `/api/chats/${chatId}/controls`, { id, value }),
     branchChat: (chatId: string, messageId: string, swipeId: string) =>
         request<Chat>('POST', `/api/chats/${chatId}/messages/${messageId}/swipes/${swipeId}/branch`),
     context: (chatId: string) => request<ChatContext>('GET', `/api/chats/${chatId}/context`),
@@ -97,7 +98,18 @@ export interface ChatContext {
     charName: string;
     regex: import('../core/types.ts').RegexScript[];
     preset: { id: string; name: string };
+    /** Switches plugins show in the composer (e.g. a preset's reply mode). */
+    controls: ChatControl[];
     busy: string | null;
+}
+
+export interface ChatControl {
+    id: string;
+    type: 'mode' | 'toggle' | 'note';
+    label: string;
+    value: unknown;
+    options?: [string, string][];
+    hint?: string;
 }
 
 export interface PromptPartView {
@@ -117,6 +129,8 @@ export interface PromptSnapshot {
     tokens: { total: number; budget: number; maxContext: number; maxTokens: number };
     lore: { bookId: string; bookName: string; entryId: string; title: string; position: string; reason: string; content: string }[];
     tools?: string[];
+    /** The request actually sent, when a plugin (e.g. the preset's own script) rewrote it. */
+    sent?: PromptPartView[];
 }
 
 export type GenerateEvent =

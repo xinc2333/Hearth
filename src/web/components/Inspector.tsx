@@ -11,7 +11,7 @@ import { Icon } from '../icons.tsx';
 import { change, confirmAction, loadPref, openChat, refresh, reportError, savePref, setState, toast, toggleInspector, useAppState, type InspectorTab } from '../state.ts';
 import { sourceLabel } from '../labels.ts';
 import { PresetManager } from './PresetManager.tsx';
-import { Button, Empty, Field, IconButton, LongText, Toggle, timeAgo } from './common.tsx';
+import { Button, Empty, Field, IconButton, LongText, Segmented, Toggle, timeAgo } from './common.tsx';
 
 // ---------------------------------------------------------------------------------------------
 // Prompt trace
@@ -37,6 +37,7 @@ function PromptTab({ chatId, preset }: { chatId: string; preset: Preset | null }
     const [preview, setPreview] = useState<PromptSnapshot | null>(null);
     const [loading, setLoading] = useState(false);
     const shown = preview ?? snapshot;
+    const [view, setView] = useState<'assembled' | 'sent'>('sent');
     const runPreview = async () => {
         setLoading(true);
         try {
@@ -78,8 +79,14 @@ function PromptTab({ chatId, preset }: { chatId: string; preset: Preset | null }
                             </ul>
                         </details>
                     )}
+                    {shown.sent && (
+                        <div className="notice small">
+                            <span>预设自己的请求脚本改写了这次请求{view === 'sent' ? '，下面是实际发给模型的内容' : '，下面是改写前的组装结果'}。</span>
+                            <Segmented label="查看" value={view} options={[['assembled', '组装结果'], ['sent', '实际发送']] as const} onChange={setView} />
+                        </div>
+                    )}
                     <div className="parts">
-                        {shown.parts.map((p, i) => <PartCard key={i} part={p} preset={preset} />)}
+                        {(view === 'sent' && shown.sent ? shown.sent : shown.parts).map((p, i) => <PartCard key={`${view}${i}`} part={p} preset={preset} />)}
                     </div>
                 </>
             )}
