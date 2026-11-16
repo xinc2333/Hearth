@@ -97,9 +97,12 @@ async function requestChat(conn: Connection, key: string | undefined, body: Reco
     return res;
 }
 
-export async function completeTurn(conn: Connection, key: string | undefined, req: ChatRequest, signal: AbortSignal) {
+export function buildTurnBody(conn: Connection, req: ChatRequest): Record<string, unknown> {
     const messages = conn.sendNames ? req.messages : stripNames(req.messages, req.names);
-    const body = { ...buildBody(conn, req, false), ...req.extra, messages, stream: false };
+    return { ...buildBody(conn, req, false), ...req.extra, messages, stream: false };
+}
+
+export async function completeTurn(conn: Connection, key: string | undefined, body: Record<string, unknown>, signal: AbortSignal) {
     const res = await requestChat(conn, key, body, signal);
     const json = await res.json() as { choices?: { message: AssistantTurn; finish_reason: string }[]; error?: { message: string } };
     const choice = json.choices?.[0];
