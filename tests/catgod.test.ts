@@ -1,14 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import { assemble } from '../src/core/assemble.ts';
-import { importCardFile } from '../src/core/compat/st-card.ts';
+import { importCard, importCardFile } from '../src/core/compat/st-card.ts';
 import { importStPreset } from '../src/core/compat/st-preset.ts';
 import { normalizeModelOutput, unescapeLiteral } from '../src/core/output.ts';
-import { DEFAULT_LORE_SETTINGS } from '../src/core/types.ts';
+import { DEFAULT_LORE_SETTINGS, type Chat } from '../src/core/types.ts';
 import { catgodAdapter, cleanCatgodText, isCatgodPreset } from '../src/server/builtin/catgod.ts';
 import { PluginHost } from '../src/server/plugins.ts';
+import { Runtime } from '../src/server/runtime.ts';
+import { Store } from '../src/server/store.ts';
 
 import { MEOWSSIAH as MEOW, SERAPHINA } from './fixtures.ts';
 
@@ -45,6 +50,66 @@ test('strips SPreset control markers and leaves the preset text as written', () 
     assert.equal(cleanCatgodText('<<<|catgodml|menu:角色控制:😸活人感加强>>>\n要有活人感'), '要有活人感');
     assert.equal(cleanCatgodText('<<<|catgodml|setLastMessage:你好>>>'), '');
     assert.equal(cleanCatgodText('普通文本\n\n不变'), '普通文本\n\n不变');
+});
+
+test('Catgod settings reach the provider and a preview does not consume the one-shot note', async t => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'hearth-catgod-'));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const store = new Store(dir);
+    store.load();
+    const preset = await store.create(importStPreset({
+        stream_openai: false,
+        prompts: [
+            { identifier: 'main', role: 'system', content: '<run_tool_replacement>\n<<<|catgodml|registerPart:story_body:剧场正文>>>\n继续故事。' },
+            { identifier: 'chatHistory', marker: true, system_prompt: true },
+            { identifier: 'SPresetSettings', content: JSON.stringify({ ToolBindings: { reply: { enabled: true, resolvedName: 'soliumbra_reply' } } }) },
+        ],
+    }, 'Meowssiah test', 'test.json'));
+    await store.saveSettings({ presetId: preset.id, connections: [{ id: 'test', name: 'Test', provider: 'openai-compatible', baseUrl: 'http://localhost/v1', model: 'test', sendNames: true }] });
+    const character = await store.create(importCard({ name: '测试角色', first_mes: '你好。' }, 'test.json').character);
+    const host = new PluginHost(store);
+    await host.use(catgodAdapter);
+    const runtime = new Runtime(store, host);
+    const chat = await runtime.createChat(character.id);
+    const note = { id: 'note', text: '这一轮聊聊雨天。' };
+    const target = { kind: 'chat' as const, id: chat.id };
+    await store.apply({ target, author: 'user', ops: [{ op: 'set', path: ['catgod'], value: { mode: 'chat', deepThink: true, note } }] });
+
+    const requests: { messages: { content: string }[]; tools: { function: { parameters: { properties: Record<string, { description: string }> } } }[] }[] = [];
+    t.mock.method(globalThis, 'fetch', async (_url: string, init: RequestInit) => {
+        requests.push(JSON.parse(String(init.body)));
+        return Response.json({ choices: [{ message: { tool_calls: [{ function: { name: 'soliumbra_reply', arguments: '{"game_content":"我们来聊雨天。"}' } }] } }] });
+    });
+
+    const preview = await runtime.preview(chat.id, '你好');
+    assert.ok(preview.messages.some(message => message.content.includes(note.text)));
+    assert.deepEqual(store.require<Chat>('chat', chat.id).catgod?.note, note);
+    await runtime.generate(chat.id, { type: 'normal', text: '你好' }, () => {});
+
+    const messageText = requests[0].messages.map(message => message.content).join('\n');
+    assert.match(messageText, /暂停推进剧场剧情/);
+    assert.match(messageText, /回复前仔细推演/);
+    assert.ok(messageText.includes(note.text));
+    const chatProperties = requests[0].tools[0].function.parameters.properties;
+    assert.deepEqual(Object.keys(chatProperties), ['think_nya', 'game_content']);
+    assert.match(chatProperties.think_nya.description, /回复前仔细推演/);
+    const updated = store.require<Chat>('chat', chat.id);
+    assert.equal(updated.catgod?.note, undefined);
+    assert.equal(updated.messages.at(-1)?.swipes[0].content, '我们来聊雨天。');
+
+    await store.apply({ target, author: 'user', ops: [{ op: 'set', path: ['catgod'], value: { mode: 'theater', deepThink: false } }] });
+    await runtime.generate(chat.id, { type: 'normal', text: '继续' }, () => {});
+    const theaterText = requests[1].messages.map(message => message.content).join('\n');
+    assert.doesNotMatch(theaterText, /暂停推进剧场剧情|回复前仔细推演|这一轮聊聊雨天/);
+    assert.deepEqual(Object.keys(requests[1].tools[0].function.parameters.properties), ['think_nya', 'story_body']);
+
+    const replacement = { id: 'replacement', text: '下一轮谈谈雪。' };
+    await store.apply({ target, author: 'user', ops: [{ op: 'set', path: ['catgod', 'note'], value: note }] });
+    await host.use({ id: 'replace-note', setup: api => api.onAfterReceive(async () => {
+        await store.apply({ target, author: 'user', ops: [{ op: 'set', path: ['catgod', 'note'], value: replacement }] });
+    }) });
+    await runtime.generate(chat.id, { type: 'normal', text: '下一轮' }, () => {});
+    assert.deepEqual(store.require<Chat>('chat', chat.id).catgod?.note, replacement);
 });
 
 test('Meowssiah prompt has no control markers after the adapter runs', { skip: !existsSync(MEOW) || !existsSync(SERAPHINA) }, async () => {

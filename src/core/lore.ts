@@ -6,6 +6,18 @@
 import type { LoreEntry, LoreSettings, Lorebook, Role, TimedEffect, TimedLoreState } from './types.ts';
 import { escapeRegex, hashString } from './util.ts';
 
+export function newLoreEntry(book: Lorebook, fields: Pick<LoreEntry, 'title' | 'content' | 'keys'>): LoreEntry {
+    const maxId = Math.max(-1, ...book.entries.map(entry => Number(entry.id)).filter(Number.isFinite));
+    return {
+        id: String(maxId + 1), ...fields, enabled: true, activation: 'keyword', secondaryKeys: [], logic: 'and_any',
+        position: 'before_char', depth: 4, role: 'system', outlet: '', order: 100, probability: 100, useProbability: true, ignoreBudget: false,
+        recursion: { exclude: false, prevent: false, delayUntil: 0 }, group: { names: '', override: false, weight: 100, scoring: null },
+        timed: { sticky: null, cooldown: null, delay: null },
+        match: { scanDepth: null, caseSensitive: null, wholeWords: null, personaDescription: false, characterDescription: false, characterPersonality: false, characterDepthPrompt: false, scenario: false, creatorNotes: false },
+        filter: { characters: [], tags: [], exclude: false }, triggers: [], automationId: '',
+    };
+}
+
 export type LoreScope = 'chat' | 'persona' | 'character' | 'global';
 
 export interface LoreSource {

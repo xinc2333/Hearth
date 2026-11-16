@@ -28,6 +28,9 @@ export interface AssembleContext {
 
 export interface ReceiveContext {
     chat: Chat;
+    /** Chat snapshot used to assemble the request. */
+    initialChat: Chat;
+    parts: AssembleResult['parts'];
     character: Character;
     preset: Preset;
     message: ChatMessage;
@@ -40,8 +43,8 @@ export interface ReceiveContext {
 export interface ReceiveResult {
     /** Replacement text for the swipe. */
     text?: string;
-    /** Extra ops on the chat (paths relative to the chat resource). */
-    ops?: Op[];
+    /** Extra chat ops, optionally resolved against the latest chat at commit time. */
+    ops?: Op[] | ((chat: Chat) => Op[]);
 }
 
 export interface ChatCreateContext {

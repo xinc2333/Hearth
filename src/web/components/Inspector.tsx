@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { describeOp, type Op } from '../../core/ops.ts';
+import { newLoreEntry } from '../../core/lore.ts';
 import { stateAt, toYaml } from '../../core/state.ts';
 import { estimateTokens } from '../../core/tokens.ts';
 import type { Character, CharacterFields, Chat, LoreEntry, LoreLogic, LorePosition, Lorebook, Preset } from '../../core/types.ts';
@@ -330,17 +331,7 @@ function LoreTab({ characterId }: { characterId: string }) {
     };
     const addEntry = async () => {
         if (!book) return;
-        const maxId = Math.max(-1, ...book.entries.map(e => Number(e.id)).filter(Number.isFinite));
-        const template = book.entries[0] ?? null;
-        const entry: LoreEntry = {
-            ...(template ? structuredClone(template) : {} as LoreEntry),
-            id: String(maxId + 1), title: '新条目', content: '', enabled: true, activation: 'keyword', keys: [], secondaryKeys: [], logic: 'and_any',
-            position: 'before_char', depth: 4, role: 'system', outlet: '', order: 100, probability: 100, useProbability: true, ignoreBudget: false,
-            recursion: { exclude: false, prevent: false, delayUntil: 0 }, group: { names: '', override: false, weight: 100, scoring: null },
-            timed: { sticky: null, cooldown: null, delay: null },
-            match: { scanDepth: null, caseSensitive: null, wholeWords: null, personaDescription: false, characterDescription: false, characterPersonality: false, characterDepthPrompt: false, scenario: false, creatorNotes: false },
-            filter: { characters: [], tags: [], exclude: false }, triggers: [], automationId: '', extra: undefined,
-        };
+        const entry = newLoreEntry(book, { title: '新条目', content: '', keys: [] });
         await apply([{ op: 'insert', path: ['entries'], value: entry }], '新增世界书条目');
         setEntryId(entry.id);
     };
@@ -409,8 +400,9 @@ function PresetTab() {
 
 function HistoryTab({ chatId }: { chatId: string }) {
     const [items, setItems] = useState<any[] | null>(null);
+    const busy = useAppState(s => s.streaming?.chatId === chatId);
     const load = () => void api.history().then(list => setItems(list.filter(c => c.ops.length > 0 || c.reason))).catch(reportError);
-    useEffect(load, []);
+    useEffect(load, [busy]);
     const kindLabel: Record<string, string> = { character: '角色卡', lorebook: '世界书', preset: '预设', persona: '用户角色', chat: '对话' };
     const authorLabel: Record<string, string> = { user: '你', ai: 'AI', script: '脚本', system: '系统' };
     return (

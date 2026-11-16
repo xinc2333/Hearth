@@ -46,7 +46,7 @@ function wrapTag(value: string, tag: string | null): string {
 }
 
 /** Formats reply-tool arguments as tagged text (SPreset toolCallFormatter). */
-export function formatReplyArgs(args: Record<string, unknown>): string {
+export function formatReplyArgs(args: Record<string, unknown>, wrapGame = true): string {
     if (typeof args.content === 'string' && Object.keys(args).length === 1) {
         return args.content;
     }
@@ -59,7 +59,8 @@ export function formatReplyArgs(args: Record<string, unknown>): string {
         if (key === 'think_nya') {
             value = value.replace(/`{3,}/g, '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         }
-        let wrapped = wrapTag(value, TAGS[key] ?? null);
+        const tag = TAGS[key] ?? null;
+        let wrapped = wrapTag(value, tag === 'game' && !wrapGame ? null : tag);
         if (key === 'think_nya' && wrapped && !wrapped.includes('<!--</think>-->')) {
             wrapped += '<!--</think>-->';
         }
@@ -96,7 +97,7 @@ const WRAPPER_START = /^(?:\s*(?:<[|｜][^>\n]{0,48}[|｜]>|<\/?tool_call>|[a-z_
 const WRAPPER_END = /\)?\s*(?:<\/?[|｜]?[^>\n]{0,48}[|｜]?>|<\/tool_call>)*\s*$/;
 
 /** If the whole reply is (possibly fenced, wrapped or truncated) reply-tool JSON, format it. */
-function fromReplyJson(text: string): string | null {
+function fromReplyJson(text: string, wrapGame: boolean): string | null {
     let body = text.trim();
     const fence = body.match(/^```(?:json)?\s*\n?([\s\S]*?)(?:\n?```)?$/);
     if (fence && fence[1].trim().startsWith('{')) body = fence[1].trim();
@@ -118,7 +119,7 @@ function fromReplyJson(text: string): string | null {
         args = parsePartialArgs(body);
     }
     if (!args || !Object.keys(args).length) return null;
-    return formatReplyArgs(args);
+    return formatReplyArgs(args, wrapGame);
 }
 
 /** Replaces literal \n, \t and \" escapes outside code blocks when the text is evidently escaped. */
@@ -137,14 +138,14 @@ export function unescapeLiteral(text: string): string {
 
 const INLINE_CALL = /(?:<[|｜][^>\n]{0,48}[|｜]>\s*(?:[a-z_]{2,40}\s*)?)+(?=\{)/i;
 
-export function normalizeModelOutput(text: string): string {
+export function normalizeModelOutput(text: string, wrapGame = true): string {
     if (!text) return text;
-    let formatted = fromReplyJson(text);
+    let formatted = fromReplyJson(text, wrapGame);
     if (formatted === null) {
         // Prose first (e.g. thinking), then a pseudo tool call carrying the reply.
         const m = text.match(INLINE_CALL);
         if (m && m.index) {
-            const tail = fromReplyJson(text.slice(m.index));
+            const tail = fromReplyJson(text.slice(m.index), wrapGame);
             if (tail !== null) formatted = `${text.slice(0, m.index).trimEnd()}\n${tail}`;
         }
     }

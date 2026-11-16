@@ -1,13 +1,14 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import type { Chat, ChatMessage, RegexScript } from '../../core/types.ts';
+import type { CatgodOptions, Chat, ChatMessage, RegexScript } from '../../core/types.ts';
 import { api, type ChatContext } from '../api.ts';
 import { Icon } from '../icons.tsx';
 import { normalizeModelOutput } from '../../core/output.ts';
 import { stateAt } from '../../core/state.ts';
+import { newId } from '../../core/util.ts';
 import { countChars, displayText, frameDocument, renderSegments, type FrameVars } from '../render.ts';
 import {
-    changeChat, getState, openChat, reportError, runGeneration, setState, stopGeneration, toast, toggleInspector, toggleSidebar,
+    branchChat, changeChat, getState, openChat, reportError, runGeneration, setState, stopGeneration, toast, toggleInspector, toggleSidebar,
     useAppState, useReading, type Streaming,
 } from '../state.ts';
 import { AutoTextarea, Avatar, Button, clockTime, Empty, IconButton, isModalOpen } from './common.tsx';
@@ -28,7 +29,7 @@ function runCardCommand(command: string) {
         if (!m) continue;
         const [, name, arg] = m;
         if (name === 'setinput') window.dispatchEvent(new CustomEvent('hearth:setinput', { detail: arg }));
-        else if (name === 'send') void runGeneration(chatId, 'normal', arg);
+        else if (name === 'send') void runGeneration(chatId, 'normal', arg, 'card');
         else if (name === 'trigger') void runGeneration(chatId, 'normal');
     }
 }
@@ -109,16 +110,18 @@ const MessageView = memo(function MessageView({ chat, message, index, isLast, co
     globalVars?: Record<string, unknown>;
 }) {
     const [editing, setEditing] = useState<string | null>(null);
+    const [branching, setBranching] = useState(false);
     const swipe = message.swipes[message.activeSwipe] ?? message.swipes[0];
     const raw = live ? live.prefix + live.text : swipe?.content ?? '';
     const reasoning = live ? live.reasoning : swipe?.reasoning;
     const depth = chat.messages.length - 1 - index;
     const regex: RegexScript[] = context?.regex ?? [];
     const isUser = message.role === 'user';
-    const text = useMemo(() => displayText(isUser ? raw : normalizeModelOutput(raw), {
+    const wrapGame = !(live && context?.preset.catgod && chat.catgod?.mode === 'chat');
+    const text = useMemo(() => displayText(isUser ? raw : normalizeModelOutput(raw, wrapGame), {
         regex, user: context?.userName ?? '', char: context?.charName ?? '',
         placement: isUser ? 'user_input' : 'ai_output', depth,
-    }), [raw, regex, context?.userName, context?.charName, isUser, depth]);
+    }), [raw, regex, context?.userName, context?.charName, isUser, depth, wrapGame]);
     const chars = useMemo(() => (live ? 0 : countChars(text)), [text, live]);
     const vars = useMemo<FrameVars>(() => ({
         message: stateAt(chat.messages, index) ?? {},
@@ -148,6 +151,16 @@ const MessageView = memo(function MessageView({ chat, message, index, isLast, co
             toast('已删除这条消息', 'info', { label: '撤销', run: () => void api.revert(change.id).then(() => openChat(chat.id)).catch(reportError) });
         } catch (error) {
             reportError(error);
+        }
+    };
+    const branch = async () => {
+        setBranching(true);
+        try {
+            await branchChat(chat.id, message.id, swipe.id);
+        } catch (error) {
+            reportError(error);
+        } finally {
+            setBranching(false);
         }
     };
     const lastSwipe = message.activeSwipe === message.swipes.length - 1;
@@ -200,6 +213,7 @@ const MessageView = memo(function MessageView({ chat, message, index, isLast, co
                         </span>
                     )}
                     <IconButton icon="copy" label="复制" size={14} onClick={() => { void navigator.clipboard.writeText(swipe.content); toast('已复制'); }} />
+                    {message.role === 'assistant' && <IconButton icon="branch" label="从此处创建分支" size={14} disabled={busy || branching} onClick={() => void branch()} />}
                     <IconButton icon="edit" label="编辑" size={14} disabled={busy} onClick={() => setEditing(swipe.content)} />
                     {!isUser && isLast && <IconButton icon="refresh" label="重新生成" size={14} disabled={busy} onClick={() => void runGeneration(chat.id, 'regenerate')} />}
                     {!isUser && isLast && <IconButton icon="forward" label="继续写" size={14} disabled={busy} onClick={() => void runGeneration(chat.id, 'continue')} />}
@@ -213,8 +227,9 @@ const MessageView = memo(function MessageView({ chat, message, index, isLast, co
     );
 });
 
-function Composer({ chatId }: { chatId: string }) {
+function Composer({ chatId, catgod }: { chatId: string; catgod?: CatgodOptions }) {
     const streaming = useAppState(s => s.streaming);
+    const [saving, setSaving] = useState(false);
     const [text, setText] = useState(() => { try { return localStorage.getItem(`hearth.draft.${chatId}`) ?? ''; } catch { return ''; } });
     useEffect(() => {
         try { localStorage.setItem(`hearth.draft.${chatId}`, text); } catch { /* ignore */ }
@@ -226,14 +241,43 @@ function Composer({ chatId }: { chatId: string }) {
     }, []);
     const busy = streaming?.chatId === chatId;
     const written = busy ? streaming.text.length : 0;
+    const save = async <K extends keyof CatgodOptions>(key: K, value: CatgodOptions[K], reason: string) => {
+        setSaving(true);
+        try {
+            await changeChat(chatId, [value === undefined
+                ? { op: 'unset', path: ['catgod', key] }
+                : { op: 'set', path: ['catgod', key], value }], reason);
+        } catch (error) {
+            reportError(error);
+        } finally {
+            setSaving(false);
+        }
+    };
     const send = () => {
-        if (busy) return;
+        if (busy || saving) return;
         const value = text;
         setText('');
         void runGeneration(chatId, 'normal', value);
     };
     return (
         <div className="composer">
+            {catgod && <form onSubmit={e => {
+                e.preventDefault();
+                const note = (new FormData(e.currentTarget).get('note') as string).trim();
+                if (note === (catgod.note?.text ?? '')) return;
+                void save('note', note ? { id: newId('note'), text: note } : undefined, note ? '保存临时纸条' : '清空临时纸条');
+            }}>
+                <fieldset className="composer-options inline-fields" disabled={busy || saving} aria-label="猫神预设选项">
+                    <select aria-label="回复模式" value={catgod.mode ?? 'theater'} onChange={e => void save('mode', e.target.value as CatgodOptions['mode'], '切换回复模式')}>
+                        <option value="theater">剧场模式</option>
+                        <option value="chat">聊天模式</option>
+                    </select>
+                    <label><input type="checkbox" checked={catgod.deepThink ?? false} onChange={e => void save('deepThink', e.target.checked, '调整深度思考')} />深度思考</label>
+                    {catgod.mode === 'chat' && <label><input type="checkbox" checked={catgod.editCard ?? false} onChange={e => void save('editCard', e.target.checked, e.target.checked ? '开启编辑卡片' : '关闭编辑卡片')} />编辑卡片</label>}
+                    <input key={catgod.note?.id} name="note" aria-label="临时纸条" defaultValue={catgod.note?.text ?? ''} placeholder="临时纸条 · 下一次回复使用" />
+                    <Button type="submit" variant="ghost">存纸条</Button>
+                </fieldset>
+            </form>}
             <AutoTextarea
                 value={text}
                 minRows={1}
@@ -257,7 +301,7 @@ function Composer({ chatId }: { chatId: string }) {
                 </span>
                 {busy
                     ? <button className="send-btn stop" onClick={() => void stopGeneration()} title="停止（Esc）" aria-label="停止"><Icon name="stop" size={15} /></button>
-                    : <button className="send-btn" onClick={send} title="发送（Enter）" aria-label="发送"><Icon name="send" size={16} /></button>}
+                    : <button className="send-btn" onClick={send} disabled={saving} title="发送（Enter）" aria-label="发送"><Icon name="send" size={16} /></button>}
             </div>
         </div>
     );
@@ -533,7 +577,7 @@ export function ChatView() {
                         <span>{live ? '正在生成，回到最新' : '回到最新'}</span>
                     </button>
                 )}
-                <Composer key={chat.id} chatId={chat.id} />
+                <Composer key={chat.id} chatId={chat.id} catgod={context?.preset.catgod ? chat.catgod ?? {} : undefined} />
             </div>
         </main>
     );

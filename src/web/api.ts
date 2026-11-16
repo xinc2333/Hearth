@@ -58,6 +58,8 @@ export const api = {
     history: (kind?: string, id?: string) => request<any[]>('GET', `/api/history?${kind && id ? `kind=${kind}&id=${id}&` : ''}limit=100`),
     importFile: (file: File) => request<{ created: { kind: ResourceKind; id: string; name: string }[] }>('POST', `/api/import?filename=${encodeURIComponent(file.name)}`, undefined, file),
     createChat: (characterId: string) => request<Chat>('POST', '/api/chats', { characterId }),
+    branchChat: (chatId: string, messageId: string, swipeId: string) =>
+        request<Chat>('POST', `/api/chats/${chatId}/messages/${messageId}/swipes/${swipeId}/branch`),
     context: (chatId: string) => request<ChatContext>('GET', `/api/chats/${chatId}/context`),
     preview: (chatId: string, text?: string) => request<PromptSnapshot>('POST', `/api/chats/${chatId}/preview`, { text }),
     lastPrompt: (chatId: string) => request<PromptSnapshot | null>('GET', `/api/chats/${chatId}/last-prompt`),
@@ -74,7 +76,7 @@ export interface ChatContext {
     userName: string;
     charName: string;
     regex: import('../core/types.ts').RegexScript[];
-    preset: { id: string; name: string };
+    preset: { id: string; name: string; catgod: boolean };
     busy: string | null;
 }
 
@@ -102,12 +104,13 @@ export type GenerateEvent =
     | ({ type: 'prompt' } & PromptSnapshot)
     | { type: 'text'; text: string }
     | { type: 'reasoning'; text: string }
+    | { type: 'card-edit'; reason: string }
     | { type: 'finalizing' }
     | { type: 'done'; message: import('../core/types.ts').ChatMessage }
     | { type: 'error'; error: string; message?: import('../core/types.ts').ChatMessage };
 
 /** Starts a generation and calls `onEvent` for each server-sent event. */
-export async function generate(chatId: string, body: { type: string; text?: string }, onEvent: (e: GenerateEvent) => void): Promise<void> {
+export async function generate(chatId: string, body: { type: string; text?: string; source?: 'card' }, onEvent: (e: GenerateEvent) => void): Promise<void> {
     const res = await fetch(`/api/chats/${chatId}/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

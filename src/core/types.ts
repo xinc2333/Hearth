@@ -311,6 +311,8 @@ export interface Swipe {
      * of the timeline, so switching swipes or branches switches state for free.
      */
     state?: Record<string, unknown>;
+    /** Chat-scoped engine state at the end of this reply, used when branching from it. */
+    chatState?: { variables: Chat['variables']; runtime: Chat['runtime'] };
 }
 
 export interface ChatMessage {
@@ -335,6 +337,13 @@ export interface AuthorsNote {
     scan: boolean;
 }
 
+export interface CatgodOptions {
+    mode?: 'theater' | 'chat';
+    editCard?: boolean;
+    deepThink?: boolean;
+    note?: { id: string; text: string };
+}
+
 export interface Chat extends ResourceBase {
     kind: 'chat';
     characterId: string;
@@ -345,6 +354,7 @@ export interface Chat extends ResourceBase {
     /** Chat-scoped variables ({{setvar}} / {{getvar}}). */
     variables: Record<string, unknown>;
     authorsNote: AuthorsNote;
+    catgod?: CatgodOptions;
     /** Engine bookkeeping (e.g. world info sticky/cooldown timers). */
     runtime: {
         timedLore?: TimedLoreState;

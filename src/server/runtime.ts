@@ -7,9 +7,12 @@ import type { LoreSource } from '../core/lore.ts';
 import { createMacroContext, evaluateMacros } from '../core/macros.ts';
 import type { Op } from '../core/ops.ts';
 import { applyRegex } from '../core/regex.ts';
+import { estimateTokens, MESSAGE_OVERHEAD } from '../core/tokens.ts';
 import type { Character, Chat, ChatMessage, Connection, Lorebook, Persona, Preset, RegexScript, Swipe } from '../core/types.ts';
 import { newId } from '../core/util.ts';
-import type { PluginHost } from './plugins.ts';
+import { isCatgodPreset } from './builtin/catgod.ts';
+import { CARD_EDITOR_INSTRUCTION, CARD_EDITOR_TOOLS, editCard } from './card-editor.ts';
+import type { PluginHost, ReceiveResult } from './plugins.ts';
 import { streamChat } from './providers/openai.ts';
 import type { Store } from './store.ts';
 
@@ -18,6 +21,7 @@ export type GenerateEvent =
     | { type: 'prompt'; parts: AssembleResult['parts']; warnings: string[]; tokens: AssembleResult['tokens']; lore: AssembleResult['lore']['activated']; tools: string[] }
     | { type: 'text'; text: string }
     | { type: 'reasoning'; text: string }
+    | { type: 'card-edit'; reason: string }
     | { type: 'finalizing' }
     | { type: 'done'; message: ChatMessage }
     | { type: 'error'; error: string; message?: ChatMessage };
@@ -26,6 +30,12 @@ interface Job {
     id: string;
     chatId: string;
     controller: AbortController;
+}
+
+interface GenerationRequest {
+    type: GenerationType;
+    text?: string;
+    source?: 'card';
 }
 
 export interface PromptSnapshot {
@@ -242,6 +252,35 @@ export class Runtime {
         return this.store.create(chat);
     }
 
+    async branchChat(chatId: string, messageId: string, swipeId: string): Promise<Chat> {
+        if (this.isBusy(chatId)) {
+            throw Object.assign(new Error('请等当前回复生成结束后再创建分支'), { status: 409 });
+        }
+        const source = this.store.require<Chat>('chat', chatId);
+        const index = source.messages.findIndex(message => message.id === messageId && message.role === 'assistant');
+        const anchor = source.messages[index];
+        const swipe = anchor?.swipes.find(candidate => candidate.id === swipeId);
+        if (!swipe) {
+            throw Object.assign(new Error('找不到要创建分支的回复版本'), { status: 404 });
+        }
+
+        const messages = source.messages.slice(0, index);
+        messages.push({ ...anchor, swipes: [swipe], activeSwipe: 0 });
+        const atCurrentReply = index === source.messages.length - 1 && anchor.swipes[anchor.activeSwipe] === swipe;
+        const chatState = atCurrentReply ? source : swipe.chatState;
+        const now = Date.now();
+        return this.store.create(structuredClone({
+            ...source,
+            id: newId('chat'),
+            name: `${source.name} · 分支 #${index + 1}`,
+            messages,
+            variables: chatState?.variables ?? source.variables,
+            runtime: chatState?.runtime ?? {},
+            createdAt: now,
+            updatedAt: now,
+        }));
+    }
+
     // ------------------------------------------------------------------------------------------
     // Generation
     // ------------------------------------------------------------------------------------------
@@ -264,10 +303,21 @@ export class Runtime {
         return [...this.jobs.values()].find(j => j.chatId === chatId)?.id;
     }
 
-    async generate(chatId: string, req: { type: GenerationType; text?: string }, emit: (e: GenerateEvent) => void): Promise<void> {
+    async generate(chatId: string, req: GenerationRequest, emit: (e: GenerateEvent) => void): Promise<void> {
         if (this.isBusy(chatId)) {
             throw Object.assign(new Error('这个对话正在生成中'), { status: 409 });
         }
+        const job: Job = { id: newId('job'), chatId, controller: new AbortController() };
+        this.jobs.set(job.id, job);
+        try {
+            await this.runGeneration(job, req, emit);
+        } finally {
+            this.jobs.delete(job.id);
+        }
+    }
+
+    private async runGeneration(job: Job, req: GenerationRequest, emit: (e: GenerateEvent) => void) {
+        const { chatId } = job;
         const link = this.connection();
         if (!link || !link.conn.baseUrl || !link.conn.model) {
             throw Object.assign(new Error('还没有配置模型连接：请先在「设置 → 模型连接」里填写接口地址和模型'), { status: 400 });
@@ -288,11 +338,22 @@ export class Runtime {
         }
         const context = type === 'swipe' || type === 'regenerate' ? chat.messages.slice(0, -1) : chat.messages;
 
-        const input = this.buildInput(chat, type, context);
-        const result = await this.runAssemble(chat, input);
+        const initialChat = chat;
+        const input = this.buildInput(initialChat, type, context);
+        const result = await this.runAssemble(initialChat, input);
+        const editing = type === 'normal' && req.source !== 'card' && Boolean(req.text?.trim())
+            && chat.catgod?.mode === 'chat' && chat.catgod.editCard === true && isCatgodPreset(input.preset);
+        if (editing) {
+            const tokens = estimateTokens(CARD_EDITOR_INSTRUCTION) + MESSAGE_OVERHEAD;
+            const instruction = { role: 'system' as const, content: CARD_EDITOR_INSTRUCTION };
+            result.parts.unshift({ ...instruction, sources: ['cardEditor'], tokens });
+            result.messages.unshift(instruction);
+            result.tokens.total += tokens;
+        }
         const snapshot: PromptSnapshot = {
             at: Date.now(), type, model: link.conn.model,
-            parts: result.parts, warnings: result.warnings, tokens: result.tokens, lore: result.lore.activated, tools: toolNames(result.request),
+            parts: result.parts, warnings: result.warnings, tokens: result.tokens, lore: result.lore.activated,
+            tools: editing ? toolNames({ tools: CARD_EDITOR_TOOLS }) : toolNames(result.request),
         };
         this.lastPrompts.set(chat.id, snapshot);
 
@@ -333,8 +394,6 @@ export class Runtime {
             await this.store.saveSettings({ globalVariables: result.variables.global });
         }
 
-        const job: Job = { id: newId('job'), chatId: chat.id, controller: new AbortController() };
-        this.jobs.set(job.id, job);
         emit({ type: 'job', jobId: job.id, messageId, swipeId, prefix });
         emit({ type: 'prompt', parts: result.parts, warnings: result.warnings, tokens: result.tokens, lore: result.lore.activated, tools: snapshot.tools });
 
@@ -348,13 +407,13 @@ export class Runtime {
         let reasoning = '';
         let finish: Swipe['finish'] = 'stop';
         let error: string | undefined;
+        const modelRequest = {
+            messages: result.messages,
+            preset: input.preset,
+            names: { user: input.userName, char: character.name },
+        };
         const run = async (extra?: Record<string, unknown>) => {
-            const stream = streamChat(link.conn, link.key, {
-                messages: result.messages,
-                preset: input.preset,
-                names: { user: input.userName, char: character.name },
-                extra,
-            }, job.controller.signal);
+            const stream = streamChat(link.conn, link.key, { ...modelRequest, extra }, job.controller.signal);
             let lastFlush = Date.now();
             for await (const ev of stream) {
                 if (ev.type === 'text') {
@@ -375,13 +434,21 @@ export class Runtime {
             }
         };
         try {
-            try {
-                await run(result.request);
-            } catch (e) {
-                // Some endpoints reject tools; retry once with the plain request.
-                if (!result.request || text || job.controller.signal.aborted) throw e;
-                console.warn('[runtime] 接口不接受预设附带的工具，改用普通请求重试：', (e as Error).message);
-                await run(undefined);
+            if (editing) {
+                const reply = await editCard(this.store, character.id, link.conn, link.key, modelRequest, job.controller.signal,
+                    reason => emit({ type: 'card-edit', reason }));
+                text = reply.text;
+                finish = reply.finish;
+                if (text) emit({ type: 'text', text });
+            } else {
+                try {
+                    await run(result.request);
+                } catch (e) {
+                    // Some endpoints reject preset reply tools; retry once with the plain request.
+                    if (!result.request || text || job.controller.signal.aborted) throw e;
+                    console.warn('[runtime] 接口不接受预设附带的工具，改用普通请求重试：', (e as Error).message);
+                    await run(undefined);
+                }
             }
         } catch (e) {
             if (job.controller.signal.aborted) {
@@ -390,8 +457,6 @@ export class Runtime {
                 finish = 'error';
                 error = (e as Error).message;
             }
-        } finally {
-            this.jobs.delete(job.id);
         }
 
         // Commit: AI-output regex, plugin post-processing, then one change set for the swipe.
@@ -401,12 +466,13 @@ export class Runtime {
         if (finish !== 'error' || text) {
             content = applyRegex(this.regexScripts(current), content, 'ai_output', { macros: t => this.macroText(t, current, character) });
         }
-        const extraOps: Op[] = [];
+        const extraOps: NonNullable<ReceiveResult['ops']>[] = [];
         for (const fn of this.plugins.receive) {
-            const out = await fn({ chat: current, character, preset: input.preset, message, swipe, text: content, finish: finish ?? 'stop' });
+            const out = await fn({ chat: current, initialChat, parts: result.parts, character, preset: input.preset, message, swipe, text: content, finish: finish ?? 'stop' });
             if (out?.text !== undefined) content = out.text;
-            if (out?.ops) extraOps.push(...out.ops);
+            if (out?.ops) extraOps.push(out.ops);
         }
+        const latestChat = this.store.require<Chat>('chat', chatId);
         const finalSwipe: Swipe = {
             ...swipe,
             content,
@@ -414,10 +480,12 @@ export class Runtime {
             finish,
             ...(error ? { error } : {}),
             model: link.conn.model,
+            chatState: { variables: latestChat.variables, runtime: latestChat.runtime },
         };
+        const commitOps = extraOps.flatMap(ops => typeof ops === 'function' ? ops(latestChat) : ops);
         const committed = await this.store.apply({
             target: { kind: 'chat', id: chatId },
-            ops: [{ op: 'set', path: ['messages', `@${messageId}`, 'swipes', `@${swipeId}`], value: finalSwipe }, ...extraOps],
+            ops: [{ op: 'set', path: ['messages', `@${messageId}`, 'swipes', `@${swipeId}`], value: finalSwipe }, ...commitOps],
             author: 'system',
             journal: false,
         });

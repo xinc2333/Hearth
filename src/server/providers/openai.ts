@@ -8,8 +8,21 @@ export type StreamEvent =
     | { type: 'reasoning'; text: string }
     | { type: 'done'; finish: 'stop' | 'length'; usage?: unknown };
 
+export interface ToolCall {
+    id: string;
+    type: 'function';
+    function: { name: string; arguments: string };
+}
+
+export interface AssistantTurn {
+    role: 'assistant';
+    content: string | null;
+    tool_calls?: ToolCall[];
+    reasoning_content?: string;
+}
+
 export interface ChatRequest {
-    messages: { role: Role; content: string; name?: string }[];
+    messages: ({ role: Role; content: string; name?: string } | AssistantTurn | { role: 'tool'; tool_call_id: string; content: string })[];
     preset: Preset;
     names: { user: string; char: string };
     /** Extra request fields contributed by the preset (e.g. its reply tool and tool_choice). */
@@ -23,14 +36,15 @@ function normalizeBase(url: string) {
 /** Prefixes example-dialogue names into content for endpoints that reject `name` (ST xAI converter). */
 function stripNames(messages: ChatRequest['messages'], names: ChatRequest['names']) {
     return messages.map(m => {
-        if (!m.name) return { role: m.role, content: m.content };
-        let content = m.content;
-        if (m.role === 'system' && m.name === 'example_user' && !content.startsWith(`${names.user}: `)) {
+        if (!('name' in m) || !m.name) return m;
+        const { name, ...message } = m;
+        let { content } = message;
+        if (message.role === 'system' && name === 'example_user' && !content.startsWith(`${names.user}: `)) {
             content = `${names.user}: ${content}`;
-        } else if (m.role === 'system' && m.name === 'example_assistant' && !content.startsWith(`${names.char}: `)) {
+        } else if (message.role === 'system' && name === 'example_assistant' && !content.startsWith(`${names.char}: `)) {
             content = `${names.char}: ${content}`;
         }
-        return { role: m.role, content };
+        return { ...message, content };
     });
 }
 
@@ -70,17 +84,32 @@ async function errorText(res: Response): Promise<string> {
     }
 }
 
-export async function* streamChat(conn: Connection, key: string | undefined, req: ChatRequest, signal: AbortSignal): AsyncGenerator<StreamEvent> {
-    const stream = req.preset.context.stream;
+async function requestChat(conn: Connection, key: string | undefined, body: Record<string, unknown>, signal: AbortSignal) {
     const res = await fetch(`${normalizeBase(conn.baseUrl)}/chat/completions`, {
         method: 'POST',
         headers: headers(conn, key),
-        body: JSON.stringify(buildBody(conn, req, stream)),
+        body: JSON.stringify(body),
         signal,
     });
     if (!res.ok) {
         throw new Error(`接口返回 ${res.status}：${await errorText(res)}`);
     }
+    return res;
+}
+
+export async function completeTurn(conn: Connection, key: string | undefined, req: ChatRequest, signal: AbortSignal) {
+    const messages = conn.sendNames ? req.messages : stripNames(req.messages, req.names);
+    const body = { ...buildBody(conn, req, false), ...req.extra, messages, stream: false };
+    const res = await requestChat(conn, key, body, signal);
+    const json = await res.json() as { choices?: { message: AssistantTurn; finish_reason: string }[]; error?: { message: string } };
+    const choice = json.choices?.[0];
+    if (!choice?.message) throw new Error(json.error?.message ?? '模型接口未返回编辑回复');
+    return { message: choice.message, finish: choice.finish_reason === 'length' ? 'length' as const : 'stop' as const };
+}
+
+export async function* streamChat(conn: Connection, key: string | undefined, req: ChatRequest, signal: AbortSignal): AsyncGenerator<StreamEvent> {
+    const stream = req.preset.context.stream;
+    const res = await requestChat(conn, key, buildBody(conn, req, stream), signal);
     const type = res.headers.get('content-type') ?? '';
     if (!stream || !type.includes('event-stream') || !res.body) {
         const json = await res.json() as Record<string, any>;

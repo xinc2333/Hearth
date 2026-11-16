@@ -112,10 +112,11 @@ test('MVU asks for the update when the model forgets it', { skip: !existsSync(CA
     await host.use(mvuPlugin);
     const reply: ChatMessage = { id: 'm2', role: 'assistant', name: character.name, hidden: false, createdAt: 0, activeSwipe: 0, swipes: [{ id: 's2', content: '', createdAt: 0 }] };
     const chat = { messages: [{ id: 'm0', role: 'assistant', name: '', hidden: false, createdAt: 0, activeSwipe: 0, swipes: [{ id: 's0', content: '', createdAt: 0, state: { stat_data: init } }] }, reply] };
-    const out = await host.receive[0]({ chat: chat as never, character, preset: {} as never, message: reply, swipe: reply.swipes[0], text: '她点了点头。', finish: 'stop' });
+    const out = await host.receive[0]({ chat: chat as never, initialChat: chat as never, parts: [], character, preset: {} as never, message: reply, swipe: reply.swipes[0], text: '她点了点头。', finish: 'stop' });
     assert.ok(asked.includes('变量更新规则'));
     assert.ok(out && out.text?.includes('<UpdateVariable>') && out.text.endsWith('<StatusPlaceHolderImpl/>'));
-    const state = (out!.ops![0] as { value: { stat_data: any; source: string } }).value;
+    assert.ok(Array.isArray(out.ops));
+    const state = (out.ops[0] as { value: { stat_data: any; source: string } }).value;
     assert.equal(state.stat_data.世界.时间.时间, '14:00');
     assert.equal(state.source, 'fallback');
 });

@@ -7,6 +7,7 @@ import { isPng } from '../core/compat/png.ts';
 import type { Op } from '../core/ops.ts';
 import type { AnyResource, Character, Chat, Connection, Lorebook, Persona, Preset, ResourceKind } from '../core/types.ts';
 import { isRecord, newId } from '../core/util.ts';
+import { isCatgodPreset } from './builtin/catgod.ts';
 import { serveFile, startSse, type Router } from './http.ts';
 import type { PluginHost } from './plugins.ts';
 import { listModels, streamChat } from './providers/openai.ts';
@@ -158,23 +159,27 @@ export function registerApi(router: Router, store: Store, runtime: Runtime, plug
         return runtime.createChat(body.characterId);
     });
 
+    router.post('/api/chats/:id/messages/:messageId/swipes/:swipeId/branch', req =>
+        runtime.branchChat(req.params.id, req.params.messageId, req.params.swipeId));
+
     router.get('/api/chats/:id/context', req => {
         const chat = store.require<Chat>('chat', req.params.id);
         const character = store.require<Character>('character', chat.characterId);
+        const preset = runtime.preset(chat);
         return {
             userName: runtime.persona(chat).name,
             charName: character.name,
             regex: runtime.regexScripts(chat),
-            preset: { id: runtime.preset(chat).id, name: runtime.preset(chat).name },
+            preset: { id: preset.id, name: preset.name, catgod: isCatgodPreset(preset) },
             busy: runtime.isBusy(chat.id) ?? null,
         };
     });
 
     router.post('/api/chats/:id/generate', async (req, res) => {
-        const body = await req.json<{ type?: string; text?: string }>();
+        const body = await req.json<{ type?: string; text?: string; source?: 'card' }>();
         const type = (['normal', 'swipe', 'regenerate', 'continue'].includes(body.type ?? '') ? body.type : 'normal') as 'normal';
         const stream: { send: ((data: unknown) => void) | null } = { send: null };
-        await runtime.generate(req.params.id, { type, text: body.text }, event => {
+        await runtime.generate(req.params.id, { type, text: body.text, source: body.source }, event => {
             // Open the stream lazily so validation errors still return as JSON.
             stream.send ??= startSse(res);
             stream.send(event);

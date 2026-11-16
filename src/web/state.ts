@@ -198,6 +198,11 @@ export async function newChat(characterId: string) {
     await openChat(chat.id);
 }
 
+export async function branchChat(chatId: string, messageId: string, swipeId: string) {
+    const chat = await api.branchChat(chatId, messageId, swipeId);
+    await Promise.all([refresh(), openChat(chat.id)]);
+}
+
 export async function deleteChat(chatId: string) {
     await api.remove('chat', chatId);
     if (getState().activeChatId === chatId) {
@@ -222,7 +227,7 @@ export async function change<T>(kind: ResourceKind, id: string, ops: Op[], reaso
     return resource;
 }
 
-export async function runGeneration(chatId: string, type: GenerationKind, text?: string) {
+export async function runGeneration(chatId: string, type: GenerationKind, text?: string, source?: 'card') {
     if (getState().streaming) return;
     setState({ streaming: { chatId, kind: type, prefix: '', text: '', reasoning: '' } });
     // Once the reply is final, late callbacks (a queued frame, the early chat fetch) must not
@@ -230,6 +235,7 @@ export async function runGeneration(chatId: string, type: GenerationKind, text?:
     let finished = false;
     let frame = 0;
     let pending: Streaming = { chatId, kind: type, prefix: '', text: '', reasoning: '' };
+    const cardChanges: string[] = [];
     const flush = () => {
         frame = 0;
         if (!finished) setState({ streaming: { ...pending } });
@@ -247,7 +253,7 @@ export async function runGeneration(chatId: string, type: GenerationKind, text?:
         });
     };
     try {
-        await generate(chatId, { type, text }, event => {
+        await generate(chatId, { type, text, source }, event => {
             switch (event.type) {
                 case 'job':
                     pending = { ...pending, jobId: event.jobId, messageId: event.messageId, swipeId: event.swipeId, prefix: event.prefix };
@@ -269,6 +275,9 @@ export async function runGeneration(chatId: string, type: GenerationKind, text?:
                     else pending.reasoning += event.text;
                     if (!frame) frame = requestAnimationFrame(flush);
                     break;
+                case 'card-edit':
+                    cardChanges.push(event.reason);
+                    break;
                 case 'finalizing':
                     pending = { ...pending, finalizing: true };
                     flush();
@@ -286,6 +295,12 @@ export async function runGeneration(chatId: string, type: GenerationKind, text?:
         reportError(error);
     } finally {
         finish();
+        if (cardChanges.length) {
+            const summary = cardChanges.length === 1 ? cardChanges[0] : `已保存 ${cardChanges.length} 项 AI 编辑`;
+            toast(summary, 'success', { label: '历史', run: () => {
+                if (getState().inspector !== 'history') toggleInspector('history');
+            } });
+        }
         const chat = await api.get<Chat>('chat', chatId).catch(() => null);
         if (chat) setState(s => ({ chats: { ...s.chats, [chatId]: chat } }));
         void refresh();
