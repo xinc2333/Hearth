@@ -3,8 +3,9 @@ import { useEffect, useState } from 'react';
 import type { Connection, LoreSettings, Persona } from '../../core/types.ts';
 import { api } from '../api.ts';
 import { change, refresh, reportError, setState, toast, useAppState } from '../state.ts';
-import { AutoTextarea, Button, Field, Modal, Toggle } from './common.tsx';
+import { Button, Field, LongText, Modal, Segmented, Toggle } from './common.tsx';
 import { PresetManager } from './PresetManager.tsx';
+import { ReadingControls } from './Reading.tsx';
 
 type Section = 'connection' | 'preset' | 'persona' | 'lore' | 'appearance';
 
@@ -156,7 +157,7 @@ function PersonaSection() {
             {persona && (
                 <>
                     <Field label="名字"><input value={persona.name} onChange={e => setPersona({ ...persona, name: e.target.value })} /></Field>
-                    <Field label="描述"><AutoTextarea minRows={5} value={persona.description} onChange={e => setPersona({ ...persona, description: e.target.value })} /></Field>
+                    <Field label="描述"><LongText label="用户角色描述" minRows={5} value={persona.description} onChange={v => setPersona({ ...persona, description: v })} /></Field>
                     <Field label="放在哪里">
                         <select value={persona.position} onChange={e => setPersona({ ...persona, position: e.target.value as Persona['position'] })}>
                             <option value="in_prompt">预设里的「用户角色」位置</option>
@@ -214,6 +215,16 @@ function LoreSection() {
     );
 }
 
+const SHORTCUTS: [string, string][] = [
+    ['Ctrl K', '快速查找角色、对话和功能'],
+    ['Ctrl B', '显示或收起侧栏'],
+    ['Ctrl I', '打开或关闭面板'],
+    ['← →', '切换最后一条回复的版本（输入框为空时）；在最后一个版本按 → 会生成新版本'],
+    ['Esc', '停止生成；关闭弹窗'],
+    ['Enter', '发送；Shift + Enter 换行'],
+    ['Ctrl Enter', '保存正在编辑的消息'],
+];
+
 function AppearanceSection() {
     const settings = useAppState(s => s.boot?.settings);
     const plugins = useAppState(s => s.boot?.plugins ?? []);
@@ -224,13 +235,21 @@ function AppearanceSection() {
     if (!settings) return null;
     return (
         <div className="settings-section">
-            <Field label="主题">
-                <div className="chip-row">
-                    {([['system', '跟随系统'], ['light', '浅色'], ['dark', '深色']] as const).map(([v, label]) => (
-                        <button key={v} className={`chip${settings.theme === v ? ' active' : ''}`} onClick={() => void api.saveSettings({ theme: v }).then(refresh).catch(reportError)}>{label}</button>
-                    ))}
-                </div>
-            </Field>
+            <div className="field">
+                <span className="field-label">主题</span>
+                <Segmented label="主题" value={settings.theme} options={[['system', '跟随系统'], ['light', '浅色'], ['dark', '深色']] as const}
+                    onChange={v => void api.saveSettings({ theme: v }).then(refresh).catch(reportError)} />
+            </div>
+            <div className="field">
+                <span className="field-label">阅读<span className="field-hint">消息正文的排版；聊天窗口右上角的「Aa」也能随时调整</span></span>
+                <div className="reading-card"><ReadingControls /></div>
+            </div>
+            <div className="field">
+                <span className="field-label">快捷键</span>
+                <dl className="shortcuts">
+                    {SHORTCUTS.map(([keys, text]) => <div key={text}><dt>{keys.split(' ').map(k => <kbd key={k}>{k}</kbd>)}</dt><dd>{text}</dd></div>)}
+                </dl>
+            </div>
             <Field label="版本">
                 <span className="muted small">Hearth {version || '未知'} · 更新记录见安装目录里的 CHANGELOG.md</span>
             </Field>
@@ -250,9 +269,9 @@ export function SettingsDialog() {
         if (open && requested) setSection(requested);
     }, [open, requested]);
     if (!open) return null;
-    const items: [Section, string][] = [['connection', '模型连接'], ['preset', '预设'], ['persona', '用户角色'], ['lore', '世界书'], ['appearance', '外观与关于']];
+    const items: [Section, string][] = [['connection', '模型连接'], ['preset', '预设'], ['persona', '用户角色'], ['lore', '世界书'], ['appearance', '阅读与外观']];
     return (
-        <Modal title="设置" onClose={() => setState({ settingsOpen: false, settingsSection: null })} wide>
+        <Modal title="设置" onClose={() => setState({ settingsOpen: false, settingsSection: null })} size="wide">
             <div className="settings">
                 <nav className="settings-nav">
                     {items.map(([k, label]) => <button key={k} className={section === k ? 'active' : ''} onClick={() => setSection(k)}>{label}</button>)}

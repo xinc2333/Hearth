@@ -6,8 +6,8 @@ import type { Preset, PromptEntry, Role } from '../../core/types.ts';
 import { api } from '../api.ts';
 import { Icon } from '../icons.tsx';
 import { sourceLabel } from '../labels.ts';
-import { change, refresh, reloadContext, reportError, getState, toast, useAppState } from '../state.ts';
-import { AutoTextarea, Button, Empty, IconButton, Toggle } from './common.tsx';
+import { change, confirmAction, refresh, reloadContext, reportError, getState, toast, useAppState } from '../state.ts';
+import { Button, Empty, IconButton, LongText, Toggle } from './common.tsx';
 
 /** Menu markers used by SPreset-style presets: <<<|catgodml|radio:分组:名称>>> (radio = one per group). */
 function menuTag(content: string): { kind: 'menu' | 'radio'; group: string } | null {
@@ -41,7 +41,7 @@ function EntryEditor({ entry, onSave }: { entry: PromptEntry; onSave: (ops: Op[]
     }
     return (
         <div className="entry-detail">
-            <AutoTextarea minRows={4} value={content} onChange={e => setContent(e.target.value)} />
+            <LongText label={entry.name || '条目内容'} minRows={4} value={content} onChange={setContent} />
             <div className="inline-fields">
                 <label>角色 <select value={role} onChange={e => setRole(e.target.value as Role)}>
                     <option value="system">系统</option><option value="user">用户</option><option value="assistant">助手</option>
@@ -112,7 +112,7 @@ export function PresetManager({ compact }: { compact?: boolean }) {
     };
 
     const remove = async () => {
-        if (!preset || !confirm(`删除预设「${preset.name}」？`)) return;
+        if (!preset || !await confirmAction({ title: `删除预设「${preset.name}」？`, body: '删除后无法恢复，需要重新导入。', confirm: '删除', danger: true })) return;
         try {
             await api.remove('preset', preset.id);
             await refresh();
@@ -224,7 +224,7 @@ export function PresetManager({ compact }: { compact?: boolean }) {
                                         {tag && <span className={`tag subtle${tag.kind === 'radio' ? ' radio' : ''}`} title={tag.kind === 'radio' ? '同组只能开一个，打开会自动关掉其他' : '同组可以同时开多个'}>{tag.group}{tag.kind === 'radio' ? ' · 单选' : ''}</span>}
                                         {prompt.injection.mode === 'in_chat' && <span className="tag subtle">深度 {prompt.injection.depth}</span>}
                                         {!prompt.marker && <span className="muted small tok-count">{estimateTokens(prompt.content)}</span>}
-                                        <IconButton icon={open ? 'left' : 'edit'} label={open ? '收起' : '查看 / 编辑'} size={14} onClick={() => setOpenId(open ? null : prompt.id)} />
+                                        <IconButton icon={open ? 'chevron' : 'edit'} label={open ? '收起' : '查看 / 编辑'} size={14} onClick={() => setOpenId(open ? null : prompt.id)} />
                                     </div>
                                     {open && (
                                         <EntryEditor key={prompt.id + preset.updatedAt} entry={prompt}

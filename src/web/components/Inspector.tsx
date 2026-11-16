@@ -6,10 +6,10 @@ import { estimateTokens } from '../../core/tokens.ts';
 import type { Character, CharacterFields, Chat, LoreEntry, LoreLogic, LorePosition, Lorebook, Preset } from '../../core/types.ts';
 import { api, type PromptPartView, type PromptSnapshot } from '../api.ts';
 import { Icon } from '../icons.tsx';
-import { change, openChat, refresh, reloadContext, reportError, setState, toast, useAppState } from '../state.ts';
+import { change, confirmAction, loadPref, openChat, refresh, reportError, savePref, setState, toast, toggleInspector, useAppState, type InspectorTab } from '../state.ts';
 import { sourceLabel } from '../labels.ts';
 import { PresetManager } from './PresetManager.tsx';
-import { AutoTextarea, Button, Empty, Field, IconButton, Toggle, timeAgo } from './common.tsx';
+import { Button, Empty, Field, IconButton, LongText, Toggle, timeAgo } from './common.tsx';
 
 // ---------------------------------------------------------------------------------------------
 // Prompt trace
@@ -175,7 +175,7 @@ function CharacterTab({ characterId }: { characterId: string }) {
         }
     };
     const remove = async () => {
-        if (!confirm(`删除角色「${character.name}」以及它的所有对话？`)) return;
+        if (!await confirmAction({ title: `删除角色「${character.name}」？`, body: '它的所有对话也会一起删除，无法恢复。', confirm: '删除', danger: true })) return;
         await api.remove('character', character.id).catch(reportError);
         setState({ activeChatId: null, inspector: null });
         void refresh();
@@ -194,14 +194,14 @@ function CharacterTab({ characterId }: { characterId: string }) {
             </Field>
             {FIELD_META.map(f => (
                 <Field key={f.key} label={f.label} hint={<>{f.hint && <span>{f.hint}</span>}<span className="tok">{estimateTokens(String(draft.fields[f.key]))}</span></>}>
-                    <AutoTextarea minRows={f.rows} value={String(draft.fields[f.key])} onChange={e => setField(f.key, e.target.value)} />
+                    <LongText label={f.label} minRows={String(character.fields[f.key]) ? f.rows : 2} value={String(draft.fields[f.key])} onChange={v => setField(f.key, v)} />
                 </Field>
             ))}
             <Field label="备选开场白" hint={<span>新对话时可左右切换</span>}>
                 <div className="stack">
                     {draft.fields.alternateGreetings.map((g, i) => (
                         <div key={i} className="greeting">
-                            <AutoTextarea minRows={3} value={g} onChange={e => setField('alternateGreetings', draft.fields.alternateGreetings.map((x, j) => j === i ? e.target.value : x))} />
+                            <LongText label={`备选开场白 ${i + 1}`} minRows={3} value={g} onChange={v => setField('alternateGreetings', draft.fields.alternateGreetings.map((x, j) => j === i ? v : x))} />
                             <IconButton icon="trash" label="删除这条" tone="danger" onClick={() => setField('alternateGreetings', draft.fields.alternateGreetings.filter((_, j) => j !== i))} />
                         </div>
                     ))}
@@ -209,7 +209,7 @@ function CharacterTab({ characterId }: { characterId: string }) {
                 </div>
             </Field>
             <Field label="角色备注（深度注入）" hint={<span>插入到聊天记录中倒数第 N 条的位置</span>}>
-                <AutoTextarea minRows={2} value={draft.fields.depthPrompt.text} onChange={e => setField('depthPrompt', { ...draft.fields.depthPrompt, text: e.target.value })} />
+                <LongText label="角色备注（深度注入）" minRows={2} value={draft.fields.depthPrompt.text} onChange={v => setField('depthPrompt', { ...draft.fields.depthPrompt, text: v })} />
                 <div className="inline-fields">
                     <label>深度 <input type="number" min={0} value={draft.fields.depthPrompt.depth} onChange={e => setField('depthPrompt', { ...draft.fields.depthPrompt, depth: Number(e.target.value) })} /></label>
                     <label>角色 <select value={draft.fields.depthPrompt.role} onChange={e => setField('depthPrompt', { ...draft.fields.depthPrompt, role: e.target.value })}>
@@ -289,7 +289,7 @@ function EntryEditor({ entry, onSave, onDelete, onClose }: { entry: LoreEntry; o
                 <label>概率 <input type="number" min={0} max={100} value={d.probability} onChange={e => setD({ ...d, probability: Number(e.target.value) })} /></label>
             </div>
             <Field label="内容" hint={<span className="tok">{estimateTokens(d.content)}</span>}>
-                <AutoTextarea minRows={10} value={d.content} onChange={e => setD({ ...d, content: e.target.value })} />
+                <LongText label={d.title || '条目内容'} minRows={10} value={d.content} onChange={v => setD({ ...d, content: v })} />
             </Field>
         </div>
     );
@@ -364,7 +364,7 @@ function LoreTab({ characterId }: { characterId: string }) {
             {book && entry && (
                 <EntryEditor entry={entry} onClose={() => setEntryId(null)}
                     onSave={ops => apply(ops, `编辑条目「${entry.title || entry.id}」`).then(() => toast('已保存', 'success')).catch(reportError)}
-                    onDelete={() => { if (confirm('删除这个条目？')) void apply([{ op: 'unset', path: ['entries', `@${entry.id}`] }], '删除世界书条目').then(() => setEntryId(null)).catch(reportError); }} />
+                    onDelete={() => void apply([{ op: 'unset', path: ['entries', `@${entry.id}`] }], '删除世界书条目').then(() => { setEntryId(null); toast('条目已删除，可在「历史」里撤销'); }).catch(reportError)} />
             )}
             {book && !entry && (
                 <>
@@ -442,22 +442,63 @@ function HistoryTab({ chatId }: { chatId: string }) {
 
 // ---------------------------------------------------------------------------------------------
 
+const TABS: [InspectorTab, string][] = [['prompt', '提示词'], ['state', '变量'], ['character', '角色卡'], ['lore', '世界书'], ['preset', '预设'], ['history', '历史']];
+const DEFAULT_WIDTH = 420;
+
+/** Drag the panel's left edge to resize it (double-click resets); wide is better for editing long text. */
+function useInspectorWidth() {
+    const [width, setWidth] = useState(() => loadPref('inspectorWidth', DEFAULT_WIDTH));
+    useEffect(() => {
+        document.documentElement.style.setProperty('--inspector-w', `${width}px`);
+    }, [width]);
+    const startDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        const handle = e.currentTarget;
+        handle.setPointerCapture(e.pointerId);
+        handle.classList.add('dragging');
+        let latest = width;
+        const move = (ev: PointerEvent) => {
+            const sidebar = document.querySelector('.sidebar')?.getBoundingClientRect().width ?? 0;
+            latest = Math.round(Math.max(340, Math.min(window.innerWidth - ev.clientX, window.innerWidth - sidebar - 420)));
+            setWidth(latest);
+        };
+        const up = () => {
+            handle.classList.remove('dragging');
+            handle.removeEventListener('pointermove', move);
+            handle.removeEventListener('pointerup', up);
+            savePref('inspectorWidth', latest);
+        };
+        handle.addEventListener('pointermove', move);
+        handle.addEventListener('pointerup', up);
+    };
+    const reset = () => {
+        setWidth(DEFAULT_WIDTH);
+        savePref('inspectorWidth', DEFAULT_WIDTH);
+    };
+    return { startDrag, reset };
+}
+
 export function Inspector() {
     const tab = useAppState(s => s.inspector);
     const chatId = useAppState(s => s.activeChatId);
     const chat = useAppState(s => (s.activeChatId ? s.chats[s.activeChatId] : undefined));
     const context = useAppState(s => (s.activeChatId ? s.contexts[s.activeChatId] : undefined));
     const [preset, setPreset] = useState<Preset | null>(null);
+    const { startDrag, reset } = useInspectorWidth();
     useEffect(() => {
         if (context?.preset.id) void api.get<Preset>('preset', context.preset.id).then(setPreset).catch(() => setPreset(null));
     }, [context?.preset.id]);
     if (!tab || !chatId || !chat) return null;
-    const titles = { prompt: '提示词追踪', state: '变量', character: '角色卡', lore: '世界书', preset: '预设', history: '修改历史' };
     return (
         <aside className="inspector">
+            <div className="inspector-resize" title="拖动调整宽度，双击恢复" onPointerDown={startDrag} onDoubleClick={reset} />
             <header className="inspector-head">
-                <h2>{titles[tab]}</h2>
-                <IconButton icon="x" label="关闭" onClick={() => setState({ inspector: null })} />
+                <div className="tabs" role="tablist">
+                    {TABS.map(([id, label]) => (
+                        <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? 'active' : ''} onClick={() => tab !== id && toggleInspector(id)}>{label}</button>
+                    ))}
+                </div>
+                <IconButton icon="x" label="关闭面板（Ctrl+I）" onClick={() => setState({ inspector: null })} />
             </header>
             {tab === 'prompt' && <PromptTab chatId={chatId} preset={preset} />}
             {tab === 'state' && <StateTab chat={chat} />}

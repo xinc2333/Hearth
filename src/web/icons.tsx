@@ -23,6 +23,13 @@ const PATHS: Record<string, string> = {
     history: 'M3 12a9 9 0 1 0 3-6.7L3 8m0-5v5h5m4-1v5l3 2',
     chat: 'M5 5h14v10H9l-4 4V5Z',
     braces: 'M8 4C6 4 5 5 5 7v2c0 1.2-.8 2.2-2 3 1.2.8 2 1.8 2 3v2c0 2 1 3 3 3M16 4c2 0 3 1 3 3v2c0 1.2.8 2.2 2 3-1.2.8-2 1.8-2 3v2c0 2-1 3-3 3',
+    sidebar: 'M4 5h16v14H4zM9.5 5v14',
+    down: 'M12 5v14M6 13l6 6 6-6',
+    chevron: 'M6 9l6 6 6-6',
+    expand: 'M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5',
+    spark: 'M12 4v3M12 17v3M4 12h3M17 12h3M6.5 6.5l2 2M15.5 15.5l2 2M17.5 6.5l-2 2M8.5 15.5l-2 2',
+    command: 'M9 9V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V9Z',
+    sun: 'M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4',
     dot: 'M12 12h.01',
 };
 

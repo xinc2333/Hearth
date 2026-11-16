@@ -1,5 +1,7 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
+import { estimateTokens } from '../../core/tokens.ts';
 import { Icon } from '../icons.tsx';
 
 export function Avatar({ src, name, size = 32 }: { src?: string; name: string; size?: number }) {
@@ -10,7 +12,7 @@ export function Avatar({ src, name, size = 32 }: { src?: string; name: string; s
 }
 
 export function IconButton({ icon, label, onClick, active, disabled, size = 16, tone }: {
-    icon: string; label: string; onClick?: () => void; active?: boolean; disabled?: boolean; size?: number; tone?: 'danger';
+    icon: string; label: string; onClick?: (e: React.MouseEvent) => void; active?: boolean; disabled?: boolean; size?: number; tone?: 'danger';
 }) {
     return (
         <button type="button" className={`icon-btn${active ? ' active' : ''}${tone ? ` ${tone}` : ''}`} title={label} aria-label={label} onClick={onClick} disabled={disabled}>
@@ -19,11 +21,12 @@ export function IconButton({ icon, label, onClick, active, disabled, size = 16, 
     );
 }
 
-export function Button({ children, onClick, variant = 'default', disabled, icon, type = 'button' }: {
-    children: ReactNode; onClick?: () => void; variant?: 'default' | 'primary' | 'ghost' | 'danger'; disabled?: boolean; icon?: string; type?: 'button' | 'submit';
+export function Button({ children, onClick, variant = 'default', disabled, icon, type = 'button', autoFocus }: {
+    children: ReactNode; onClick?: () => void; variant?: 'default' | 'primary' | 'ghost' | 'danger' | 'danger-solid'; disabled?: boolean; icon?: string;
+    type?: 'button' | 'submit'; autoFocus?: boolean;
 }) {
     return (
-        <button type={type} className={`btn btn-${variant}`} onClick={onClick} disabled={disabled}>
+        <button type={type} className={`btn btn-${variant}`} onClick={onClick} disabled={disabled} autoFocus={autoFocus}>
             {icon && <Icon name={icon} size={15} />}
             {children}
         </button>
@@ -50,7 +53,7 @@ export function Toggle({ checked, onChange, label }: { checked: boolean; onChang
 export function AutoTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { minRows?: number; maxHeight?: number }) {
     const { minRows = 3, maxHeight = 520, ...rest } = props;
     const ref = useRef<HTMLTextAreaElement>(null);
-    useEffect(() => {
+    useLayoutEffect(() => {
         const el = ref.current;
         if (!el) return;
         el.style.height = 'auto';
@@ -59,21 +62,72 @@ export function AutoTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaEle
     return <textarea ref={ref} rows={minRows} {...rest} />;
 }
 
-export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
+// Only the topmost dialog reacts to Escape.
+const modalStack: object[] = [];
+
+export function Modal({ title, onClose, children, size = 'default', actions }: {
+    title: string; onClose: () => void; children: ReactNode; size?: 'default' | 'wide' | 'editor' | 'small'; actions?: ReactNode;
+}) {
+    const close = useRef(onClose);
+    close.current = onClose;
     useEffect(() => {
-        const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-    }, [onClose]);
-    return (
+        const token = {};
+        modalStack.push(token);
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape' || modalStack[modalStack.length - 1] !== token) return;
+            e.stopPropagation();
+            close.current();
+        };
+        window.addEventListener('keydown', onKey, true);
+        return () => {
+            modalStack.splice(modalStack.indexOf(token), 1);
+            window.removeEventListener('keydown', onKey, true);
+        };
+    }, []);
+    return createPortal(
         <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}>
-            <div className={`modal${wide ? ' wide' : ''}`} role="dialog" aria-label={title}>
+            <div className={`modal ${size}`} role="dialog" aria-modal="true" aria-label={title}>
                 <header className="modal-head">
                     <h2>{title}</h2>
-                    <IconButton icon="x" label="关闭" onClick={onClose} />
+                    {actions}
+                    <IconButton icon="x" label="关闭（Esc）" onClick={onClose} />
                 </header>
                 <div className="modal-body">{children}</div>
             </div>
+        </div>,
+        document.body,
+    );
+}
+
+export const isModalOpen = () => modalStack.length > 0;
+
+/** A text field for long content: grows with the text and can open in a full-size editor. */
+export function LongText({ value, onChange, label, minRows = 3, placeholder }: {
+    value: string; onChange: (value: string) => void; label: string; minRows?: number; placeholder?: string;
+}) {
+    const [big, setBig] = useState(false);
+    return (
+        <div className="longtext">
+            <AutoTextarea minRows={minRows} value={value} placeholder={placeholder} onChange={e => onChange(e.target.value)} />
+            <button type="button" className="longtext-expand" title="放大编辑" aria-label={`放大编辑${label}`} onClick={e => { e.preventDefault(); setBig(true); }}>
+                <Icon name="expand" size={13} />
+            </button>
+            {big && (
+                <Modal title={label} size="editor" onClose={() => setBig(false)}
+                    actions={<><span className="muted small editor-count">{value.length.toLocaleString()} 字 · 约 {estimateTokens(value).toLocaleString()} tokens</span><Button variant="primary" onClick={() => setBig(false)}>完成</Button></>}>
+                    <textarea className="editor-area" value={value} placeholder={placeholder ?? '在这里输入…'} autoFocus spellCheck={false} onChange={e => onChange(e.target.value)} />
+                </Modal>
+            )}
+        </div>
+    );
+}
+
+export function Segmented<T extends string>({ value, options, onChange, label }: { value: T; options: readonly (readonly [T, string])[]; onChange: (v: T) => void; label?: string }) {
+    return (
+        <div className="segmented" role="radiogroup" aria-label={label}>
+            {options.map(([v, text]) => (
+                <button key={v} type="button" role="radio" aria-checked={v === value} className={v === value ? 'active' : ''} onClick={() => onChange(v)}>{text}</button>
+            ))}
         </div>
     );
 }
@@ -85,6 +139,12 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
             {children && <div className="empty-body">{children}</div>}
         </div>
     );
+}
+
+export function clockTime(ts: number): string {
+    const d = new Date(ts);
+    const time = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+    return d.toDateString() === new Date().toDateString() ? time : `${d.getMonth() + 1}月${d.getDate()}日 ${time}`;
 }
 
 export function timeAgo(ts: number): string {

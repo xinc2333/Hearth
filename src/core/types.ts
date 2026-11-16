@@ -399,6 +399,24 @@ export interface LoreSettings {
     globalLorebookIds: string[];
 }
 
+export interface ReadingSettings {
+    font: 'sans' | 'serif' | 'kai' | 'custom';
+    /** CSS font-family used when `font` is 'custom'. */
+    customFont: string;
+    /** Font size in px. */
+    size: number;
+    lineHeight: number;
+    /** Width of the text column in px. */
+    width: number;
+    /** Indent the first line of each paragraph by two characters. */
+    indent: boolean;
+    justify: boolean;
+    /** Color quoted dialogue. */
+    quotes: boolean;
+    /** While a reply streams, keep scrolling to the newest text instead of staying at its start. */
+    follow: boolean;
+}
+
 export interface Settings {
     userName: string;
     personaId?: string;
@@ -411,6 +429,8 @@ export interface Settings {
     pinExamples: boolean;
     collapseNewlines: boolean;
     theme: 'system' | 'light' | 'dark';
+    /** How message text is typeset; missing fields use the interface defaults. */
+    reading?: Partial<ReadingSettings>;
     /** {{setglobalvar}} storage. */
     globalVariables: Record<string, unknown>;
 }

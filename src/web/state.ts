@@ -1,13 +1,17 @@
 // Minimal app state: one observable object, updated immutably, read with useAppState().
 
-import { useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 
 import type { Op } from '../core/ops.ts';
-import type { Chat, ChatMessage, ResourceKind } from '../core/types.ts';
+import type { Chat, ChatMessage, ReadingSettings, ResourceKind } from '../core/types.ts';
 import { api, generate, type Bootstrap, type ChatContext, type PromptSnapshot } from './api.ts';
+
+export type GenerationKind = 'normal' | 'swipe' | 'regenerate' | 'continue';
+export type InspectorTab = 'prompt' | 'state' | 'character' | 'lore' | 'preset' | 'history';
 
 export interface Streaming {
     chatId: string;
+    kind: GenerationKind;
     jobId?: string;
     messageId?: string;
     swipeId?: string;
@@ -23,6 +27,15 @@ export interface Toast {
     id: number;
     text: string;
     tone: 'info' | 'error' | 'success';
+    action?: { label: string; run: () => void };
+}
+
+export interface ConfirmRequest {
+    title: string;
+    body?: string;
+    confirm?: string;
+    danger?: boolean;
+    resolve: (ok: boolean) => void;
 }
 
 export interface AppState {
@@ -32,10 +45,27 @@ export interface AppState {
     contexts: Record<string, ChatContext>;
     prompts: Record<string, PromptSnapshot>;
     streaming: Streaming | null;
-    inspector: null | 'prompt' | 'state' | 'character' | 'lore' | 'preset' | 'history';
+    inspector: null | InspectorTab;
+    sidebarOpen: boolean;
+    paletteOpen: boolean;
     settingsOpen: boolean;
     settingsSection: string | null;
+    confirm: ConfirmRequest | null;
     toasts: Toast[];
+}
+
+/** Interface preferences that belong to this window (layout, last panel), kept in localStorage. */
+export function loadPref<T>(key: string, fallback: T): T {
+    try {
+        const raw = localStorage.getItem(`hearth.${key}`);
+        return raw === null ? fallback : JSON.parse(raw) as T;
+    } catch {
+        return fallback;
+    }
+}
+
+export function savePref(key: string, value: unknown) {
+    try { localStorage.setItem(`hearth.${key}`, JSON.stringify(value)); } catch { /* ignore */ }
 }
 
 let state: AppState = {
@@ -46,8 +76,11 @@ let state: AppState = {
     prompts: {},
     streaming: null,
     inspector: null,
+    sidebarOpen: loadPref('sidebar', window.innerWidth >= 820),
+    paletteOpen: false,
     settingsOpen: false,
     settingsSection: null,
+    confirm: null,
     toasts: [],
 };
 
@@ -70,10 +103,63 @@ export function useAppState<T>(select: (s: AppState) => T): T {
 }
 
 let toastSeq = 0;
-export function toast(text: string, tone: Toast['tone'] = 'info') {
+export function toast(text: string, tone: Toast['tone'] = 'info', action?: Toast['action']) {
     const id = ++toastSeq;
-    setState(s => ({ toasts: [...s.toasts, { id, text, tone }] }));
-    setTimeout(() => setState(s => ({ toasts: s.toasts.filter(t => t.id !== id) })), tone === 'error' ? 7000 : 3500);
+    const dismiss = () => setState(s => ({ toasts: s.toasts.filter(t => t.id !== id) }));
+    setState(s => ({ toasts: [...s.toasts, { id, text, tone, action: action && { label: action.label, run: () => { dismiss(); action.run(); } } }] }));
+    setTimeout(dismiss, tone === 'error' || action ? 7000 : 3500);
+}
+
+/** Asks before something that cannot be undone from the history panel. */
+export function confirmAction(request: Omit<ConfirmRequest, 'resolve'>): Promise<boolean> {
+    return new Promise(resolve => setState({
+        confirm: { ...request, resolve: ok => { setState({ confirm: null }); resolve(ok); } },
+    }));
+}
+
+export function toggleSidebar() {
+    setState(s => ({ sidebarOpen: !s.sidebarOpen }));
+    savePref('sidebar', getState().sidebarOpen);
+}
+
+/** Opens a panel; without a tab, toggles the one used last. */
+export function toggleInspector(tab?: InspectorTab) {
+    const current = getState().inspector;
+    const next = tab ? (current === tab ? null : tab) : current ? null : loadPref<InspectorTab>('inspector', 'prompt');
+    if (next) savePref('inspector', next);
+    setState({ inspector: next });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Reading preferences
+// ---------------------------------------------------------------------------------------------
+
+export const DEFAULT_READING: ReadingSettings = {
+    font: 'sans',
+    customFont: '',
+    size: 17,
+    lineHeight: 1.85,
+    width: 740,
+    indent: false,
+    justify: false,
+    quotes: true,
+    follow: false,
+};
+
+export function useReading(): ReadingSettings {
+    const saved = useAppState(s => s.boot?.settings.reading);
+    return useMemo(() => ({ ...DEFAULT_READING, ...saved }), [saved]);
+}
+
+let readingTimer = 0;
+export function setReading(patch: Partial<ReadingSettings>) {
+    const boot = state.boot;
+    if (!boot) return;
+    const reading = { ...DEFAULT_READING, ...boot.settings.reading, ...patch };
+    setState({ boot: { ...boot, settings: { ...boot.settings, reading } } });
+    // Sliders fire continuously; save once they settle.
+    window.clearTimeout(readingTimer);
+    readingTimer = window.setTimeout(() => void api.saveSettings({ reading }).catch(reportError), 400);
 }
 
 export function reportError(error: unknown) {
@@ -112,6 +198,15 @@ export async function newChat(characterId: string) {
     await openChat(chat.id);
 }
 
+export async function deleteChat(chatId: string) {
+    await api.remove('chat', chatId);
+    if (getState().activeChatId === chatId) {
+        setState({ activeChatId: null, inspector: null });
+        try { localStorage.removeItem('hearth.chat'); } catch { /* ignore */ }
+    }
+    await refresh();
+}
+
 /** Applies ops to a chat through the change channel and stores the result. */
 export async function changeChat(chatId: string, ops: Op[], reason?: string) {
     const { resource } = await api.change<Chat>('chat', chatId, ops, reason);
@@ -127,14 +222,14 @@ export async function change<T>(kind: ResourceKind, id: string, ops: Op[], reaso
     return resource;
 }
 
-export async function runGeneration(chatId: string, type: 'normal' | 'swipe' | 'regenerate' | 'continue', text?: string) {
+export async function runGeneration(chatId: string, type: GenerationKind, text?: string) {
     if (getState().streaming) return;
-    setState({ streaming: { chatId, prefix: '', text: '', reasoning: '' } });
+    setState({ streaming: { chatId, kind: type, prefix: '', text: '', reasoning: '' } });
     // Once the reply is final, late callbacks (a queued frame, the early chat fetch) must not
     // bring the "generating" state back.
     let finished = false;
     let frame = 0;
-    let pending: Streaming = { chatId, prefix: '', text: '', reasoning: '' };
+    let pending: Streaming = { chatId, kind: type, prefix: '', text: '', reasoning: '' };
     const flush = () => {
         frame = 0;
         if (!finished) setState({ streaming: { ...pending } });

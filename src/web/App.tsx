@@ -2,24 +2,49 @@ import { useEffect, useState } from 'react';
 
 import { Boundary } from './components/Boundary.tsx';
 import { ChatView } from './components/ChatView.tsx';
+import { CommandPalette } from './components/CommandPalette.tsx';
+import { Button, Modal } from './components/common.tsx';
 import { Inspector } from './components/Inspector.tsx';
+import { applyReading } from './components/Reading.tsx';
 import { SettingsDialog } from './components/Settings.tsx';
 import { importFiles, Sidebar } from './components/Sidebar.tsx';
-import { openChat, refresh, reportError, setState, useAppState } from './state.ts';
+import { getState, openChat, refresh, reportError, savePref, setState, toggleInspector, toggleSidebar, useAppState, useReading } from './state.ts';
 
 function Toasts() {
     const toasts = useAppState(s => s.toasts);
     return (
         <div className="toasts" role="status">
-            {toasts.map(t => <div key={t.id} className={`toast ${t.tone}`}>{t.text}</div>)}
+            {toasts.map(t => (
+                <div key={t.id} className={`toast ${t.tone}`}>
+                    <span>{t.text}</span>
+                    {t.action && <button onClick={t.action.run}>{t.action.label}</button>}
+                </div>
+            ))}
         </div>
+    );
+}
+
+function ConfirmDialog() {
+    const request = useAppState(s => s.confirm);
+    if (!request) return null;
+    return (
+        <Modal title={request.title} size="small" onClose={() => request.resolve(false)}>
+            {request.body && <p className="confirm-body">{request.body}</p>}
+            <div className="row-end">
+                <Button variant="ghost" onClick={() => request.resolve(false)}>取消</Button>
+                <Button variant={request.danger ? 'danger-solid' : 'primary'} autoFocus onClick={() => request.resolve(true)}>{request.confirm ?? '确定'}</Button>
+            </div>
+        </Modal>
     );
 }
 
 export function App() {
     const theme = useAppState(s => s.boot?.settings.theme ?? 'system');
     const inspector = useAppState(s => s.inspector);
+    const sidebarOpen = useAppState(s => s.sidebarOpen);
+    const hasChat = useAppState(s => Boolean(s.activeChatId && s.chats[s.activeChatId]));
     const ready = useAppState(s => Boolean(s.boot));
+    const reading = useReading();
     const [dragging, setDragging] = useState(false);
     const [outdated, setOutdated] = useState(false);
 
@@ -44,10 +69,38 @@ export function App() {
         }).catch(reportError);
     }, []);
 
+    // The stylesheet only knows "light" and "dark"; "follow the system" is resolved here.
     useEffect(() => {
-        if (theme === 'system') document.documentElement.removeAttribute('data-theme');
-        else document.documentElement.setAttribute('data-theme', theme);
+        const media = window.matchMedia('(prefers-color-scheme: dark)');
+        const apply = () => {
+            document.documentElement.setAttribute('data-theme', theme === 'system' ? (media.matches ? 'dark' : 'light') : theme);
+            savePref('theme', theme);
+        };
+        apply();
+        media.addEventListener('change', apply);
+        return () => media.removeEventListener('change', apply);
     }, [theme]);
+
+    useEffect(() => applyReading(reading), [reading]);
+
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+            const key = e.key.toLowerCase();
+            if (key === 'k') {
+                e.preventDefault();
+                setState(s => ({ paletteOpen: !s.paletteOpen }));
+            } else if (key === 'b') {
+                e.preventDefault();
+                toggleSidebar();
+            } else if (key === 'i' && getState().activeChatId) {
+                e.preventDefault();
+                toggleInspector();
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, []);
 
     useEffect(() => {
         let depth = 0;
@@ -80,13 +133,15 @@ export function App() {
     }, []);
 
     return (
-        <div className={`app${inspector ? ' with-inspector' : ''}`}>
+        <div className={`app${inspector && hasChat ? ' with-inspector' : ''}${sidebarOpen ? '' : ' no-sidebar'}`}>
             {ready ? (
                 <>
                     <Boundary label="侧边栏"><Sidebar /></Boundary>
                     <Boundary label="对话"><ChatView /></Boundary>
                     <Boundary label="检查器"><Inspector /></Boundary>
                     <Boundary label="设置"><SettingsDialog /></Boundary>
+                    <CommandPalette />
+                    <ConfirmDialog />
                 </>
             ) : <div className="boot">正在启动…</div>}
             {dragging && <div className="drop-overlay"><div>松开即可导入角色卡、世界书或预设</div></div>}
