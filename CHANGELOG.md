@@ -6,6 +6,8 @@
 
 ## [未发布]
 
+## [0.3.0] - 2026-11-16
+
 ### 新增
 
 - AI 改卡：输入框左下角切换到「编辑」，告诉 AI 想怎么改角色卡或世界书。AI 正常回复一轮，最后附上修改块，Hearth 按地址填进卡片。消息下方会列出每一处改动，可以查看前后对照，也可以一键撤销。
@@ -69,6 +71,7 @@
 - 对接 OpenAI 兼容接口的流式对话：显示思考过程，支持中途停止、重新生成、续写和多版本切换。
 - Windows 启动脚本：如果后台还在运行旧版本，会自动替换为新版本；可选的 `Start.local.bat` 用来写本机专属设置（例如代理）。
 
-[未发布]: https://github.com/xinc2333/Hearth/compare/v0.2.0...HEAD
+[未发布]: https://github.com/xinc2333/Hearth/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/xinc2333/Hearth/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/xinc2333/Hearth/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/xinc2333/Hearth/releases/tag/v0.1.0

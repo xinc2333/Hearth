@@ -2,7 +2,7 @@
 
 轻量的桌面角色扮演对话工具，兼容 SillyTavern（酒馆）的角色卡、世界书和预设。
 
-![版本](https://img.shields.io/badge/version-0.2.0-c2410c) ![平台](https://img.shields.io/badge/platform-Windows-0078d4) ![许可证](https://img.shields.io/badge/license-AGPL--3.0-blue)
+![版本](https://img.shields.io/badge/version-0.3.0-c2410c) ![平台](https://img.shields.io/badge/platform-Windows-0078d4) ![许可证](https://img.shields.io/badge/license-AGPL--3.0-blue)
 
 - [功能](#功能)
 - [快速开始](#快速开始)
