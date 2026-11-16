@@ -1,0 +1,21 @@
+# Dependencies and build output
+node_modules/
+dist/
+release/
+
+# User data (chats, cards, API keys) never leaves the machine
+data/
+
+# Third-party test fixtures
+tests/fixtures/*
+!tests/fixtures/README.md
+
+# Temporary and OS files
+*.tmp
+*.log
+.DS_Store
+Thumbs.db
+
+# Machine-specific launcher settings and backups
+Start.local.bat
+*.bak
