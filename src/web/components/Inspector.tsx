@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import { protectedReason } from '../../core/card-edit.ts';
+import { newLoreEntry } from '../../core/lore.ts';
 import { describeOp, type Op } from '../../core/ops.ts';
 import { stateAt, toYaml } from '../../core/state.ts';
 import { estimateTokens } from '../../core/tokens.ts';
@@ -255,6 +257,9 @@ function EntryEditor({ entry, onSave, onDelete, onClose }: { entry: LoreEntry; o
     });
     if (d.keys.join('\n') !== entry.keys.join('\n')) ops.push({ op: 'set', path: [...base, 'keys'], value: d.keys });
     if (d.secondaryKeys.join('\n') !== entry.secondaryKeys.join('\n')) ops.push({ op: 'set', path: [...base, 'secondaryKeys'], value: d.secondaryKeys });
+    const unlocked = (e: LoreEntry) => Boolean((e.extra?.hearth as { aiEditable?: boolean } | undefined)?.aiEditable);
+    if (unlocked(d) !== unlocked(entry)) ops.push({ op: 'set', path: [...base, 'extra', 'hearth', 'aiEditable'], value: unlocked(d) });
+    const locked = protectedReason(d, true);
     const splitKeys = (v: string) => v.split(/[,，]/).map(x => x.trim()).filter(Boolean);
     return (
         <div className="entry-editor">
@@ -268,6 +273,11 @@ function EntryEditor({ entry, onSave, onDelete, onClose }: { entry: LoreEntry; o
             <div className="inline-fields">
                 <label>启用 <Toggle checked={d.enabled} onChange={v => setD({ ...d, enabled: v })} /></label>
                 <label>常驻 <Toggle checked={d.activation === 'constant'} onChange={v => setD({ ...d, activation: v ? 'constant' : 'keyword' })} /></label>
+                {locked && (
+                    <label title={`这是「${locked}」条目，改坏了会影响变量或模板，所以默认不让 AI 修改`}>
+                        允许 AI 修改 <Toggle checked={unlocked(d)} onChange={v => setD({ ...d, extra: { ...d.extra, hearth: { ...(d.extra?.hearth as object), aiEditable: v } } })} />
+                    </label>
+                )}
             </div>
             <Field label="关键词" hint={<span>逗号分隔；/正则/ 也可以</span>}>
                 <input value={d.keys.join(', ')} onChange={e => setD({ ...d, keys: splitKeys(e.target.value) })} />
@@ -330,17 +340,7 @@ function LoreTab({ characterId }: { characterId: string }) {
     };
     const addEntry = async () => {
         if (!book) return;
-        const maxId = Math.max(-1, ...book.entries.map(e => Number(e.id)).filter(Number.isFinite));
-        const template = book.entries[0] ?? null;
-        const entry: LoreEntry = {
-            ...(template ? structuredClone(template) : {} as LoreEntry),
-            id: String(maxId + 1), title: '新条目', content: '', enabled: true, activation: 'keyword', keys: [], secondaryKeys: [], logic: 'and_any',
-            position: 'before_char', depth: 4, role: 'system', outlet: '', order: 100, probability: 100, useProbability: true, ignoreBudget: false,
-            recursion: { exclude: false, prevent: false, delayUntil: 0 }, group: { names: '', override: false, weight: 100, scoring: null },
-            timed: { sticky: null, cooldown: null, delay: null },
-            match: { scanDepth: null, caseSensitive: null, wholeWords: null, personaDescription: false, characterDescription: false, characterPersonality: false, characterDepthPrompt: false, scenario: false, creatorNotes: false },
-            filter: { characters: [], tags: [], exclude: false }, triggers: [], automationId: '', extra: undefined,
-        };
+        const entry = newLoreEntry(book, { title: '新条目', content: '', keys: [] });
         await apply([{ op: 'insert', path: ['entries'], value: entry }], '新增世界书条目');
         setEntryId(entry.id);
     };

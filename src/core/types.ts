@@ -313,7 +313,35 @@ export interface Swipe {
     state?: Record<string, unknown>;
     /** Chat-scoped engine state when this reply was saved, so a branch from it starts in that state. */
     chatState?: { variables: Chat['variables']; runtime: Chat['runtime'] };
+    /** Card and lorebook changes made by this reply (编辑 mode). */
+    edits?: CardEdits;
 }
+
+export interface CardEditResult {
+    action: string;
+    /** The address as the model wrote it. */
+    target: string;
+    /** Readable name of what was changed, e.g. 世界书「唯一之人」 › 年龄. */
+    label: string;
+    ok: boolean;
+    /** Why it was not applied. */
+    reason?: string;
+    /** The changed text before and after (whole field or entry). */
+    before?: string;
+    after?: string;
+}
+
+export interface CardEdits {
+    results: CardEditResult[];
+    /** Change sets written, in order; reverting them undoes this reply's edits. */
+    changes: string[];
+    reverted?: boolean;
+    /** Shown instead of results when nothing was applied, e.g. the block was cut off. */
+    note?: string;
+}
+
+/** Conversation channel. 'story' is the role-play; 'edit' talks about and edits the card. */
+export type ChatMode = 'story' | 'edit';
 
 export interface ChatMessage {
     id: string;
@@ -323,6 +351,8 @@ export interface ChatMessage {
     activeSwipe: number;
     /** Hidden from the prompt (ST is_system). */
     hidden: boolean;
+    /** Channel the message belongs to; missing means 'story'. 编辑 messages never enter the story prompt. */
+    mode?: ChatMode;
     createdAt: number;
     extra?: Record<string, unknown>;
 }
@@ -347,6 +377,8 @@ export interface Chat extends ResourceBase {
     /** Chat-scoped variables ({{setvar}} / {{getvar}}). */
     variables: Record<string, unknown>;
     authorsNote: AuthorsNote;
+    /** Channel new messages go to. */
+    mode?: ChatMode;
     /** Set on a chat created as a branch of another. */
     branch?: { chatId: string; messageId: string; swipeId: string; index: number };
     /** Engine bookkeeping (e.g. world info sticky/cooldown timers). */

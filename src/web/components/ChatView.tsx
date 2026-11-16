@@ -3,6 +3,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import type { Chat, ChatMessage, RegexScript } from '../../core/types.ts';
 import { api, type ChatContext } from '../api.ts';
 import { Icon } from '../icons.tsx';
+import { extractCardEdit, parseCardEdits } from '../../core/card-edit.ts';
 import { normalizeModelOutput } from '../../core/output.ts';
 import { stateAt } from '../../core/state.ts';
 import { countChars, displayText, frameDocument, renderSegments, type FrameVars } from '../render.ts';
@@ -10,7 +11,8 @@ import {
     branchChat, changeChat, getState, openChat, reportError, runGeneration, setState, stopGeneration, toast, toggleInspector, toggleSidebar,
     useAppState, useReading, type Streaming,
 } from '../state.ts';
-import { AutoTextarea, Avatar, Button, clockTime, Empty, IconButton, isModalOpen } from './common.tsx';
+import { AutoTextarea, Avatar, Button, clockTime, Empty, IconButton, isModalOpen, Segmented } from './common.tsx';
+import { EditResults } from './EditResults.tsx';
 import { ReadingControls } from './Reading.tsx';
 import { pickImportFiles } from './Sidebar.tsx';
 
@@ -117,10 +119,13 @@ const MessageView = memo(function MessageView({ chat, message, index, isLast, co
     const depth = chat.messages.length - 1 - index;
     const regex: RegexScript[] = context?.regex ?? [];
     const isUser = message.role === 'user';
-    const text = useMemo(() => displayText(isUser ? raw : normalizeModelOutput(raw), {
-        regex, user: context?.userName ?? '', char: context?.charName ?? '',
+    // 编辑 replies show their prose; the edit block becomes the results card below.
+    const isEdit = message.mode === 'edit';
+    const text = useMemo(() => displayText(isUser ? raw : isEdit ? extractCardEdit(raw).prose : normalizeModelOutput(raw), {
+        regex: isEdit ? [] : regex, user: context?.userName ?? '', char: context?.charName ?? '',
         placement: isUser ? 'user_input' : 'ai_output', depth,
-    }), [raw, regex, context?.userName, context?.charName, isUser, depth]);
+    }), [raw, regex, context?.userName, context?.charName, isUser, isEdit, depth]);
+    const writingEdits = isEdit && live && raw.includes('<card_edit>') ? parseCardEdits(extractCardEdit(raw).block ?? '').length : -1;
     const chars = useMemo(() => (live ? 0 : countChars(text)), [text, live]);
     const vars = useMemo<FrameVars>(() => ({
         message: stateAt(chat.messages, index) ?? {},
@@ -156,15 +161,17 @@ const MessageView = memo(function MessageView({ chat, message, index, isLast, co
     const thinking = Boolean(live && !live.text);
 
     return (
-        <article data-mid={message.id} className={`msg ${isUser ? 'msg-user' : 'msg-char'}${message.hidden ? ' msg-hidden' : ''}${live ? ' live' : ''}`}>
+        <article data-mid={message.id} className={`msg ${isUser ? 'msg-user' : 'msg-char'}${message.hidden ? ' msg-hidden' : ''}${isEdit ? ' msg-mode-edit' : ''}${live ? ' live' : ''}`}>
             {!isUser && (
                 <header className="msg-head">
                     <Avatar src={avatar} name={message.name} size={26} />
                     <span className="msg-name">{message.name}</span>
                     {message.hidden && <span className="tag">不发送</span>}
+                    {isEdit && <span className="tag mode-tag">编辑</span>}
                     <span className="msg-meta">#{index + 1} · {clockTime(swipe?.createdAt ?? message.createdAt)}{swipe?.model ? ` · ${swipe.model}` : ''}</span>
                 </header>
             )}
+            {isUser && isEdit && <span className="msg-mode-label">编辑</span>}
             {reasoning && <Reasoning text={reasoning} live={thinking} />}
             <div className="msg-body">
                 {editing !== null ? (
@@ -187,7 +194,9 @@ const MessageView = memo(function MessageView({ chat, message, index, isLast, co
                     <Rendered text={text} vars={vars} />
                 )}
             </div>
-            {live?.finalizing && <div className="msg-note delayed">回复已完成，正在整理（例如更新变量）…</div>}
+            {writingEdits >= 0 && !live?.finalizing && <div className="msg-note"><span className="pulse" /> 正在写修改{writingEdits ? `（${writingEdits} 处）` : ''}…</div>}
+            {isEdit && !live && swipe?.edits && <EditResults chat={chat} message={message} edits={swipe.edits} />}
+            {live?.finalizing && <div className="msg-note delayed">{isEdit ? '回复已完成，正在保存修改…' : '回复已完成，正在整理（例如更新变量）…'}</div>}
             {swipe?.finish === 'error' && !live && <div className="msg-error">生成失败：{swipe.error}</div>}
             {swipe?.finish === 'aborted' && !live && <div className="msg-note">已中止</div>}
             {swipe?.finish === 'length' && !live && <div className="msg-note">达到长度上限，可以点「继续写」</div>}
@@ -229,8 +238,11 @@ function Composer({ chatId }: { chatId: string }) {
     }, []);
     const busy = streaming?.chatId === chatId;
     const written = busy ? streaming.text.length : 0;
+    const mode = useAppState(s => s.chats[chatId]?.mode ?? 'story');
+    const editing = mode === 'edit';
+    const setMode = (next: 'story' | 'edit') => void changeChat(chatId, [{ op: 'set', path: ['mode'], value: next }]).catch(reportError);
     const send = () => {
-        if (busy) return;
+        if (busy || (editing && !text.trim())) return;
         const value = text;
         setText('');
         void runGeneration(chatId, 'normal', value);
@@ -241,7 +253,7 @@ function Composer({ chatId }: { chatId: string }) {
                 value={text}
                 minRows={1}
                 maxHeight={Math.round(window.innerHeight * 0.4)}
-                placeholder="写下你的行动或对话…"
+                placeholder={editing ? '告诉 AI 想怎么改角色卡或世界书，例如：把简珣祎的年龄改成二十八岁' : '写下你的行动或对话…'}
                 data-composer=""
                 autoFocus
                 onChange={e => setText(e.target.value)}
@@ -253,10 +265,11 @@ function Composer({ chatId }: { chatId: string }) {
                 }}
             />
             <div className="composer-bar">
-                <span className="composer-hint">
+                <Segmented label="对话模式" value={mode} options={[['story', '剧情'], ['edit', '编辑']] as const} onChange={setMode} />
+                <span className="composer-hint grow">
                     {busy
                         ? <><span className="pulse" />{streaming.finalizing ? '正在整理回复…' : written ? `正在生成 · ${written.toLocaleString()} 字` : '正在等待回复…'}<kbd>Esc</kbd>停止</>
-                        : text ? <><kbd>Enter</kbd>发送<kbd>Shift</kbd>+<kbd>Enter</kbd>换行</> : <>留空发送，让角色继续说</>}
+                        : text ? <><kbd>Enter</kbd>发送<kbd>Shift</kbd>+<kbd>Enter</kbd>换行</> : editing ? <>改动会直接保存，可以撤销</> : <>留空发送，让角色继续说</>}
                 </span>
                 {busy
                     ? <button className="send-btn stop" onClick={() => void stopGeneration()} title="停止（Esc）" aria-label="停止"><Icon name="stop" size={15} /></button>

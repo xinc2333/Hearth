@@ -29,7 +29,7 @@ function summary(store: Store, res: AnyResource) {
         case 'character':
             return { ...base, avatar: res.avatar, tags: res.meta.tags, creator: res.meta.creator, lorebookIds: res.lorebookIds, scripts: res.scripts.length };
         case 'chat': {
-            const texts = res.messages.map(m => m.swipes[m.activeSwipe]?.content ?? '');
+            const texts = res.messages.filter(m => m.mode !== 'edit').map(m => m.swipes[m.activeSwipe]?.content ?? '');
             const last = [...texts].reverse().find(t => t.trim()) ?? '';
             const preview = last.replace(/<(think|thinking|think_nya)[\s\S]*?<\/\1>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
             return { ...base, characterId: res.characterId, messages: res.messages.length, preview, branch: res.branch };
@@ -189,9 +189,7 @@ export function registerApi(router: Router, store: Store, runtime: Runtime, plug
 
     router.post('/api/chats/:id/preview', async req => {
         const body = await req.json<{ text?: string }>();
-        const result = await runtime.preview(req.params.id, body.text);
-        const tools = Array.isArray(result.request?.tools) ? (result.request.tools as { function?: { name?: string } }[]).map(t => t.function?.name ?? '').filter(Boolean) : [];
-        return { parts: result.parts, warnings: result.warnings, tokens: result.tokens, lore: result.lore.activated, tools };
+        return runtime.preview(req.params.id, body.text);
     });
 
     router.get('/api/chats/:id/last-prompt', req => runtime.lastPrompt(req.params.id) ?? null);

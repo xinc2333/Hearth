@@ -7,8 +7,9 @@ import type { LoreSource } from '../core/lore.ts';
 import { createMacroContext, evaluateMacros } from '../core/macros.ts';
 import type { Op } from '../core/ops.ts';
 import { applyRegex } from '../core/regex.ts';
-import type { Character, Chat, ChatMessage, Connection, Lorebook, Persona, Preset, RegexScript, Swipe } from '../core/types.ts';
+import type { Character, Chat, ChatMessage, ChatMode, Connection, Lorebook, Persona, Preset, RegexScript, Swipe } from '../core/types.ts';
 import { newId } from '../core/util.ts';
+import { applyCardEdits, buildEditPrompt, type EditPrompt } from './card-edit.ts';
 import type { PluginHost } from './plugins.ts';
 import { streamChat } from './providers/openai.ts';
 import type { Store } from './store.ts';
@@ -114,7 +115,8 @@ export class Runtime {
             },
             preset: this.preset(chat),
             lore: { sources: this.loreSources(chat, character, persona), settings: s.lore },
-            messages,
+            // 编辑 conversations are about the card, not part of the story.
+            messages: messages.filter(m => m.mode !== 'edit'),
             authorsNote: chat.authorsNote,
             variables: { chat: chat.variables ?? {}, global: s.globalVariables ?? {} },
             timedLore: chat.runtime?.timedLore,
@@ -140,15 +142,41 @@ export class Runtime {
     }
 
     /** Assembles without side effects, e.g. for the inspector. `pending` is an unsent user message. */
-    async preview(chatId: string, pending?: string): Promise<AssembleResult> {
+    /** The request the next message would send, in the chat's current mode. */
+    async preview(chatId: string, pending?: string): Promise<Omit<PromptSnapshot, 'at' | 'type' | 'model'>> {
         const chat = this.store.require<Chat>('chat', chatId);
+        const mode = chat.mode ?? 'story';
         const messages = [...chat.messages];
         if (pending?.trim()) {
-            messages.push(this.userMessage(chat, pending));
+            messages.push(this.userMessage(chat, pending, mode));
+        }
+        if (mode === 'edit') {
+            const prompt = this.editPrompt(chat, messages);
+            return { parts: prompt.parts, warnings: [], tokens: this.editTokens(prompt), lore: [], tools: [] };
         }
         const input = this.buildInput(chat, 'normal', messages);
         input.dryRun = true;
-        return this.runAssemble(chat, input);
+        const result = await this.runAssemble(chat, input);
+        return { parts: result.parts, warnings: result.warnings, tokens: result.tokens, lore: result.lore.activated, tools: toolNames(result.request) };
+    }
+
+    private editPrompt(chat: Chat, messages: ChatMessage[]): EditPrompt {
+        const character = this.store.require<Character>('character', chat.characterId);
+        const preset = this.preset(chat);
+        return buildEditPrompt({
+            store: this.store,
+            character,
+            books: character.lorebookIds.map(id => this.store.get<Lorebook>('lorebook', id)).filter((b): b is Lorebook => Boolean(b)),
+            messages,
+            userName: this.persona(chat).name,
+            maxContext: preset.context.maxContext,
+            maxTokens: preset.context.maxTokens,
+        });
+    }
+
+    private editTokens(prompt: EditPrompt): PromptSnapshot['tokens'] {
+        const { maxContext, maxTokens } = this.preset().context;
+        return { total: prompt.tokens, budget: maxContext - maxTokens, maxContext, maxTokens };
     }
 
     lastPrompt(chatId: string): PromptSnapshot | undefined {
@@ -188,7 +216,7 @@ export class Runtime {
         return evaluateMacros(text, ctx);
     }
 
-    private userMessage(chat: Chat, text: string): ChatMessage {
+    private userMessage(chat: Chat, text: string, mode: ChatMode = 'story'): ChatMessage {
         const content = applyRegex(this.regexScripts(chat), text, 'user_input', {
             macros: t => this.macroText(t, chat, this.store.require<Character>('character', chat.characterId)),
         });
@@ -201,6 +229,7 @@ export class Runtime {
             activeSwipe: 0,
             hidden: false,
             createdAt: now,
+            ...(mode === 'story' ? {} : { mode }),
         };
     }
 
@@ -307,9 +336,15 @@ export class Runtime {
         let chat = this.store.require<Chat>('chat', chatId);
         const character = this.store.require<Character>('character', chat.characterId);
         const type = req.type;
+        const tail = chat.messages[chat.messages.length - 1];
+        // A new message goes to the chat's current mode; redoing or continuing a reply keeps its mode.
+        const mode: ChatMode = type === 'normal' ? chat.mode ?? 'story' : tail?.mode ?? 'story';
+        if (mode === 'edit' && type === 'normal' && !req.text?.trim()) {
+            throw Object.assign(new Error('编辑模式下，请写下想怎么改角色卡或世界书'), { status: 400 });
+        }
 
         if (type === 'normal' && req.text?.trim()) {
-            const message = this.userMessage(chat, req.text);
+            const message = this.userMessage(chat, req.text, mode);
             chat = (await this.store.apply({ target: { kind: 'chat', id: chat.id }, ops: [{ op: 'insert', path: ['messages'], value: message }], author: 'user', journal: false })).resource as Chat;
         }
 
@@ -321,10 +356,14 @@ export class Runtime {
         const context = type === 'swipe' || type === 'regenerate' ? chat.messages.slice(0, -1) : chat.messages;
 
         const input = this.buildInput(chat, type, context);
-        const result = await this.runAssemble(chat, input);
+        // 编辑 mode sends the card as a document instead of the role-play prompt.
+        const edit = mode === 'edit' ? this.editPrompt(chat, context) : null;
+        const result: Pick<AssembleResult, 'messages' | 'parts' | 'warnings' | 'tokens' | 'request'> & Partial<AssembleResult> = edit
+            ? { messages: edit.messages, parts: edit.parts, warnings: [], tokens: this.editTokens(edit) }
+            : await this.runAssemble(chat, input);
         const snapshot: PromptSnapshot = {
             at: Date.now(), type, model: link.conn.model,
-            parts: result.parts, warnings: result.warnings, tokens: result.tokens, lore: result.lore.activated, tools: toolNames(result.request),
+            parts: result.parts, warnings: result.warnings, tokens: result.tokens, lore: result.lore?.activated ?? [], tools: toolNames(result.request),
         };
         this.lastPrompts.set(chat.id, snapshot);
 
@@ -341,6 +380,7 @@ export class Runtime {
                 id: messageId, role: 'assistant', name: character.name,
                 swipes: [{ id: swipeId, content: '', createdAt: now, model: link.conn.model }],
                 activeSwipe: 0, hidden: false, createdAt: now,
+                ...(mode === 'story' ? {} : { mode }),
             } satisfies ChatMessage });
         } else if (type === 'swipe') {
             messageId = last.id;
@@ -358,17 +398,17 @@ export class Runtime {
             }
         }
         // Macro side effects ({{setvar}}) and world-info timers persist like in ST.
-        ops.push({ op: 'set', path: ['variables'], value: result.variables.chat });
-        ops.push({ op: 'set', path: ['runtime', 'timedLore'], value: result.timedLore });
+        if (result.variables) ops.push({ op: 'set', path: ['variables'], value: result.variables.chat });
+        if (result.timedLore) ops.push({ op: 'set', path: ['runtime', 'timedLore'], value: result.timedLore });
         chat = (await this.store.apply({ target: { kind: 'chat', id: chat.id }, ops, author: 'system', journal: false })).resource as Chat;
-        if (JSON.stringify(result.variables.global) !== JSON.stringify(this.store.settings.globalVariables)) {
+        if (result.variables && JSON.stringify(result.variables.global) !== JSON.stringify(this.store.settings.globalVariables)) {
             await this.store.saveSettings({ globalVariables: result.variables.global });
         }
 
         const job: Job = { id: newId('job'), chatId: chat.id, controller: new AbortController() };
         this.jobs.set(job.id, job);
         emit({ type: 'job', jobId: job.id, messageId, swipeId, prefix });
-        emit({ type: 'prompt', parts: result.parts, warnings: result.warnings, tokens: result.tokens, lore: result.lore.activated, tools: snapshot.tools });
+        emit({ type: 'prompt', parts: result.parts, warnings: result.warnings, tokens: result.tokens, lore: snapshot.lore, tools: snapshot.tools });
 
         const live = () => {
             const current = this.store.require<Chat>('chat', chatId);
@@ -427,17 +467,31 @@ export class Runtime {
         }
 
         // Commit: AI-output regex, plugin post-processing, then one change set for the swipe.
-        if (this.plugins.receive.length) emit({ type: 'finalizing' });
+        // 编辑 replies skip both (they are not story text) and apply their edit block instead.
+        if (edit || this.plugins.receive.length) emit({ type: 'finalizing' });
         const { current, message, swipe } = live();
         let content = prefix + text;
-        if (finish !== 'error' || text) {
-            content = applyRegex(this.regexScripts(current), content, 'ai_output', { macros: t => this.macroText(t, current, character) });
-        }
         const extraOps: Op[] = [];
-        for (const fn of this.plugins.receive) {
-            const out = await fn({ chat: current, character, preset: input.preset, message, swipe, text: content, finish: finish ?? 'stop' });
-            if (out?.text !== undefined) content = out.text;
-            if (out?.ops) extraOps.push(...out.ops);
+        let edits = swipe.edits;
+        if (edit) {
+            if (finish === 'aborted' || finish === 'error') {
+                if (content.includes('<card_edit>') && !edits) edits = { results: [], changes: [], note: finish === 'aborted' ? '已中止，修改没有执行' : '生成出错，修改没有执行' };
+            } else if (!edits?.changes.length) {
+                try {
+                    edits = await applyCardEdits(this.store, character.id, content, edit, finish);
+                } catch (e) {
+                    edits = { results: [], changes: [], note: `修改没有执行：${(e as Error).message}` };
+                }
+            }
+        } else {
+            if (finish !== 'error' || text) {
+                content = applyRegex(this.regexScripts(current), content, 'ai_output', { macros: t => this.macroText(t, current, character) });
+            }
+            for (const fn of this.plugins.receive) {
+                const out = await fn({ chat: current, character, preset: input.preset, message, swipe, text: content, finish: finish ?? 'stop' });
+                if (out?.text !== undefined) content = out.text;
+                if (out?.ops) extraOps.push(...out.ops);
+            }
         }
         const latest = this.store.require<Chat>('chat', chatId);
         const finalSwipe: Swipe = {
@@ -448,6 +502,7 @@ export class Runtime {
             ...(error ? { error } : {}),
             model: link.conn.model,
             chatState: structuredClone({ variables: latest.variables, runtime: latest.runtime }),
+            ...(edits ? { edits } : {}),
         };
         const committed = await this.store.apply({
             target: { kind: 'chat', id: chatId },
