@@ -12,6 +12,7 @@
 //   - request:         api.onRequest((body, ctx) => body)                      (final request body, like ST's
 //                                                                                CHAT_COMPLETION_SETTINGS_READY)
 //   - controls:        api.registerControls({ list, change })                  (switches shown in the composer)
+//   - card edits:      api.registerEditTask({ … })                             (a 编辑-mode task with its own address)
 //   - data:            api.store.get / list / apply                            (same change channel as the UI)
 //   - services:        api.macros, api.sandbox, api.complete, api.config
 
@@ -22,7 +23,9 @@ import { pathToFileURL } from 'node:url';
 import type { AssembleInput, AssembleResult, Injection } from '../core/assemble.ts';
 import { createMacroContext, evaluateMacros, registerMacro, unregisterMacro, type MacroHandler } from '../core/macros.ts';
 import type { Op } from '../core/ops.ts';
-import type { Character, Chat, ChatMessage, Preset, Swipe } from '../core/types.ts';
+import type { CardEditResult, Character, Chat, ChatMessage, Persona, Preset, Swipe } from '../core/types.ts';
+import type { GenerationType } from '../core/assemble.ts';
+import type { SendResult } from './providers/openai.ts';
 import { runSandboxed } from './sandbox.ts';
 import type { Store } from './store.ts';
 
@@ -70,7 +73,61 @@ export interface RequestContext {
     preset: Preset;
     /** Adds a notice to this request's prompt trace. */
     warn?: (text: string) => void;
+    /** What this generation is; absent outside a generation (controls, previews). */
+    type?: GenerationType;
+    /** The reply being written. */
+    messageId?: string;
+    swipeId?: string;
+    /** The user's name in this chat. */
+    userName?: string;
+    /** Sends one extra request (non-streaming) with the active connection; aborted with the generation. */
+    send?: (body: Record<string, unknown>) => Promise<SendResult>;
+    /** Pushes plugin progress to the window while the reply is being prepared. */
+    progress?: (data: unknown) => void;
+    /** Adds an extra request this plugin sent to the prompt trace. */
+    trace?: (label: string, body: Record<string, unknown>) => void;
+    /** Aborted when the user stops the generation. */
+    signal?: AbortSignal;
 }
+
+/** Context for a 编辑-mode task. */
+export interface EditTaskContext {
+    character: Character;
+    /** The chat's messages (story and 编辑). */
+    messages: ChatMessage[];
+    userName: string;
+    persona?: Persona;
+}
+
+/** Result of one 【…】 operation addressed to a task. */
+export interface EditTaskOutcome {
+    /** Ops on the character resource; merged into the reply's character change set. */
+    ops: Op[];
+    label?: string;
+    before?: string;
+    after?: string;
+}
+
+/**
+ * A 编辑-mode task: a button in the composer, a section in the 编辑 prompt, and an address in the
+ * <card_edit> block (e.g. 【改写】跑团角色表) whose operations the task applies.
+ */
+export interface EditTask {
+    id: string;
+    /** Button label. */
+    label: string;
+    hint?: string;
+    /** The message the button sends. */
+    request: string;
+    /** The address the model writes after 【改写】/【删除】 (paths may follow after ›). */
+    address: string;
+    /** Extra 编辑-prompt text; '' adds nothing. */
+    instruction: (ctx: EditTaskContext) => string;
+    /** Applies one operation; throws with a readable reason when it cannot. */
+    apply: (op: { action: string; path: string[]; body: string }, ctx: EditTaskContext) => EditTaskOutcome | Promise<EditTaskOutcome>;
+}
+
+export type { CardEditResult };
 
 /** A switch a plugin shows next to the message box, stored in the chat (e.g. a preset's reply mode). */
 export interface ChatControl {
@@ -106,6 +163,7 @@ export interface PluginApi {
     /** Sees (and may replace) the request body right before it is sent. 编辑 requests skip it. */
     onRequest: (fn: RequestHook) => void;
     registerControls: (provider: ControlProvider) => void;
+    registerEditTask: (task: EditTask) => void;
     /** One-off completion with the active model connection (no streaming to the UI). */
     complete: (req: CompleteRequest) => Promise<string>;
     store: Pick<Store, 'get' | 'list' | 'apply' | 'settings'>;
@@ -196,6 +254,7 @@ export class PluginHost {
         create: [] as { plugin: string; fn: CreateHook }[],
         request: [] as { plugin: string; fn: RequestHook }[],
         controls: [] as { plugin: string; fn: ControlProvider }[],
+        editTasks: [] as { plugin: string; fn: EditTask }[],
     };
     private macros = new Map<string, { names: string | string[]; handler: MacroHandler }[]>();
     private store: Store;
@@ -211,6 +270,10 @@ export class PluginHost {
     get receive() { return this.active(this.hooks.receive); }
     get create() { return this.active(this.hooks.create); }
     get request() { return this.active(this.hooks.request); }
+    /** 编辑-mode tasks of enabled plugins. */
+    get editTasks() { return this.active(this.hooks.editTasks); }
+    /** Request hooks with the plugin each belongs to. */
+    get requestHooks() { return this.activeWithId(this.hooks.request); }
 
     /** Controls of enabled plugins for a chat; ids are prefixed with the plugin id. */
     controls(ctx: RequestContext): ChatControl[] {
@@ -241,12 +304,16 @@ export class PluginHost {
 
     /** Hooks of enabled plugins, in plugin order (then registration order). */
     private active<F>(list: { plugin: string; fn: F }[]): F[] {
+        return this.activeWithId(list).map(h => h.fn);
+    }
+
+    private activeWithId<F>(list: { plugin: string; fn: F }[]): { plugin: string; fn: F }[] {
         const order = (id: string) => this.plugins.get(id)?.manifest.order ?? 100;
         return list
             .map((h, i) => ({ h, i }))
             .filter(({ h }) => this.enabled(h.plugin))
             .sort((a, b) => order(a.h.plugin) - order(b.h.plugin) || a.i - b.i)
-            .map(({ h }) => h.fn);
+            .map(({ h }) => h);
     }
 
     private api(id: string): PluginApi {
@@ -264,6 +331,7 @@ export class PluginHost {
             onChatCreate: fn => { this.hooks.create.push({ plugin: id, fn }); },
             onRequest: fn => { this.hooks.request.push({ plugin: id, fn }); },
             registerControls: provider => { this.hooks.controls.push({ plugin: id, fn: provider }); },
+            registerEditTask: task => { this.hooks.editTasks.push({ plugin: id, fn: task }); },
             complete: req => {
                 if (!this.completer) throw new Error('模型连接尚未就绪');
                 return this.completer(req);

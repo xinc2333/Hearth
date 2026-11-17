@@ -10,14 +10,15 @@ import { applyRegex } from '../core/regex.ts';
 import type { Character, Chat, ChatMessage, ChatMode, Connection, Lorebook, Persona, Preset, RegexScript, Swipe } from '../core/types.ts';
 import { newId } from '../core/util.ts';
 import { applyCardEdits, buildEditPrompt, type EditPrompt } from './card-edit.ts';
-import type { PluginHost } from './plugins.ts';
-import { buildBody, streamChat } from './providers/openai.ts';
+import type { EditTaskContext, PluginHost } from './plugins.ts';
+import { buildBody, sendChat, streamChat } from './providers/openai.ts';
 import { estimateTokens, MESSAGE_OVERHEAD } from '../core/tokens.ts';
 import type { Store } from './store.ts';
 
 export type GenerateEvent =
     | { type: 'job'; jobId: string; messageId: string; swipeId: string; prefix: string }
-    | { type: 'prompt'; parts: AssembleResult['parts']; warnings: string[]; tokens: AssembleResult['tokens']; lore: AssembleResult['lore']['activated']; tools: string[]; sent?: AssembleResult['parts'] }
+    | { type: 'prompt'; parts: AssembleResult['parts']; warnings: string[]; tokens: AssembleResult['tokens']; lore: AssembleResult['lore']['activated']; tools: string[]; sent?: AssembleResult['parts']; stages?: PromptStage[] }
+    | { type: 'progress'; plugin: string; data: unknown }
     | { type: 'text'; text: string }
     | { type: 'reasoning'; text: string }
     | { type: 'finalizing' }
@@ -42,6 +43,14 @@ export interface PromptSnapshot {
     tools: string[];
     /** What was actually sent, when a plugin's request hook rewrote the assembled messages. */
     sent?: AssembleResult['parts'];
+    /** Extra requests plugins sent before the reply (e.g. 跑团's ruling step). */
+    stages?: PromptStage[];
+}
+
+export interface PromptStage {
+    label: string;
+    parts: AssembleResult['parts'];
+    tools: string[];
 }
 
 /** The final request's messages as trace parts. */
@@ -175,9 +184,24 @@ export class Runtime {
         return { parts: result.parts, warnings: result.warnings, tokens: result.tokens, lore: result.lore.activated, tools: toolNames(result.request) };
     }
 
+    /** What 编辑 tasks see about this chat. */
+    editTaskContext(chat: Chat, messages: ChatMessage[]): EditTaskContext {
+        const { name, persona } = this.persona(chat);
+        return { character: this.store.require<Character>('character', chat.characterId), messages, userName: name, persona };
+    }
+
     private editPrompt(chat: Chat, messages: ChatMessage[]): EditPrompt {
         const character = this.store.require<Character>('character', chat.characterId);
         const preset = this.preset(chat);
+        const ctx = this.editTaskContext(chat, messages);
+        const extras = this.plugins.editTasks.map(task => {
+            try {
+                return task.instruction(ctx);
+            } catch (error) {
+                console.warn(`[runtime] 编辑任务「${task.label}」出错：`, (error as Error).message);
+                return '';
+            }
+        }).filter(Boolean);
         return buildEditPrompt({
             store: this.store,
             character,
@@ -186,6 +210,7 @@ export class Runtime {
             userName: this.persona(chat).name,
             maxContext: preset.context.maxContext,
             maxTokens: preset.context.maxTokens,
+            extras,
         });
     }
 
@@ -378,7 +403,7 @@ export class Runtime {
             : await this.runAssemble(chat, input);
         const snapshot: PromptSnapshot = {
             at: Date.now(), type, model: link.conn.model,
-            parts: result.parts, warnings: result.warnings, tokens: result.tokens, lore: result.lore?.activated ?? [], tools: toolNames(result.request),
+            parts: result.parts, warnings: [...result.warnings], tokens: result.tokens, lore: result.lore?.activated ?? [], tools: toolNames(result.request),
         };
         this.lastPrompts.set(chat.id, snapshot);
 
@@ -443,11 +468,25 @@ export class Runtime {
             if (!edit && this.plugins.request.length) {
                 body = buildBody(link.conn, request, input.preset.context.stream);
                 const before = JSON.stringify(body);
-                const ctx = { chat: this.store.require<Chat>('chat', chatId), character, preset: input.preset, warn: (t: string) => { snapshot.warnings.push(t); } };
-                for (const fn of this.plugins.request) {
+                const emitPrompt = () => emit({ type: 'prompt', parts: result.parts, warnings: snapshot.warnings, tokens: result.tokens, lore: snapshot.lore, tools: snapshot.tools, sent: snapshot.sent, stages: snapshot.stages });
+                for (const { plugin, fn } of this.plugins.requestHooks) {
+                    if (job.controller.signal.aborted) break;
+                    // Each hook sees the chat as the hooks before it left it.
+                    const ctx = {
+                        chat: this.store.require<Chat>('chat', chatId), character, preset: input.preset, type, messageId, swipeId, userName: input.userName,
+                        warn: (t: string) => { snapshot.warnings.push(t); },
+                        send: (b: Record<string, unknown>) => sendChat(link.conn, link.key, b, job.controller.signal),
+                        progress: (data: unknown) => emit({ type: 'progress', plugin, data }),
+                        trace: (label: string, b: Record<string, unknown>) => {
+                            snapshot.stages = [...(snapshot.stages ?? []), { label, parts: sentParts(b.messages), tools: toolNames(b) }];
+                            emitPrompt();
+                        },
+                        signal: job.controller.signal,
+                    };
                     try {
                         body = (await fn(body, ctx)) ?? body;
                     } catch (e) {
+                        if (job.controller.signal.aborted) throw e;
                         snapshot.warnings.push(`插件处理请求时出错，已跳过：${(e as Error).message}`);
                     }
                 }
@@ -460,7 +499,7 @@ export class Runtime {
                 if (JSON.stringify(body) !== before) {
                     snapshot.sent = sentParts(body.messages);
                     snapshot.tools = toolNames(body);
-                    emit({ type: 'prompt', parts: result.parts, warnings: snapshot.warnings, tokens: result.tokens, lore: snapshot.lore, tools: snapshot.tools, sent: snapshot.sent });
+                    emitPrompt();
                 }
             }
             const stream = streamChat(link.conn, link.key, request, job.controller.signal, body);
@@ -515,7 +554,7 @@ export class Runtime {
                 if (content.includes('<card_edit>') && !edits) edits = { results: [], changes: [], note: finish === 'aborted' ? '已中止，修改没有执行' : '生成出错，修改没有执行' };
             } else if (!edits?.changes.length) {
                 try {
-                    edits = await applyCardEdits(this.store, character.id, content, edit, finish);
+                    edits = await applyCardEdits(this.store, character.id, content, edit, finish, { list: this.plugins.editTasks, ctx: this.editTaskContext(current, current.messages) });
                 } catch (e) {
                     edits = { results: [], changes: [], note: `修改没有执行：${(e as Error).message}` };
                 }

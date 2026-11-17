@@ -172,6 +172,7 @@ export function registerApi(router: Router, store: Store, runtime: Runtime, plug
             regex: runtime.regexScripts(chat),
             preset: { id: runtime.preset(chat).id, name: runtime.preset(chat).name },
             controls: plugins.controls({ chat, character, preset: runtime.preset(chat) }),
+            editTasks: plugins.editTasks.map(t => ({ id: t.id, label: t.label, hint: t.hint ?? '', request: t.request })),
             busy: runtime.isBusy(chat.id) ?? null,
         };
     });

@@ -8,9 +8,10 @@ import { extractCardEdit, parseCardEdits, parseFields, protectedReason, splitLis
 export { protectedReason };
 import { newLoreEntry } from '../core/lore.ts';
 import { findSection, insertAfterSection, removeSection, replaceOnce, replaceSection, sectionText } from '../core/doc.ts';
-import type { Op } from '../core/ops.ts';
+import { applyOps, type Op } from '../core/ops.ts';
 import { estimateTokens, MESSAGE_OVERHEAD } from '../core/tokens.ts';
 import type { CardEditResult, CardEdits, Character, CharacterFields, Chat, ChatMessage, LoreEntry, LorePosition, Lorebook, Persona } from '../core/types.ts';
+import type { EditTask, EditTaskContext } from './plugins.ts';
 import type { Store } from './store.ts';
 
 type TextField = Exclude<keyof CharacterFields, 'alternateGreetings' | 'depthPrompt'>;
@@ -133,6 +134,8 @@ export function buildEditPrompt(args: {
     userName: string;
     maxContext: number;
     maxTokens: number;
+    /** Sections added by plugins' 编辑 tasks. */
+    extras?: string[];
 }): EditPrompt {
     const { store, character, books, userName } = args;
     const shown = new Set<string>();
@@ -223,6 +226,7 @@ export function buildEditPrompt(args: {
     };
     add('system', `${EDIT_INSTRUCTION}\n\n用户在故事里的名字是「${userName}」，角色是「${character.name}」。`, 'cardEditor');
     add('system', document, 'cardDocument');
+    for (const extra of args.extras ?? []) add('system', extra, 'editTask');
     const recent: string[] = [];
     let storyTokens = 0;
     for (const m of [...story].reverse()) {
@@ -297,7 +301,19 @@ function parseTarget(address: string, character: Character, books: Lorebook[]): 
 
 const yes = (v: string) => /^(是|开|启用|true|yes|1)$/i.test(v.trim());
 
-export async function applyCardEdits(store: Store, characterId: string, text: string, prompt: Pick<EditPrompt, 'shown' | 'snapshot'>, finish: string): Promise<CardEdits | undefined> {
+/** The task an address belongs to (its address, optionally followed by › path), and that path. */
+function taskTarget(target: string, tasks: EditTask[]): { task: EditTask; path: string[] } | null {
+    const clean = target.replace(/^[「『"]|[」』"]$/g, '').trim();
+    for (const task of tasks) {
+        if (clean !== task.address && !clean.startsWith(task.address)) continue;
+        const rest = clean.slice(task.address.length);
+        if (rest && !/^\s*[›»>]/.test(rest)) continue;
+        return { task, path: rest.split(/[›»>]/).map(p => p.trim()).filter(Boolean) };
+    }
+    return null;
+}
+
+export async function applyCardEdits(store: Store, characterId: string, text: string, prompt: Pick<EditPrompt, 'shown' | 'snapshot'>, finish: string, tasks?: { list: EditTask[]; ctx: EditTaskContext }): Promise<CardEdits | undefined> {
     const { block, complete } = extractCardEdit(text);
     if (block === null) return undefined;
     if (!complete) {
@@ -309,6 +325,8 @@ export async function applyCardEdits(store: Store, characterId: string, text: st
     const original = { character: structuredClone(character), books: structuredClone(books) };
     const results: CardEditResult[] = [];
     const created = new Set<string>();
+    let working = character;
+    const taskOps: Op[] = [];
 
     const getText = (t: Extract<Target, { kind: 'field' | 'entry' }>) => (t.kind === 'field' ? fieldText(character, t.key) : t.entry.content);
     const setText = (t: Extract<Target, { kind: 'field' | 'entry' }>, value: string) => {
@@ -341,6 +359,20 @@ export async function applyCardEdits(store: Store, characterId: string, text: st
     };
 
     for (const op of ops) {
+        const owned = tasks ? taskTarget(op.target, tasks.list) : null;
+        if (owned) {
+            const result: CardEditResult = { action: op.action, target: op.target, label: owned.task.address, ok: false };
+            results.push(result);
+            try {
+                const out = await owned.task.apply({ action: op.action, path: owned.path, body: op.body }, { ...tasks!.ctx, character: working });
+                working = applyOps(working, out.ops).doc;
+                taskOps.push(...out.ops);
+                Object.assign(result, { ok: true, label: out.label ?? owned.task.address, before: out.before, after: out.after });
+            } catch (error) {
+                result.reason = (error as Error).message;
+            }
+            continue;
+        }
         const target = parseTarget(op.target, character, books);
         const result: CardEditResult = { action: op.action, target: op.target, label: labelOf(target, 'error' in target ? [] : (target as { path?: string[] }).path), ok: false };
         results.push(result);
@@ -439,6 +471,7 @@ export async function applyCardEdits(store: Store, characterId: string, text: st
     for (const key of Object.keys(character.fields) as (keyof CharacterFields)[]) {
         if (JSON.stringify(character.fields[key]) !== JSON.stringify(original.character.fields[key])) charOps.push({ op: 'set', path: ['fields', key], value: character.fields[key] });
     }
+    charOps.push(...taskOps);
     if (charOps.length) changes.push((await store.apply({ target: { kind: 'character', id: characterId }, ops: charOps, author: 'ai', reason: reason('角色卡') })).change.id);
     for (const book of books) {
         const before = original.books.find(b => b.id === book.id)!;

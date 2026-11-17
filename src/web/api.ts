@@ -100,6 +100,8 @@ export interface ChatContext {
     preset: { id: string; name: string };
     /** Switches plugins show in the composer (e.g. a preset's reply mode). */
     controls: ChatControl[];
+    /** Buttons plugins add to 编辑 mode (e.g. 数据化适配). */
+    editTasks?: { id: string; label: string; hint: string; request: string }[];
     busy: string | null;
 }
 
@@ -131,6 +133,8 @@ export interface PromptSnapshot {
     tools?: string[];
     /** The request actually sent, when a plugin (e.g. the preset's own script) rewrote it. */
     sent?: PromptPartView[];
+    /** Extra requests plugins sent before the reply (e.g. 跑团's ruling step). */
+    stages?: { label: string; parts: PromptPartView[]; tools: string[] }[];
 }
 
 export type GenerateEvent =
@@ -139,6 +143,7 @@ export type GenerateEvent =
     | { type: 'text'; text: string }
     | { type: 'reasoning'; text: string }
     | { type: 'finalizing' }
+    | { type: 'progress'; plugin: string; data: unknown }
     | { type: 'done'; message: import('../core/types.ts').ChatMessage }
     | { type: 'error'; error: string; message?: import('../core/types.ts').ChatMessage };
 

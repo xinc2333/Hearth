@@ -13,6 +13,7 @@ import {
 } from '../state.ts';
 import { AutoTextarea, Avatar, Button, clockTime, Empty, IconButton, isModalOpen, Segmented } from './common.tsx';
 import { EditResults } from './EditResults.tsx';
+import { CheckBar, hideSettlement, type TabletopProgress } from './Tabletop.tsx';
 import { ReadingControls } from './Reading.tsx';
 import { pickImportFiles } from './Sidebar.tsx';
 
@@ -121,7 +122,7 @@ const MessageView = memo(function MessageView({ chat, message, index, isLast, co
     const isUser = message.role === 'user';
     // 编辑 replies show their prose; the edit block becomes the results card below.
     const isEdit = message.mode === 'edit';
-    const text = useMemo(() => displayText(isUser ? raw : isEdit ? extractCardEdit(raw).prose : normalizeModelOutput(raw), {
+    const text = useMemo(() => displayText(isUser ? raw : isEdit ? extractCardEdit(raw).prose : hideSettlement(normalizeModelOutput(raw)), {
         regex: isEdit ? [] : regex, user: context?.userName ?? '', char: context?.charName ?? '',
         placement: isUser ? 'user_input' : 'ai_output', depth,
     }), [raw, regex, context?.userName, context?.charName, isUser, isEdit, depth]);
@@ -172,6 +173,7 @@ const MessageView = memo(function MessageView({ chat, message, index, isLast, co
                 </header>
             )}
             {isUser && isEdit && <span className="msg-mode-label">编辑</span>}
+            {!isUser && !isEdit && <CheckBar message={message} live={live?.progress?.tabletop as TabletopProgress | undefined} />}
             {reasoning && <Reasoning text={reasoning} live={thinking} />}
             <div className="msg-body">
                 {editing !== null ? (
@@ -254,6 +256,8 @@ function Composer({ chatId }: { chatId: string }) {
     };
     const modeHint = modeControl && !editing && modeControl.value !== modeControl.options?.[0]?.[0] ? modeControl.hint : undefined;
     const note = controls.find(c => c.type === 'note');
+    const editTasks = useAppState(s => s.contexts[chatId]?.editTasks) ?? [];
+    const judging = (streaming?.progress?.tabletop as { phase?: string } | undefined)?.phase === 'ruling';
     const send = () => {
         if (busy || (editing && !text.trim())) return;
         const value = text;
@@ -284,6 +288,10 @@ function Composer({ chatId }: { chatId: string }) {
                     <button key={c.id} type="button" className={`chip-btn${c.value ? ' on' : ''}`} title={c.hint} aria-pressed={Boolean(c.value)}
                         onClick={() => void setControl(chatId, c.id, !c.value).catch(reportError)}>{c.label}</button>
                 ))}
+                {editing && editTasks.map(task => (
+                    <button key={task.id} type="button" className="chip-btn" title={task.hint} disabled={busy}
+                        onClick={() => void runGeneration(chatId, 'normal', task.request)}>{task.label}</button>
+                ))}
                 {!editing && note && (
                     <button type="button" className={`chip-btn${note.value ? ' on' : ''}`} title={note.value ? String(note.value) : note.hint} onClick={() => setNoteOpen(!noteOpen)}>
                         {note.label}{note.value ? ' ·' : ''}
@@ -291,7 +299,7 @@ function Composer({ chatId }: { chatId: string }) {
                 )}
                 <span className="composer-hint grow">
                     {busy
-                        ? <><span className="pulse" />{streaming.finalizing ? '正在整理回复…' : written ? `正在生成 · ${written.toLocaleString()} 字` : '正在等待回复…'}<kbd>Esc</kbd>停止</>
+                        ? <><span className="pulse" />{streaming.finalizing ? '正在整理回复…' : written ? `正在生成 · ${written.toLocaleString()} 字` : judging ? '正在裁定，掷骰中…' : '正在等待回复…'}<kbd>Esc</kbd>停止</>
                         : text ? <><kbd>Enter</kbd>发送<kbd>Shift</kbd>+<kbd>Enter</kbd>换行</> : editing ? <>改动会直接保存，可以撤销</> : modeHint ? <>{modeHint}</> : <>留空发送，让角色继续说</>}
                 </span>
                 {busy

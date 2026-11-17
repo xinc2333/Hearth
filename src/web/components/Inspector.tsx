@@ -11,6 +11,7 @@ import { Icon } from '../icons.tsx';
 import { change, confirmAction, loadPref, openChat, refresh, reportError, savePref, setState, toast, toggleInspector, useAppState, type InspectorTab } from '../state.ts';
 import { sourceLabel } from '../labels.ts';
 import { PresetManager } from './PresetManager.tsx';
+import { TabletopTab } from './Tabletop.tsx';
 import { Button, Empty, Field, IconButton, LongText, Segmented, Toggle, timeAgo } from './common.tsx';
 
 // ---------------------------------------------------------------------------------------------
@@ -85,6 +86,13 @@ function PromptTab({ chatId, preset }: { chatId: string; preset: Preset | null }
                             <Segmented label="查看" value={view} options={[['assembled', '组装结果'], ['sent', '实际发送']] as const} onChange={setView} />
                         </div>
                     )}
+                    {shown.stages?.map((stage, i) => (
+                        <details key={i} className="lore-hits stage">
+                            <summary>{stage.label}（{stage.parts.length} 条消息{stage.tools.length ? ` · 工具：${stage.tools.join('、')}` : ''}）</summary>
+                            <div className="parts">{stage.parts.map((p, j) => <PartCard key={j} part={p} preset={preset} />)}</div>
+                        </details>
+                    ))}
+                    {shown.stages?.length ? <div className="muted small stage-note">下面是写正文的那次请求：</div> : null}
                     <div className="parts">
                         {(view === 'sent' && shown.sent ? shown.sent : shown.parts).map((p, i) => <PartCard key={`${view}${i}`} part={p} preset={preset} />)}
                     </div>
@@ -449,7 +457,7 @@ function HistoryTab({ chatId }: { chatId: string }) {
 
 // ---------------------------------------------------------------------------------------------
 
-const TABS: [InspectorTab, string][] = [['prompt', '提示词'], ['state', '变量'], ['character', '角色卡'], ['lore', '世界书'], ['preset', '预设'], ['history', '历史']];
+const TABS: [InspectorTab, string][] = [['prompt', '提示词'], ['state', '变量'], ['tabletop', '跑团'], ['character', '角色卡'], ['lore', '世界书'], ['preset', '预设'], ['history', '历史']];
 const DEFAULT_WIDTH = 420;
 
 /** Drag the panel's left edge to resize it (double-click resets); wide is better for editing long text. */
@@ -492,6 +500,7 @@ export function Inspector() {
     const context = useAppState(s => (s.activeChatId ? s.contexts[s.activeChatId] : undefined));
     const [preset, setPreset] = useState<Preset | null>(null);
     const { startDrag, reset } = useInspectorWidth();
+    const tabletop = useAppState(s => s.boot?.plugins.some(p => p.id === 'tabletop' && p.enabled && !p.error) ?? false);
     useEffect(() => {
         if (context?.preset.id) void api.get<Preset>('preset', context.preset.id).then(setPreset).catch(() => setPreset(null));
     }, [context?.preset.id]);
@@ -501,7 +510,7 @@ export function Inspector() {
             <div className="inspector-resize" title="拖动调整宽度，双击恢复" onPointerDown={startDrag} onDoubleClick={reset} />
             <header className="inspector-head">
                 <div className="tabs" role="tablist">
-                    {TABS.map(([id, label]) => (
+                    {TABS.filter(([id]) => id !== 'tabletop' || tabletop).map(([id, label]) => (
                         <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? 'active' : ''} onClick={() => tab !== id && toggleInspector(id)}>{label}</button>
                     ))}
                 </div>
@@ -509,6 +518,7 @@ export function Inspector() {
             </header>
             {tab === 'prompt' && <PromptTab chatId={chatId} preset={preset} />}
             {tab === 'state' && <StateTab chat={chat} />}
+            {tab === 'tabletop' && <TabletopTab chat={chat} userName={context?.userName ?? ''} presetId={context?.preset.id} />}
             {tab === 'character' && <CharacterTab key={chat.characterId} characterId={chat.characterId} />}
             {tab === 'lore' && <LoreTab key={chat.characterId} characterId={chat.characterId} />}
             {tab === 'preset' && <PresetTab />}

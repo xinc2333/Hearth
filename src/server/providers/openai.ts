@@ -146,6 +146,37 @@ export async function* streamChat(conn: Connection, key: string | undefined, req
     yield { type: 'done', finish, usage };
 }
 
+export interface SendResult {
+    text: string;
+    reasoning: string;
+    /** Tool calls exactly as the endpoint returned them (provider extras such as thought signatures included). */
+    toolCalls: { id?: string; type?: string; function?: { name?: string; arguments?: string }; [key: string]: unknown }[];
+    finish: 'stop' | 'length';
+}
+
+/** One non-streaming request with a prepared body; tool calls come back as structured data. */
+export async function sendChat(conn: Connection, key: string | undefined, body: Record<string, unknown>, signal: AbortSignal): Promise<SendResult> {
+    const { stream_options: _drop, ...rest } = body;
+    const res = await fetch(`${normalizeBase(conn.baseUrl)}/chat/completions`, {
+        method: 'POST',
+        headers: headers(conn, key),
+        body: JSON.stringify({ ...rest, stream: false }),
+        signal,
+    });
+    if (!res.ok) {
+        throw new Error(`接口返回 ${res.status}：${await errorText(res)}`);
+    }
+    const json = await res.json() as Record<string, any>;
+    if (json.error) throw new Error(json.error.message ?? JSON.stringify(json.error));
+    const message = json.choices?.[0]?.message ?? {};
+    return {
+        text: String(message.content ?? json.choices?.[0]?.text ?? ''),
+        reasoning: String(message.reasoning_content ?? message.reasoning ?? ''),
+        toolCalls: Array.isArray(message.tool_calls) ? message.tool_calls : [],
+        finish: json.choices?.[0]?.finish_reason === 'length' ? 'length' : 'stop',
+    };
+}
+
 export async function listModels(conn: Connection, key: string | undefined): Promise<string[]> {
     const res = await fetch(`${normalizeBase(conn.baseUrl)}/models`, { headers: headers(conn, key) });
     if (!res.ok) {

@@ -7,7 +7,7 @@ import type { Chat, ChatMessage, ReadingSettings, ResourceKind } from '../core/t
 import { api, generate, type Bootstrap, type ChatContext, type PromptSnapshot } from './api.ts';
 
 export type GenerationKind = 'normal' | 'swipe' | 'regenerate' | 'continue';
-export type InspectorTab = 'prompt' | 'state' | 'character' | 'lore' | 'preset' | 'history';
+export type InspectorTab = 'prompt' | 'state' | 'tabletop' | 'character' | 'lore' | 'preset' | 'history';
 
 export interface Streaming {
     chatId: string;
@@ -21,6 +21,8 @@ export interface Streaming {
     finalizing?: boolean;
     text: string;
     reasoning: string;
+    /** Plugin progress while the reply is being prepared (e.g. 跑团's ruling), keyed by plugin id. */
+    progress?: Record<string, unknown>;
 }
 
 export interface Toast {
@@ -286,6 +288,10 @@ export async function runGeneration(chatId: string, type: GenerationKind, text?:
                     break;
                 case 'finalizing':
                     pending = { ...pending, finalizing: true };
+                    flush();
+                    break;
+                case 'progress':
+                    pending = { ...pending, progress: { ...pending.progress, [event.plugin]: event.data } };
                     flush();
                     break;
                 case 'done':

@@ -450,7 +450,7 @@ input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 2px solid var
 .inspector-head { display: flex; align-items: center; gap: 6px; height: 52px; padding: 0 10px 0 12px; border-bottom: 1px solid var(--border); flex: none; }
 .tabs { display: flex; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
-.tabs button { border: 0; background: none; padding: 6px 10px; border-radius: 8px; color: var(--muted); font-size: 13.5px; white-space: nowrap; }
+.tabs button { border: 0; background: none; padding: 6px 8px; border-radius: 8px; color: var(--muted); font-size: 13.5px; white-space: nowrap; }
 .tabs button:hover { color: var(--text); background: var(--hover); }
 .tabs button.active { color: var(--text); background: var(--active); font-weight: 550; }
 .tab-body { flex: 1; overflow-y: auto; padding: 14px 18px 28px; display: flex; flex-direction: column; gap: 14px; }
@@ -686,3 +686,61 @@ input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 2px solid var
 .note-popover { bottom: calc(100% + 8px); left: 0; width: min(420px, 100%); display: flex; flex-direction: column; gap: 8px; }
 .note-popover textarea { font-size: 14px; }
 .note-popover .row-end { margin-top: 0; }
+
+/* 跑团: the check bar above a reply */
+.checks { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 10px; font-size: 12.5px; }
+.check { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); max-width: 100%; }
+.check.open { flex-basis: 100%; }
+.check-head { display: flex; align-items: center; gap: 6px; padding: 3px 9px; background: none; border: 0; color: var(--text-2); font: inherit; cursor: pointer; text-align: left; max-width: 100%; }
+.check-head:hover { color: var(--text); }
+.check-die { font-size: 12px; }
+.check-actor { color: var(--muted); }
+.check-action { font-weight: 550; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.check-meta { color: var(--muted); white-space: nowrap; }
+.check-tier { font-weight: 650; white-space: nowrap; }
+.check.tier-critical .check-tier { color: var(--ok); }
+.check.tier-success .check-tier { color: var(--ok); }
+.check.tier-failure .check-tier { color: var(--danger); }
+.check.tier-fumble .check-tier { color: var(--danger); }
+.check.tier-critical, .check.tier-fumble { border-color: currentColor; }
+.check.tier-critical { color: var(--ok); }
+.check.tier-fumble { color: var(--danger); }
+.check-body { padding: 4px 10px 8px 28px; color: var(--text-2); line-height: 1.6; border-top: 1px dashed var(--border); }
+.check-body p { margin: 4px 0; }
+.check-outcome { color: var(--text); }
+.check-hidden { height: 24px; padding: 0 9px; border-radius: 8px; border: 1px dashed var(--border-strong); background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
+.check-hidden:hover { color: var(--text); }
+.check-status { display: flex; align-items: center; gap: 7px; height: 24px; color: var(--text-2); }
+
+/* 跑团: the inspector tab */
+.tt .tt-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; background: var(--surface); }
+.tt-card-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.tt-name { font-weight: 650; }
+.tt-words { color: var(--accent-text); font-size: 13px; }
+.tt-attrs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px 10px; margin: 4px 0 6px; }
+.tt-attr { display: flex; justify-content: space-between; gap: 6px; font-size: 13px; border-bottom: 1px dotted var(--border); padding: 2px 0; }
+.tt-attr-name { color: var(--muted); white-space: nowrap; }
+.tt-attrs.words { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tt-attrs.words .tt-attr-value { color: var(--text-2); white-space: nowrap; }
+.tt-attr-value { font-variant-numeric: tabular-nums; color: var(--text); }
+.tt-axes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 14px; }
+.tt-axis { display: grid; grid-template-columns: 2.6em 1fr 3.2em; align-items: center; gap: 6px; font-size: 12.5px; }
+.tt-axis-name { color: var(--muted); }
+.tt-axis-value { text-align: right; font-variant-numeric: tabular-nums; }
+.tt-axis-value sup { color: var(--muted); font-size: 10px; margin-left: 1px; }
+.tt-bar { height: 6px; border-radius: 3px; background: var(--active); overflow: hidden; }
+.tt-bar > span { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.tt-axis.axis-resentment .tt-bar > span, .tt-axis.axis-fear .tt-bar > span { background: var(--danger); }
+.tt-axis.axis-trust .tt-bar > span, .tt-axis.axis-respect .tt-bar > span { background: var(--ok); }
+.tt-reasons, .tt-log { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--text-2); line-height: 1.6; }
+.tt-log { padding-left: 0; list-style: none; }
+.tt textarea.mono { font-family: var(--mono); font-size: 12.5px; width: 100%; }
+.tt-notice { display: flex; align-items: center; gap: 10px; justify-content: space-between; margin-bottom: 10px; }
+.stage { margin-bottom: 8px; }
+.stage .parts { margin-top: 8px; }
+.stage-note { margin: 4px 0; }
+@media (max-width: 560px) {
+    .tt-attrs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .tt-axes { grid-template-columns: minmax(0, 1fr); }
+    .check-meta { display: none; }
+}

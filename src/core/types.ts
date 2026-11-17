@@ -315,6 +315,8 @@ export interface Swipe {
     chatState?: { variables: Chat['variables']; runtime: Chat['runtime'] };
     /** Card and lorebook changes made by this reply (编辑 mode). */
     edits?: CardEdits;
+    /** Per-plugin data for this version of the reply, keyed by plugin id. The kernel does not read it. */
+    plugins?: Record<string, unknown>;
 }
 
 export interface CardEditResult {
@@ -355,6 +357,8 @@ export interface ChatMessage {
     mode?: ChatMode;
     createdAt: number;
     extra?: Record<string, unknown>;
+    /** Per-plugin data shared by every version of this message, keyed by plugin id. The kernel does not read it. */
+    plugins?: Record<string, unknown>;
 }
 
 export interface AuthorsNote {

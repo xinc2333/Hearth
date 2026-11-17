@@ -58,6 +58,7 @@ assemble(角色卡, 用户角色, 预设, 世界书, 聊天记录, 状态) → �
 | --- | --- | --- |
 | 提示词模板 | ST-Prompt-Template | 运行提示词里的 EJS 模板 |
 | 酒馆助手 | JS-Slash-Runner | 消息里的前端界面、MVU 变量、SPreset 类预设（回复工具和控制标记） |
+| 跑团 | — | 掷骰检定、属性和态度（见 [tabletop.md](tabletop.md)） |
 
 关闭插件时，卡片和预设里对应的内容原样保存，只是不再处理。比如关掉酒馆助手，状态栏的 HTML 会显示成代码，预设的控制标记会原样发给模型。
 
@@ -107,7 +108,9 @@ export default {
 | `onAfterReceive(ctx)` | 处理回复，返回新文本和对资源的修改 | SPreset 的工具回复格式化、MVU 变量更新 |
 | `onChatCreate(ctx)` | 新对话创建时初始化 | MVU 初始变量 |
 | `onRequest(body, ctx)` | 请求发出前，查看或替换最终的请求体（对应酒馆的 `CHAT_COMPLETION_SETTINGS_READY`）。改写后的内容会出现在提示词追踪的「实际发送」里 | 运行预设自己的 Stage 1 |
-| `registerControls({ list, change })` | 在输入框旁边放开关：`mode` 会替换模式切换里的「剧情」，`toggle` 是开关，`note` 是随下一条回复发送的文字 | 小猫之神控制台 |
+| `registerControls({ list, change })` | 在输入框旁边放开关：`mode` 会替换模式切换里的「剧情」，`toggle` 是开关，`note` 是随下一条回复发送的文字 | 小猫之神控制台；检定绝对通过 |
+| `onRequest` 的 `ctx.send / progress / trace` | 在正文请求之前用当前连接另发请求（不流式，工具调用按原样返回）；向界面推送进度；把这次请求记进提示词追踪。`ctx.type`、`messageId`、`swipeId` 说明正在写哪条回复 | 跑团的裁定 |
+| `registerEditTask({ … })` | 编辑模式的任务：输入框下的按钮、追加到编辑提示词的说明，以及修改块里属于它的地址（如【改写】跑团角色表），由任务自己执行 | 数据化适配 |
 | `complete(req)` | 用当前模型连接发一次请求 | MVU 漏写时补全 |
 | `macros.evaluate / context` | 展开宏（包括其他插件注册的宏） | EJS 里的 `getwi` |
 | `sandbox.run(code, host)` | 在 QuickJS 沙箱里运行卡片或预设的代码 | EJS 模板 |
