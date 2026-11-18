@@ -40,6 +40,27 @@ export interface Bootstrap {
     plugins: PluginView[];
 }
 
+/** Hearth's own update (desktop app only). */
+export interface AppUpdateStatus {
+    state: 'idle' | 'checking' | 'latest' | 'downloading' | 'ready' | 'error';
+    version?: string;
+    percent?: number;
+    error?: string;
+    checkedAt?: number;
+}
+
+export interface VersionInfo {
+    app: string;
+    version: string;
+    build: string;
+    latest: string;
+    desktop?: boolean;
+    update?: AppUpdateStatus | null;
+}
+
+export const RELEASES_URL = 'https://github.com/xinc2333/Hearth/releases';
+export const releaseUrl = (version: string) => `${RELEASES_URL}/tag/v${version}`;
+
 export class ApiError extends Error {
     status: number;
     constructor(message: string, status: number) {
@@ -64,6 +85,9 @@ async function request<T>(method: string, url: string, body?: unknown, raw?: Bod
 
 export const api = {
     bootstrap: () => request<Bootstrap>('GET', '/api/bootstrap'),
+    version: () => request<VersionInfo>('GET', '/api/version'),
+    checkAppUpdate: () => request<AppUpdateStatus>('POST', '/api/app-update/check'),
+    installAppUpdate: () => request('POST', '/api/app-update/install'),
     get: <T>(kind: ResourceKind, id: string) => request<T>('GET', `/api/resources/${kind}/${id}`),
     remove: (kind: ResourceKind, id: string) => request('DELETE', `/api/resources/${kind}/${id}`),
     create: <T>(kind: 'persona' | 'lorebook', body: Record<string, unknown>) => request<T>('POST', `/api/resources/${kind}`, body),

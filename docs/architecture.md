@@ -12,7 +12,7 @@ assemble(角色卡, 用户角色, 预设, 世界书, 聊天记录, 状态) → �
 
 ## 1. 资源
 
-所有用户数据都是资源：一份带 `id` 和 `kind` 的 JSON。每个资源存成 `data/<类型>/<id>.json`。
+所有用户数据都是资源：一份带 `id` 和 `kind` 的 JSON。每个资源存成 `data/<类型>/<id>.json`。（`data/` 指数据目录：安装版是 `%APPDATA%\Hearth\data`，从源码运行时是仓库里的 `data/`。）
 
 | 类型 | 内容 |
 | --- | --- |
@@ -189,3 +189,33 @@ export default {
 - **冲突**：如果发出请求之后，用户手动改过同一处，这一处不会被覆盖。
 - **不完整的修改块不执行**：回复被截断、中止或出错时，修改块不执行。截断时可以点「继续写」，写完后再执行。
 - 执行不了的条目逐条说明原因，不影响其他修改。
+
+## 7. 桌面版
+
+安装版是一个 Electron 程序（`src/desktop/`），构建成 `dist/desktop.mjs`，由 electron-builder 打包成 NSIS 安装包。
+
+- **同一个服务**：`src/server/app.ts` 的 `createHearth()` 建好存储、插件、运行时和 HTTP 服务。命令行版（`src/server/main.ts`，`Start.bat` 用它）和桌面版都从这里启动；桌面版把服务跑在 Electron 主进程里，再让窗口打开 `http://127.0.0.1:<端口>`。所以界面代码不区分两种运行方式。
+- **端口**：默认 8730，被别的程序占用时换一个空闲端口，并记在 `%APPDATA%\Hearth\window.json` 里（和窗口大小、位置放在一起）。端口不变，界面存在浏览器里的设置（主题、上次打开的对话）也就不变。
+- **网络**：主进程里的 `fetch` 换成 Electron 的 `net.fetch`，走 Chromium 的网络栈，所以系统代理和 PAC 脚本都生效，和浏览器一样。发给 Hearth 自己的请求仍用 Node 的 `fetch`。设置了 `HTTPS_PROXY` / `HTTP_PROXY` 时，用它代替系统代理。
+- **数据目录**：`%APPDATA%\Hearth\data`。第一次启动时（数据目录还不存在），用系统对话框询问是否从解压版导入：找到旧数据后整个复制过来（`src/desktop/migrate.ts`），旧文件不动。
+- **退出**：关闭窗口时如果还有回复在生成，先询问。退出前写完所有待保存的修改。
+- **只开一个**：再次启动时，已经打开的 Hearth 切到前台，新进程直接退出。另一个 Hearth（例如 `Start.bat`）请求 `/api/shutdown` 接管端口时，桌面版会拒绝。
+- **运行记录**：没有命令行窗口，`console` 的输出写进 `%APPDATA%\Hearth\logs\hearth.log`，超过 2MB 时换新文件。
+
+### 自动更新
+
+用 electron-updater，更新来源是 GitHub Releases（`electron-builder.yml` 里的 `publish`，打包时写进安装目录的 `resources/app-update.yml`）。
+
+1. 启动 15 秒后检查一次，之后每 6 小时一次：读取最新 Release 的 `latest.yml`，版本更高就在后台下载安装包。有上一版的 `.blockmap` 时只下载有变化的部分。
+2. 下载好后，`/api/version` 的 `update` 变成 `ready`，界面顶部出现提示条。
+3. 点「现在重启更新」（`POST /api/app-update/install`）：Hearth 退出，安装包静默安装，然后启动新版本。不点的话，下次关闭 Hearth 时静默安装，下次打开就是新版本。
+
+安装包没有签名，所以不校验更新包的签名，只校验 `latest.yml` 里的 SHA-512。
+
+测试时可以设置环境变量 `HEARTH_UPDATE_URL`，指向一个放着 `latest.yml` 和安装包的网址，代替 GitHub。从源码运行时只有设置了它才会检查更新。
+
+### 安装包
+
+- 只为当前用户安装（`resources/installer.nsh` 跳过「为所有用户安装」那一页），默认装到 `%LOCALAPPDATA%\Programs\Hearth`，可以换位置。不需要管理员权限，自动更新时也不会弹出权限请求。
+- 应用文件不打成 asar 包，因为内置插件要用 `import()` 从各自的文件夹加载。
+- 卸载时保留数据目录。

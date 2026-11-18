@@ -1,5 +1,6 @@
 {
   "name": "hearth",
+  "productName": "Hearth",
   "version": "0.4.0",
   "private": true,
   "description": "轻量的角色扮演对话工具，兼容 SillyTavern 角色卡、世界书与预设",
@@ -14,38 +15,43 @@
     "url": "https://github.com/xinc2333/Hearth/issues"
   },
   "type": "module",
+  "main": "dist/desktop.mjs",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "dev:server": "node --watch src/server/main.ts",
     "dev:web": "vite --config vite.config.ts",
-    "build": "npm run build:web && npm run build:server && npm run build:plugins",
+    "build": "npm run build:web && npm run build:server && npm run build:plugins && npm run build:desktop",
     "build:web": "vite build --config vite.config.ts",
     "build:server": "esbuild src/server/main.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/server.mjs",
     "build:plugins": "node scripts/build-plugins.mjs",
     "test": "node --test tests/*.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "start": "node dist/server.mjs --open"
+    "start": "node dist/server.mjs --open",
+    "build:desktop": "esbuild src/desktop/main.ts --bundle --platform=node --format=esm --target=node22 --external:electron --banner:js=\"import { createRequire as __hearthRequire } from 'node:module'; const require = __hearthRequire(import.meta.url);\" --outfile=dist/desktop.mjs",
+    "desktop": "electron .",
+    "dist": "npm run build && electron-builder --win --x64 --publish never"
   },
-  "dependencies": {
+  "devDependencies": {
     "@jitl/quickjs-singlefile-mjs-release-sync": "^0.31.0",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^4.7.0",
     "dompurify": "^3.4.18",
+    "electron": "^45.3.3",
+    "electron-builder": "^26.18.1",
+    "electron-updater": "^6.8.11",
+    "esbuild": "^0.25.12",
     "jquery": "^3.7.1",
     "lodash": "^4.17.21",
     "marked": "^15.0.12",
     "quickjs-emscripten-core": "^0.31.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "yaml": "^2.6.1"
-  },
-  "devDependencies": {
-    "@types/node": "^22.20.5",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^4.7.0",
-    "esbuild": "^0.25.12",
     "typescript": "5.8",
-    "vite": "^6.4.6"
+    "vite": "^6.4.6",
+    "yaml": "^2.6.1"
   }
 }

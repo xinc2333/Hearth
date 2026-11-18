@@ -1,0 +1,47 @@
+# The Windows installer, built with `npm run dist` (see CONTRIBUTING.md). The installed app updates
+# itself from GitHub Releases, so every release must carry latest.yml, the installer and its .blockmap.
+appId: io.github.xinc2333.hearth
+productName: Hearth
+copyright: Copyright © 2026 xinc2333
+directories:
+  output: release
+  buildResources: resources
+files:
+  - package.json
+  - LICENSE
+  - dist/**/*
+  - "!dist/server.mjs"
+  - plugins/**/*
+  - "!node_modules/**/*"
+# Plain files instead of an archive: built-in plugins are loaded with import() from their folders.
+asar: false
+npmRebuild: false
+electronLanguages:
+  - zh-CN
+  - en-US
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: resources/icon.ico
+  executableName: Hearth
+  artifactName: Hearth-Setup-${version}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Hearth
+  uninstallDisplayName: Hearth
+  installerLanguages: [zh_CN]
+  language: "2052"
+  # Chats, cards and keys live in %APPDATA%\Hearth and stay when Hearth is uninstalled.
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+publish:
+  provider: github
+  owner: xinc2333
+  repo: Hearth
+  releaseType: release

@@ -361,6 +361,11 @@ export class Runtime {
         }
     }
 
+    /** How many replies are being generated right now. */
+    running(): number {
+        return this.jobs.size;
+    }
+
     isBusy(chatId: string): string | undefined {
         return [...this.jobs.values()].find(j => j.chatId === chatId)?.id;
     }

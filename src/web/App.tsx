@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import { api, releaseUrl, type VersionInfo } from './api.ts';
 import { Boundary } from './components/Boundary.tsx';
 import { ChatView } from './components/ChatView.tsx';
 import { CommandPalette } from './components/CommandPalette.tsx';
@@ -47,17 +48,27 @@ export function App() {
     const reading = useReading();
     const [dragging, setDragging] = useState(false);
     const [outdated, setOutdated] = useState(false);
+    const update = useAppState(s => s.version?.update);
+    const [later, setLater] = useState('');
 
     // The page always loads the newest files, but the background service keeps running the code it
-    // started with. Tell the user when that service is older than what is installed.
+    // started with. Tell the user when that service is older than what is installed. The desktop app
+    // also reports its own update here (downloaded in the background).
     useEffect(() => {
         const check = () => void fetch('/api/version')
             .then(r => (r.ok ? r.json() : null))
-            .then((v: { build?: string; latest?: string } | null) => setOutdated(!v || (Boolean(v.latest) && v.latest !== v.build)))
+            .then((v: VersionInfo | null) => {
+                setOutdated(!v || (Boolean(v.latest) && v.latest !== v.build));
+                if (v) setState({ version: v });
+            })
             .catch(() => {});
         check();
+        const timer = setInterval(check, 60_000);
         window.addEventListener('focus', check);
-        return () => window.removeEventListener('focus', check);
+        return () => {
+            clearInterval(timer);
+            window.removeEventListener('focus', check);
+        };
     }, []);
 
     useEffect(() => {
@@ -148,6 +159,16 @@ export function App() {
             {outdated && (
                 <div className="update-banner" role="alert">
                     Hearth 已经更新，但后台还在运行旧版本。请关闭黑色的命令行窗口，再重新双击 Start.bat。
+                </div>
+            )}
+            {update?.state === 'ready' && update.version && later !== update.version && (
+                <div className="update-banner with-actions" role="status">
+                    <span>Hearth {update.version} 已经下载好，关闭 Hearth 时会自动安装。</span>
+                    <span className="update-banner-actions">
+                        <button type="button" className="solid" onClick={() => void api.installAppUpdate().catch(reportError)}>现在重启更新</button>
+                        <a href={releaseUrl(update.version)} target="_blank" rel="noreferrer">更新了什么</a>
+                        <button type="button" onClick={() => setLater(update.version!)}>稍后</button>
+                    </span>
                 </div>
             )}
             <Toasts />

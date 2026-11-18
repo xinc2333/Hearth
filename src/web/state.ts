@@ -4,7 +4,7 @@ import { useMemo, useSyncExternalStore } from 'react';
 
 import type { Op } from '../core/ops.ts';
 import type { Chat, ChatMessage, ReadingSettings, ResourceKind } from '../core/types.ts';
-import { api, generate, type Bootstrap, type ChatContext, type PromptSnapshot } from './api.ts';
+import { api, generate, type Bootstrap, type ChatContext, type PromptSnapshot, type VersionInfo } from './api.ts';
 
 export type GenerationKind = 'normal' | 'swipe' | 'regenerate' | 'continue';
 export type InspectorTab = 'prompt' | 'state' | 'tabletop' | 'character' | 'lore' | 'preset' | 'history';
@@ -54,6 +54,8 @@ export interface AppState {
     settingsSection: string | null;
     confirm: ConfirmRequest | null;
     toasts: Toast[];
+    /** From /api/version: Hearth's version and, in the desktop app, its update. */
+    version: VersionInfo | null;
 }
 
 /** Interface preferences that belong to this window (layout, last panel), kept in localStorage. */
@@ -84,6 +86,7 @@ let state: AppState = {
     settingsSection: null,
     confirm: null,
     toasts: [],
+    version: null,
 };
 
 const listeners = new Set<() => void>();

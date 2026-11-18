@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import type { Connection, LoreSettings, Persona } from '../../core/types.ts';
-import { api, type PluginView } from '../api.ts';
+import { api, RELEASES_URL, type AppUpdateStatus, type PluginView } from '../api.ts';
 import { change, confirmAction, refresh, reportError, setState, toast, useAppState } from '../state.ts';
 import { Button, Field, LongText, Modal, Segmented, Toggle, timeAgo } from './common.tsx';
 import { PresetManager } from './PresetManager.tsx';
@@ -223,6 +223,8 @@ const SHORTCUTS: [string, string][] = [
     ['Esc', '停止生成；关闭弹窗'],
     ['Enter', '发送；Shift + Enter 换行'],
     ['Ctrl Enter', '保存正在编辑的消息'],
+    ['Ctrl =', '放大界面；Ctrl + - 缩小，Ctrl + 0 恢复'],
+    ['F5', '重新载入界面'],
 ];
 
 function updateText(p: PluginView): { text: string; tone?: 'error' | 'new' } | null {
@@ -315,12 +317,44 @@ function PluginsSection() {
     );
 }
 
+function appUpdateText(u: AppUpdateStatus | null | undefined): string {
+    switch (u?.state) {
+        case 'checking': return '正在检查更新…';
+        case 'latest': return '已是最新版';
+        case 'downloading': return `正在下载 ${u.version ?? '新版本'}（${u.percent ?? 0}%）`;
+        case 'ready': return `${u.version} 已经下载好，关闭 Hearth 时会自动安装`;
+        case 'error': return `检查更新失败：${u.error ?? '未知原因'}`;
+        default: return '';
+    }
+}
+
+function VersionField() {
+    const info = useAppState(s => s.version);
+    const update = info?.update;
+    const busy = update?.state === 'checking' || update?.state === 'downloading';
+    // While checking or downloading, follow the progress more closely than the app's minute timer.
+    useEffect(() => {
+        if (!busy) return;
+        const timer = setInterval(() => void api.version().then(v => setState({ version: v })).catch(() => {}), 1000);
+        return () => clearInterval(timer);
+    }, [busy]);
+    const check = () => void api.checkAppUpdate().then(u => setState(s => ({ version: s.version && { ...s.version, update: u } }))).catch(reportError);
+    const status = appUpdateText(update);
+    return (
+        <Field label="版本">
+            <div className="version-row">
+                <span className="muted small">Hearth {info?.version || '未知'}{status && ` · ${status}`}</span>
+                {info?.desktop && (update?.state === 'ready'
+                    ? <Button variant="primary" onClick={() => void api.installAppUpdate().catch(reportError)}>重启更新</Button>
+                    : <Button variant="ghost" disabled={busy} onClick={check}>{update?.state === 'downloading' ? '下载中…' : busy ? '检查中…' : '检查更新'}</Button>)}
+                <a className="small" href={RELEASES_URL} target="_blank" rel="noreferrer">更新记录</a>
+            </div>
+        </Field>
+    );
+}
+
 function AppearanceSection() {
     const settings = useAppState(s => s.boot?.settings);
-    const [version, setVersion] = useState('');
-    useEffect(() => {
-        void fetch('/api/version').then(r => r.json()).then((v: { version?: string }) => setVersion(v.version ?? '')).catch(() => {});
-    }, []);
     if (!settings) return null;
     return (
         <div className="settings-section">
@@ -339,9 +373,7 @@ function AppearanceSection() {
                     {SHORTCUTS.map(([keys, text]) => <div key={text}><dt>{keys.split(' ').map(k => <kbd key={k}>{k}</kbd>)}</dt><dd>{text}</dd></div>)}
                 </dl>
             </div>
-            <Field label="版本">
-                <span className="muted small">Hearth {version || '未知'} · 更新记录见安装目录里的 CHANGELOG.md</span>
-            </Field>
+            <VersionField />
         </div>
     );
 }
