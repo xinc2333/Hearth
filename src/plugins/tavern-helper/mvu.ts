@@ -4,6 +4,7 @@
 
 import YAML from 'yaml';
 
+import { replyOptions } from '../../core/reply.ts';
 import { deepMerge, stateAt, toYaml } from '../../core/state.ts';
 import type { Character, Lorebook } from '../../core/types.ts';
 import type { PluginApi } from '../../server/plugins.ts';
@@ -89,7 +90,8 @@ export function setupMvu(api: PluginApi) {
             let body = text.replace(PLACEHOLDER, '').trimEnd();
             let commands = parseMvuCommands(body);
             let source = 'reply';
-            if (!commands.length && body && (finish === 'stop' || finish === 'length')) {
+            // 聊天 talks with the AI outside the story: nothing to ask for when it writes no update.
+            if (!commands.length && body && (finish === 'stop' || finish === 'length') && replyOptions(chat).mode !== 'chat') {
                 try {
                     const lastUser = [...chat.messages.slice(0, index)].reverse().find(m => m.role === 'user');
                     const block = await requestUpdate(api, list, base, body, lastUser?.name ?? 'User', character.name, lastUser?.swipes[lastUser.activeSwipe]?.content ?? '');

@@ -18,13 +18,14 @@ import type { Preset } from '../../core/types.ts';
 import type { Op } from '../../core/ops.ts';
 import { stateAt } from '../../core/state.ts';
 import type { PluginApi } from '../../server/plugins.ts';
+import { withOracleState } from './console.ts';
 import { runStage1, stage1Script } from './stage1.ts';
 
 const CONTROL = /<<<\|\s*catgodml\s*\|[\s\S]*?>>>|<\|(?:sep|merge)\|>|<run_tool_replacement>/;
 
-// Text from the preset's Stage 1 script (theater mode, deep thinking off).
+// Text from the preset's Stage 1 script (Meowssiah 2.1.7, theater mode), used only when that script fails.
 const TOOL_DESCRIPTION = '小猫之神 SoliUmbra 的神域剧场正式输出通道（先在 think_nya 中完成软萌思考，再输出正式回复内容喵）。';
-const THINK_DESCRIPTION = '小猫之神在<think_nya>中的详细软萌思考（全程保持可爱的“喵~”语气，围绕人物神态、互动张力、动态格式要求与剧情走向进行构思喵）。';
+const THINK_DESCRIPTION = '小猫之神在<think_nya>中的详细软萌思考（全程保持可爱的“喵~”语气，严格遵循最新同步状态中的思考深度与步骤要求进行构思推演喵）。';
 const GAME_DESCRIPTION = '完整的正式回复内容（100%自由动态格式：严格按照当前生效的创作细则与格式要求输出所有正文与动态格式块喵）。';
 const OPTIONAL_PARTS = new Set(['extra']);
 
@@ -52,7 +53,8 @@ function boundReplyTool(preset: Preset): string | null {
 /** Builds the reply tool like the preset's Stage 1 script does (registerPart fields or game_content). */
 export function replyToolRequest(name: string, texts: string[], model: string): Record<string, unknown> {
     const parts: { name: string; description: string }[] = [];
-    let autoTool = /^pg-/i.test(model);
+    // Like the preset's script (2.1.7): any model id containing "pg" answers with tool_choice auto.
+    let autoTool = /pg/i.test(model);
     for (const text of texts) {
         for (const m of text.matchAll(/<<<\|\s*catgodml\s*\|\s*([\s\S]*?)>>>/g)) {
             const directive = m[1].trim();
@@ -136,13 +138,15 @@ export function setupSpreset(api: PluginApi) {
         // The reply being written is not part of the chat yet, as in SillyTavern.
         const last = story[story.length - 1];
         const history = last?.role === 'assistant' && !last.swipes[last.activeSwipe]?.content ? story.slice(0, -1) : story;
+        // Hearth's reply switches reach the script as its console state.
+        const chatMetadata = withOracleState(own.chatMetadata ?? {}, chat);
         try {
             const out = await runStage1(api, script, {
                 request: body,
                 chatId: chat.id,
                 names: { user: history.findLast(m => m.role === 'user')?.name ?? 'User', char: ctx.character.name },
                 chat: history.map(m => ({ name: m.name, is_user: m.role === 'user', is_system: m.hidden, mes: m.swipes[m.activeSwipe]?.content ?? '', extra: {} })),
-                chatMetadata: own.chatMetadata ?? {},
+                chatMetadata,
                 vars: { chat: chat.variables ?? {}, message: stateAt(history) ?? {}, global: api.store.settings?.globalVariables ?? {}, preset: {} },
                 windowState: windowStates.get(chat.id) ?? {},
                 localStorage: own.localStorage ?? {},

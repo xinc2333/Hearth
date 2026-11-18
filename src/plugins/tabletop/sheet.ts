@@ -1,6 +1,10 @@
 // 跑团 data: the card's character sheet (written by 数据化适配), the live state each reply carries, and
 // their readable YAML form. Keys in YAML are Chinese so the model and the reader write the same thing.
 // Pure module: the window imports it too.
+//
+// Attitudes are numbers and only ever go from another character to the protagonist: what the
+// protagonist feels is the player's to decide. How other characters stand with each other is a few
+// words (a bond) that events rewrite.
 
 import YAML from 'yaml';
 
@@ -60,10 +64,20 @@ export interface Relation {
     reasons: Reason[];
 }
 
+/** How two other characters stand with each other, in words. */
+export interface Bond {
+    between: [string, string];
+    text: string;
+    /** What changed it, newest last. */
+    reasons: Reason[];
+}
+
 export interface Sheet {
     custom: Record<string, { note?: string; anchor?: string }>;
     characters: Record<string, CharacterSheet>;
+    /** Other characters' attitudes toward the protagonist (`to` is always 主角). */
     relations: Relation[];
+    bonds: Bond[];
 }
 
 export interface LogEntry {
@@ -79,7 +93,10 @@ export interface TabletopState extends Sheet {
 }
 
 export const emptyAxes = (): Record<Axis, number> => ({ affection: 0, resentment: 0, trust: 0, respect: 0, fear: 0, attraction: 0 });
-export const emptySheet = (): Sheet => ({ custom: {}, characters: {}, relations: [] });
+export const emptySheet = (): Sheet => ({ custom: {}, characters: {}, relations: [], bonds: [] });
+
+const pairKey = (a: string, b: string) => [a, b].sort().join('\u0000');
+export const sameBond = (x: Bond, a: string, b: string) => pairKey(x.between[0], x.between[1]) === pairKey(a, b);
 
 export function newCharacter(): CharacterSheet {
     return { aliases: [], attributes: {}, skills: {}, traits: { 敏感: 1, 记仇: 1, 多疑: 1 }, status: [] };
@@ -166,8 +183,10 @@ function readCharacter(v: unknown): CharacterSheet {
 function readRelation(v: unknown): Relation | null {
     if (!isRecord(v)) return null;
     const from = str(v['从']);
-    const to = str(v['对']);
-    if (!from || !to || from === to) return null;
+    const to = str(v['对']) || PROTAGONIST;
+    if (!from || from === to) return null;
+    // Only others' attitudes toward the protagonist are numbers.
+    if (from === PROTAGONIST) return null;
     const base = emptyAxes();
     for (const [axis, label] of AXES) {
         const n = num(v[label]);
@@ -178,6 +197,27 @@ function readRelation(v: unknown): Relation | null {
     return { from, to, base, mood: emptyAxes(), familiarity, reasons };
 }
 
+function readBond(v: unknown): Bond | null {
+    if (!isRecord(v)) return null;
+    const between = list(v['之间']);
+    const text = str(v['现状']);
+    if (between.length !== 2 || between[0] === between[1] || !text) return null;
+    const reasons = list(v['缘由']).slice(-5).map(t => ({ turn: 0, text: t, change: '' }));
+    return { between: [between[0], between[1]], text, reasons };
+}
+
+export function upsertBond(list: Bond[], b: Bond) {
+    const i = list.findIndex(x => sameBond(x, b.between[0], b.between[1]));
+    if (i >= 0) list[i] = b;
+    else list.push(b);
+}
+
+/** An older numeric attitude between two other characters, kept as words. */
+function bondFrom(r: Relation): Bond {
+    const top = AXES.map(([axis, label]) => [label, clamp(Math.round(r.base[axis] + r.mood[axis]), 0, 100)] as const)
+        .filter(([, v]) => v >= 40).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([label]) => label);
+    return { between: [r.from, r.to], text: `${r.from}对${r.to}${top.length ? `：${top.join('、')}` : '：平淡'}`, reasons: r.reasons };
+}
 /** Reads a sheet from its YAML object form. */
 export function readSheet(v: unknown): Sheet {
     const sheet = emptySheet();
@@ -200,7 +240,14 @@ export function readSheet(v: unknown): Sheet {
             if (r) upsertRelation(sheet.relations, r);
         }
     }
-    return sheet;
+    const bonds = v['关系'];
+    if (Array.isArray(bonds)) {
+        for (const raw of bonds) {
+            const b = readBond(raw);
+            if (b) upsertBond(sheet.bonds, b);
+        }
+    }
+    return normalizeSheet(sheet);
 }
 
 /** What a patch actually wrote: per character its keys, per relation its keys. */
@@ -217,7 +264,7 @@ function parseYamlObject(text: string): Record<string, unknown> {
     } catch (error) {
         throw new Error(`角色表不是有效的 YAML：${(error as Error).message.split('\n')[0]}`);
     }
-    if (!isRecord(data)) throw new Error('角色表需要「角色」和「态度」两部分');
+    if (!isRecord(data)) throw new Error('角色表需要「角色」「态度」和「关系」这几部分');
     return data;
 }
 
@@ -230,14 +277,14 @@ export function parseSheetYaml(text: string): Sheet {
 export function parseSheetPatch(text: string): { sheet: Sheet; given: SheetGiven } {
     const data = parseYamlObject(text);
     const sheet = readSheet(data);
-    if (!Object.keys(sheet.characters).length && !sheet.relations.length && !Object.keys(sheet.custom).length) throw new Error('角色表里没有角色，也没有态度');
+    if (!Object.keys(sheet.characters).length && !sheet.relations.length && !sheet.bonds.length && !Object.keys(sheet.custom).length) throw new Error('角色表里没有角色，也没有态度');
     const given: SheetGiven = { characters: {}, relations: new Map() };
     if (isRecord(data['角色'])) {
         for (const [name, raw] of Object.entries(data['角色'])) given.characters[name.trim()] = new Set(isRecord(raw) ? Object.keys(raw) : []);
     }
     if (Array.isArray(data['态度'])) {
         for (const raw of data['态度']) {
-            if (isRecord(raw)) given.relations.set(`${str(raw['从'])}→${str(raw['对'])}`, new Set(Object.keys(raw)));
+            if (isRecord(raw)) given.relations.set(`${str(raw['从'])}→${str(raw['对']) || PROTAGONIST}`, new Set(Object.keys(raw)));
         }
     }
     return { sheet, given };
@@ -289,6 +336,7 @@ export function mergeSheet(base: Sheet, patch: Sheet, given?: SheetGiven): Sheet
         if (keys.has('熟悉')) old.familiarity = r.familiarity;
         if (keys.has('缘由')) old.reasons = r.reasons;
     }
+    for (const b of patch.bonds) upsertBond(next.bonds, b);
     return next;
 }
 
@@ -298,6 +346,7 @@ export function removeCharacter(sheet: Sheet, name: string): Sheet {
     if (!key) throw new Error(`角色表里没有「${name}」`);
     delete next.characters[key];
     next.relations = next.relations.filter(r => r.from !== key && r.to !== key);
+    next.bonds = next.bonds.filter(b => !b.between.includes(key));
     return next;
 }
 
@@ -309,12 +358,13 @@ export function relationValue(r: Relation, axis: Axis): number {
     return clamp(Math.round(r.base[axis] + r.mood[axis]), 0, 100);
 }
 
-function characterYaml(c: CharacterSheet): Record<string, unknown> {
+function characterYaml(name: string, c: CharacterSheet): Record<string, unknown> {
     return {
         ...(c.aliases.length ? { 别名: c.aliases } : {}),
         属性: c.attributes,
         ...(Object.keys(c.skills).length ? { 特长: c.skills } : {}),
-        性格: c.traits,
+        // Traits shape a character's attitudes; the protagonist has none on record.
+        ...(name === PROTAGONIST ? {} : { 性格: c.traits }),
         ...(c.status.length ? { 状态: c.status.map(s => ({ 名称: s.name, ...(Object.keys(s.effects).length ? { 影响: s.effects } : {}), ...(s.note ? { 说明: s.note } : {}) })) } : {}),
         ...(c.description ? { 简介: c.description } : {}),
         ...(c.basis ? { 依据: c.basis } : {}),
@@ -326,7 +376,7 @@ function characterYaml(c: CharacterSheet): Record<string, unknown> {
 export function sheetYamlObject(sheet: Sheet): Record<string, unknown> {
     return {
         ...(Object.keys(sheet.custom).length ? { 自定义属性: Object.fromEntries(Object.entries(sheet.custom).map(([k, v]) => [k, { ...(v.note ? { 说明: v.note } : {}), ...(v.anchor ? { 基准: v.anchor } : {}) }])) } : {}),
-        角色: Object.fromEntries(Object.entries(sheet.characters).map(([k, c]) => [k, characterYaml(c)])),
+        角色: Object.fromEntries(Object.entries(sheet.characters).map(([k, c]) => [k, characterYaml(k, c)])),
         态度: sheet.relations.map(r => ({
             从: r.from,
             对: r.to,
@@ -334,6 +384,9 @@ export function sheetYamlObject(sheet: Sheet): Record<string, unknown> {
             熟悉: r.familiarity,
             ...(r.reasons.length ? { 缘由: r.reasons.map(x => x.text) } : {}),
         })),
+        ...(sheet.bonds.length ? {
+            关系: sheet.bonds.map(b => ({ 之间: b.between, 现状: b.text, ...(b.reasons.length ? { 缘由: b.reasons.map(x => x.text) } : {}) })),
+        } : {}),
     };
 }
 
@@ -390,7 +443,15 @@ export function normalizeSheet<T extends Sheet>(raw: T): T {
         c.traits = Object.assign({ 敏感: 1, 记仇: 1, 多疑: 1 }, c.traits ?? {});
         c.status ??= [];
     }
-    out.relations = (out.relations ?? []).map(r => ({ ...r, base: { ...emptyAxes(), ...r.base }, mood: { ...emptyAxes(), ...r.mood }, familiarity: r.familiarity ?? 0, reasons: r.reasons ?? [] }));
+    const relations = (out.relations ?? []).map(r => ({ ...r, base: { ...emptyAxes(), ...r.base }, mood: { ...emptyAxes(), ...r.mood }, familiarity: r.familiarity ?? 0, reasons: r.reasons ?? [] }));
+    out.bonds = (out.bonds ?? []).map(b => ({ ...b, reasons: b.reasons ?? [] }));
+    // Older data: the protagonist's own attitudes are dropped, attitudes between others become words.
+    out.relations = [];
+    for (const r of relations) {
+        if (r.from === PROTAGONIST) continue;
+        if (r.to === PROTAGONIST) out.relations.push(r);
+        else if (!out.bonds.some(b => sameBond(b, r.from, r.to))) out.bonds.push(bondFrom(r));
+    }
     return out;
 }
 
@@ -398,10 +459,23 @@ export function stateFromSheet(sheet: Sheet): TabletopState {
     return { ...structuredClone(sheet), turn: 0, log: [] };
 }
 
+export interface SettleLine {
+    line: string;
+    ok: boolean;
+    text: string;
+    /** What changed, for the line under the reply. */
+    kind?: 'attitude' | 'familiarity' | 'bond' | 'status' | 'new' | 'growth';
+    /** Whose it is (the character whose attitude, status or growth changed). */
+    who?: string;
+}
+
 export interface SwipeData {
     state?: TabletopState;
-    /** The settlement block as the model wrote it, and what came of each line. */
-    settle?: { raw: string; results: { line: string; ok: boolean; text: string }[] };
+    /**
+     * The settlement of this reply version: what the model reported (as it wrote it) and what came of
+     * each item. `status` is pending while the settlement step runs, failed when it could not finish.
+     */
+    settle?: { raw: string; results: SettleLine[]; status?: 'pending' | 'failed'; error?: string; at?: number; present?: string[] };
 }
 
 export interface MessageData {
@@ -479,7 +553,7 @@ export function stateTarget(chat: Pick<Chat, 'messages'>): string[] {
 /** Applies a hand-edited YAML to a state: changed relation values become lasting. */
 export function applyYamlEdit(state: TabletopState, text: string): TabletopState {
     const edited = parseSheetYaml(text);
-    const next: TabletopState = { ...structuredClone(state), custom: edited.custom, characters: edited.characters, relations: [] };
+    const next: TabletopState = { ...structuredClone(state), custom: edited.custom, characters: edited.characters, relations: [], bonds: edited.bonds };
     for (const r of edited.relations) {
         const old = state.relations.find(x => x.from === r.from && x.to === r.to);
         if (!old) {

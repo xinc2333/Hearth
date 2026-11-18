@@ -6,5 +6,5 @@
 | --- | --- | --- |
 | `default_Seraphina.png` | `HEARTH_FIXTURE_SERAPHINA` | SillyTavern `default/content/` |
 | `Eldoria.json` | `HEARTH_FIXTURE_ELDORIA` | SillyTavern `default/content/` |
-| `Meowssiah-2.1.6.json` | `HEARTH_FIXTURE_MEOWSSIAH` | Meowssiah 预设 |
+| `Meowssiah-2.1.7.json` | `HEARTH_FIXTURE_MEOWSSIAH` | Meowssiah 预设（2.1.7） |
 | `mvu-card.png` | `HEARTH_FIXTURE_MVU_CARD` | 任意使用 MVU、状态栏和 EJS 章节控制器的角色卡 |

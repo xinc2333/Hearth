@@ -56,8 +56,12 @@ export function formatReplyArgs(args: Record<string, unknown>): string {
         if (!(key in args)) continue;
         let value = String(args[key] ?? '').trim();
         if (!value) continue;
+        // 2.1.7: placeholders for folded history thinking (pg models) are never shown.
+        if (/^\[?\s*REDACTED\b/i.test(value)) continue;
         if (key === 'think_nya') {
-            value = value.replace(/`{3,}/g, '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            // 2.1.7: MVU-style calls the model only mentions while thinking (_.set(…)) must not run.
+            value = value.replace(/`{3,}/g, '').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/_\.(?=(?:set|insert|assign|remove|unset|delete|add)\s*\()/g, '_\u200c.');
         }
         let wrapped = wrapTag(value, TAGS[key] ?? null);
         if (key === 'think_nya' && wrapped && !wrapped.includes('<!--</think>-->')) {

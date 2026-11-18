@@ -957,13 +957,13 @@ var require_Collection = __commonJS({
 var require_stringifyComment = __commonJS({
   "node_modules/yaml/dist/stringify/stringifyComment.js"(exports) {
     "use strict";
-    var stringifyComment = (str3) => str3.replace(/^(?!$)(?: $)?/gm, "#");
+    var stringifyComment = (str4) => str4.replace(/^(?!$)(?: $)?/gm, "#");
     function indentComment(comment, indent) {
       if (/^\n+$/.test(comment))
         return comment.substring(1);
       return indent ? comment.replace(/^(?! *$)/gm, indent) : comment;
     }
-    var lineComment = (str3, indent, comment) => str3.endsWith("\n") ? indentComment(comment, indent) : comment.includes("\n") ? "\n" + indentComment(comment, indent) : (str3.endsWith(" ") ? "" : " ") + comment;
+    var lineComment = (str4, indent, comment) => str4.endsWith("\n") ? indentComment(comment, indent) : comment.includes("\n") ? "\n" + indentComment(comment, indent) : (str4.endsWith(" ") ? "" : " ") + comment;
     exports.indentComment = indentComment;
     exports.lineComment = lineComment;
     exports.stringifyComment = stringifyComment;
@@ -1117,16 +1117,16 @@ var require_stringifyString = __commonJS({
       lineWidth: ctx.options.lineWidth,
       minContentWidth: ctx.options.minContentWidth
     });
-    var containsDocumentMarker = (str3) => /^(%|---|\.\.\.)/m.test(str3);
-    function lineLengthOverLimit(str3, lineWidth, indentLength) {
+    var containsDocumentMarker = (str4) => /^(%|---|\.\.\.)/m.test(str4);
+    function lineLengthOverLimit(str4, lineWidth, indentLength) {
       if (!lineWidth || lineWidth < 0)
         return false;
       const limit = lineWidth - indentLength;
-      const strLen = str3.length;
+      const strLen = str4.length;
       if (strLen <= limit)
         return false;
       for (let i = 0, start = 0; i < strLen; ++i) {
-        if (str3[i] === "\n") {
+        if (str4[i] === "\n") {
           if (i - start > limit)
             return true;
           start = i + 1;
@@ -1143,11 +1143,11 @@ var require_stringifyString = __commonJS({
       const { implicitKey } = ctx;
       const minMultiLineLength = ctx.options.doubleQuotedMinMultiLineLength;
       const indent = ctx.indent || (containsDocumentMarker(value) ? "  " : "");
-      let str3 = "";
+      let str4 = "";
       let start = 0;
       for (let i = 0, ch = json[i]; ch; ch = json[++i]) {
         if (ch === " " && json[i + 1] === "\\" && json[i + 2] === "n") {
-          str3 += json.slice(start, i) + "\\ ";
+          str4 += json.slice(start, i) + "\\ ";
           i += 1;
           start = i;
           ch = "\\";
@@ -1156,38 +1156,38 @@ var require_stringifyString = __commonJS({
           switch (json[i + 1]) {
             case "u":
               {
-                str3 += json.slice(start, i);
+                str4 += json.slice(start, i);
                 const code = json.substr(i + 2, 4);
                 switch (code) {
                   case "0000":
-                    str3 += "\\0";
+                    str4 += "\\0";
                     break;
                   case "0007":
-                    str3 += "\\a";
+                    str4 += "\\a";
                     break;
                   case "000b":
-                    str3 += "\\v";
+                    str4 += "\\v";
                     break;
                   case "001b":
-                    str3 += "\\e";
+                    str4 += "\\e";
                     break;
                   case "0085":
-                    str3 += "\\N";
+                    str4 += "\\N";
                     break;
                   case "00a0":
-                    str3 += "\\_";
+                    str4 += "\\_";
                     break;
                   case "2028":
-                    str3 += "\\L";
+                    str4 += "\\L";
                     break;
                   case "2029":
-                    str3 += "\\P";
+                    str4 += "\\P";
                     break;
                   default:
                     if (code.substr(0, 2) === "00")
-                      str3 += "\\x" + code.substr(2);
+                      str4 += "\\x" + code.substr(2);
                     else
-                      str3 += json.substr(i, 6);
+                      str4 += json.substr(i, 6);
                 }
                 i += 5;
                 start = i + 1;
@@ -1197,14 +1197,14 @@ var require_stringifyString = __commonJS({
               if (implicitKey || json[i + 2] === '"' || json.length < minMultiLineLength) {
                 i += 1;
               } else {
-                str3 += json.slice(start, i) + "\n\n";
+                str4 += json.slice(start, i) + "\n\n";
                 while (json[i + 2] === "\\" && json[i + 3] === "n" && json[i + 4] !== '"') {
-                  str3 += "\n";
+                  str4 += "\n";
                   i += 2;
                 }
-                str3 += indent;
+                str4 += indent;
                 if (json[i + 2] === " ")
-                  str3 += "\\";
+                  str4 += "\\";
                 i += 1;
                 start = i + 1;
               }
@@ -1213,8 +1213,8 @@ var require_stringifyString = __commonJS({
               i += 1;
           }
       }
-      str3 = start ? str3 + json.slice(start) : json;
-      return implicitKey ? str3 : foldFlowLines.foldFlowLines(str3, indent, foldFlowLines.FOLD_QUOTED, getFoldOptions(ctx, false));
+      str4 = start ? str4 + json.slice(start) : json;
+      return implicitKey ? str4 : foldFlowLines.foldFlowLines(str4, indent, foldFlowLines.FOLD_QUOTED, getFoldOptions(ctx, false));
     }
     function singleQuotedString(value, ctx) {
       if (ctx.options.singleQuote === false || ctx.implicitKey && value.includes("\n") || /[ \t]\n|\n[ \t]/.test(value))
@@ -1342,15 +1342,15 @@ ${indent}${start}${value}${end}`;
           return quotedString(value, ctx);
         }
       }
-      const str3 = value.replace(/\n+/g, `$&
+      const str4 = value.replace(/\n+/g, `$&
 ${indent}`);
       if (actualString) {
-        const test = (tag) => tag.default && tag.tag !== "tag:yaml.org,2002:str" && tag.test?.test(str3);
+        const test = (tag) => tag.default && tag.tag !== "tag:yaml.org,2002:str" && tag.test?.test(str4);
         const { compat, tags } = ctx.doc.schema;
         if (tags.some(test) || compat?.some(test))
           return quotedString(value, ctx);
       }
-      return implicitKey ? str3 : foldFlowLines.foldFlowLines(str3, indent, foldFlowLines.FOLD_FLOW, getFoldOptions(ctx, false));
+      return implicitKey ? str4 : foldFlowLines.foldFlowLines(str4, indent, foldFlowLines.FOLD_FLOW, getFoldOptions(ctx, false));
     }
     function stringifyString(item, ctx, onComment, onChompKeep) {
       const { implicitKey, inFlow } = ctx;
@@ -1502,11 +1502,11 @@ var require_stringify = __commonJS({
       const props = stringifyProps(node, tagObj, ctx);
       if (props.length > 0)
         ctx.indentAtStart = (ctx.indentAtStart ?? 0) + props.length + 1;
-      const str3 = typeof tagObj.stringify === "function" ? tagObj.stringify(node, ctx, onComment, onChompKeep) : identity.isScalar(node) ? stringifyString.stringifyString(node, ctx, onComment, onChompKeep) : node.toString(ctx, onComment, onChompKeep);
+      const str4 = typeof tagObj.stringify === "function" ? tagObj.stringify(node, ctx, onComment, onChompKeep) : identity.isScalar(node) ? stringifyString.stringifyString(node, ctx, onComment, onChompKeep) : node.toString(ctx, onComment, onChompKeep);
       if (!props)
-        return str3;
-      return identity.isScalar(node) || str3[0] === "{" || str3[0] === "[" ? `${props} ${str3}` : `${props}
-${ctx.indent}${str3}`;
+        return str4;
+      return identity.isScalar(node) || str4[0] === "{" || str4[0] === "[" ? `${props} ${str4}` : `${props}
+${ctx.indent}${str4}`;
     }
     exports.createStringifyContext = createStringifyContext;
     exports.stringify = stringify;
@@ -1541,8 +1541,8 @@ var require_stringifyPair = __commonJS({
       });
       let keyCommentDone = false;
       let chompKeep = false;
-      let str3 = stringify.stringify(key, ctx, () => keyCommentDone = true, () => chompKeep = true);
-      if (!explicitKey && !ctx.inFlow && str3.length > 1024) {
+      let str4 = stringify.stringify(key, ctx, () => keyCommentDone = true, () => chompKeep = true);
+      if (!explicitKey && !ctx.inFlow && str4.length > 1024) {
         if (simpleKeys)
           throw new Error("With simple keys, single line scalar must not span more than 1024 characters");
         explicitKey = true;
@@ -1551,27 +1551,27 @@ var require_stringifyPair = __commonJS({
         if (allNullValues || value == null) {
           if (keyCommentDone && onComment)
             onComment();
-          return str3 === "" ? "?" : explicitKey ? `? ${str3}` : str3;
+          return str4 === "" ? "?" : explicitKey ? `? ${str4}` : str4;
         }
       } else if (allNullValues && !simpleKeys || value == null && explicitKey) {
-        str3 = `? ${str3}`;
+        str4 = `? ${str4}`;
         if (keyComment && !keyCommentDone) {
-          str3 += stringifyComment.lineComment(str3, ctx.indent, commentString(keyComment));
+          str4 += stringifyComment.lineComment(str4, ctx.indent, commentString(keyComment));
         } else if (chompKeep && onChompKeep)
           onChompKeep();
-        return str3;
+        return str4;
       }
       if (keyCommentDone)
         keyComment = null;
       if (explicitKey) {
         if (keyComment)
-          str3 += stringifyComment.lineComment(str3, ctx.indent, commentString(keyComment));
-        str3 = `? ${str3}
+          str4 += stringifyComment.lineComment(str4, ctx.indent, commentString(keyComment));
+        str4 = `? ${str4}
 ${indent}:`;
       } else {
-        str3 = `${str3}:`;
+        str4 = `${str4}:`;
         if (keyComment)
-          str3 += stringifyComment.lineComment(str3, ctx.indent, commentString(keyComment));
+          str4 += stringifyComment.lineComment(str4, ctx.indent, commentString(keyComment));
       }
       let vsb, vcb, valueComment;
       if (identity.isNode(value)) {
@@ -1587,7 +1587,7 @@ ${indent}:`;
       }
       ctx.implicitKey = false;
       if (!explicitKey && !keyComment && identity.isScalar(value))
-        ctx.indentAtStart = str3.length + 1;
+        ctx.indentAtStart = str4.length + 1;
       chompKeep = false;
       if (!indentSeq && indentStep.length >= 2 && !ctx.inFlow && !explicitKey && identity.isSeq(value) && !value.flow && !value.tag && !value.anchor) {
         ctx.indent = ctx.indent.substring(2);
@@ -1631,16 +1631,16 @@ ${ctx.indent}`;
       } else if (valueStr === "" || valueStr[0] === "\n") {
         ws = "";
       }
-      str3 += ws + valueStr;
+      str4 += ws + valueStr;
       if (ctx.inFlow) {
         if (valueCommentDone && onComment)
           onComment();
       } else if (valueComment && !valueCommentDone) {
-        str3 += stringifyComment.lineComment(str3, ctx.indent, commentString(valueComment));
+        str4 += stringifyComment.lineComment(str4, ctx.indent, commentString(valueComment));
       } else if (chompKeep && onChompKeep) {
         onChompKeep();
       }
-      return str3;
+      return str4;
     }
     exports.stringifyPair = stringifyPair;
   }
@@ -1840,13 +1840,13 @@ var require_stringifyCollection = __commonJS({
       const stringify2 = flow ? stringifyFlowCollection : stringifyBlockCollection;
       return stringify2(collection, ctx, options);
     }
-    function stringifyBlockCollection({ comment, items }, ctx, { blockItemPrefix, flowChars, itemIndent, onChompKeep, onComment }) {
+    function stringifyBlockCollection({ comment, items: items2 }, ctx, { blockItemPrefix, flowChars, itemIndent, onChompKeep, onComment }) {
       const { indent, options: { commentString } } = ctx;
       const itemCtx = Object.assign({}, ctx, { indent: itemIndent, type: null });
       let chompKeep = false;
       const lines = [];
-      for (let i = 0; i < items.length; ++i) {
-        const item = items[i];
+      for (let i = 0; i < items2.length; ++i) {
+        const item = items2[i];
         let comment2 = null;
         if (identity.isNode(item)) {
           if (!chompKeep && item.spaceBefore)
@@ -1863,33 +1863,33 @@ var require_stringifyCollection = __commonJS({
           }
         }
         chompKeep = false;
-        let str4 = stringify.stringify(item, itemCtx, () => comment2 = null, () => chompKeep = true);
+        let str5 = stringify.stringify(item, itemCtx, () => comment2 = null, () => chompKeep = true);
         if (comment2)
-          str4 += stringifyComment.lineComment(str4, itemIndent, commentString(comment2));
+          str5 += stringifyComment.lineComment(str5, itemIndent, commentString(comment2));
         if (chompKeep && comment2)
           chompKeep = false;
-        lines.push(blockItemPrefix + str4);
+        lines.push(blockItemPrefix + str5);
       }
-      let str3;
+      let str4;
       if (lines.length === 0) {
-        str3 = flowChars.start + flowChars.end;
+        str4 = flowChars.start + flowChars.end;
       } else {
-        str3 = lines[0];
+        str4 = lines[0];
         for (let i = 1; i < lines.length; ++i) {
           const line = lines[i];
-          str3 += line ? `
+          str4 += line ? `
 ${indent}${line}` : "\n";
         }
       }
       if (comment) {
-        str3 += "\n" + stringifyComment.indentComment(commentString(comment), indent);
+        str4 += "\n" + stringifyComment.indentComment(commentString(comment), indent);
         if (onComment)
           onComment();
       } else if (chompKeep && onChompKeep)
         onChompKeep();
-      return str3;
+      return str4;
     }
-    function stringifyFlowCollection({ items }, ctx, { flowChars, itemIndent }) {
+    function stringifyFlowCollection({ items: items2 }, ctx, { flowChars, itemIndent }) {
       const { indent, indentStep, flowCollectionPadding: fcPadding, options: { commentString } } = ctx;
       itemIndent += indentStep;
       const itemCtx = Object.assign({}, ctx, {
@@ -1900,8 +1900,8 @@ ${indent}${line}` : "\n";
       let reqNewline = false;
       let linesAtValue = 0;
       const lines = [];
-      for (let i = 0; i < items.length; ++i) {
-        const item = items[i];
+      for (let i = 0; i < items2.length; ++i) {
+        const item = items2[i];
         let comment = null;
         if (identity.isNode(item)) {
           if (item.spaceBefore)
@@ -1930,14 +1930,14 @@ ${indent}${line}` : "\n";
         }
         if (comment)
           reqNewline = true;
-        let str3 = stringify.stringify(item, itemCtx, () => comment = null);
-        if (i < items.length - 1)
-          str3 += ",";
+        let str4 = stringify.stringify(item, itemCtx, () => comment = null);
+        if (i < items2.length - 1)
+          str4 += ",";
         if (comment)
-          str3 += stringifyComment.lineComment(str3, itemIndent, commentString(comment));
-        if (!reqNewline && (lines.length > linesAtValue || str3.includes("\n")))
+          str4 += stringifyComment.lineComment(str4, itemIndent, commentString(comment));
+        if (!reqNewline && (lines.length > linesAtValue || str4.includes("\n")))
           reqNewline = true;
-        lines.push(str3);
+        lines.push(str4);
         linesAtValue = lines.length;
       }
       const { start, end } = flowChars;
@@ -1949,11 +1949,11 @@ ${indent}${line}` : "\n";
           reqNewline = ctx.options.lineWidth > 0 && len > ctx.options.lineWidth;
         }
         if (reqNewline) {
-          let str3 = start;
+          let str4 = start;
           for (const line of lines)
-            str3 += line ? `
+            str4 += line ? `
 ${indentStep}${indent}${line}` : "\n";
-          return `${str3}
+          return `${str4}
 ${indent}${end}`;
         } else {
           return `${start}${fcPadding}${lines.join(" ")}${fcPadding}${end}`;
@@ -1982,9 +1982,9 @@ var require_YAMLMap = __commonJS({
     var identity = require_identity();
     var Pair = require_Pair();
     var Scalar = require_Scalar();
-    function findPair(items, key) {
+    function findPair(items2, key) {
       const k = identity.isScalar(key) ? key.value : key;
-      for (const it of items) {
+      for (const it of items2) {
         if (identity.isPair(it)) {
           if (it.key === key || it.key === k)
             return it;
@@ -2285,7 +2285,7 @@ var require_string = __commonJS({
       identify: (value) => typeof value === "string",
       default: true,
       tag: "tag:yaml.org,2002:str",
-      resolve: (str3) => str3,
+      resolve: (str4) => str4,
       stringify(item, ctx, onComment, onChompKeep) {
         ctx = Object.assign({ actualString: true }, ctx);
         return stringifyString.stringifyString(item, ctx, onComment, onChompKeep);
@@ -2323,7 +2323,7 @@ var require_bool = __commonJS({
       default: true,
       tag: "tag:yaml.org,2002:bool",
       test: /^(?:[Tt]rue|TRUE|[Ff]alse|FALSE)$/,
-      resolve: (str3) => new Scalar.Scalar(str3[0] === "t" || str3[0] === "T"),
+      resolve: (str4) => new Scalar.Scalar(str4[0] === "t" || str4[0] === "T"),
       stringify({ source, value }, ctx) {
         if (source && boolTag.test.test(source)) {
           const sv = source[0] === "t" || source[0] === "T";
@@ -2344,9 +2344,9 @@ var require_stringifyNumber = __commonJS({
     function stringifyNumber({ format, minFractionDigits, tag, value }) {
       if (typeof value === "bigint")
         return String(value);
-      const num3 = typeof value === "number" ? value : Number(value);
-      if (!isFinite(num3))
-        return isNaN(num3) ? ".nan" : num3 < 0 ? "-.inf" : ".inf";
+      const num4 = typeof value === "number" ? value : Number(value);
+      if (!isFinite(num4))
+        return isNaN(num4) ? ".nan" : num4 < 0 ? "-.inf" : ".inf";
       let n = JSON.stringify(value);
       if (!format && minFractionDigits && (!tag || tag === "tag:yaml.org,2002:float") && /^\d/.test(n)) {
         let i = n.indexOf(".");
@@ -2375,7 +2375,7 @@ var require_float = __commonJS({
       default: true,
       tag: "tag:yaml.org,2002:float",
       test: /^(?:[-+]?\.(?:inf|Inf|INF)|\.nan|\.NaN|\.NAN)$/,
-      resolve: (str3) => str3.slice(-3).toLowerCase() === "nan" ? NaN : str3[0] === "-" ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY,
+      resolve: (str4) => str4.slice(-3).toLowerCase() === "nan" ? NaN : str4[0] === "-" ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY,
       stringify: stringifyNumber.stringifyNumber
     };
     var floatExp = {
@@ -2384,10 +2384,10 @@ var require_float = __commonJS({
       tag: "tag:yaml.org,2002:float",
       format: "EXP",
       test: /^[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)[eE][-+]?[0-9]+$/,
-      resolve: (str3) => parseFloat(str3),
+      resolve: (str4) => parseFloat(str4),
       stringify(node) {
-        const num3 = Number(node.value);
-        return isFinite(num3) ? num3.toExponential() : stringifyNumber.stringifyNumber(node);
+        const num4 = Number(node.value);
+        return isFinite(num4) ? num4.toExponential() : stringifyNumber.stringifyNumber(node);
       }
     };
     var float = {
@@ -2395,11 +2395,11 @@ var require_float = __commonJS({
       default: true,
       tag: "tag:yaml.org,2002:float",
       test: /^[-+]?(?:\.[0-9]+|[0-9]+\.[0-9]*)$/,
-      resolve(str3) {
-        const node = new Scalar.Scalar(parseFloat(str3));
-        const dot = str3.indexOf(".");
-        if (dot !== -1 && str3[str3.length - 1] === "0")
-          node.minFractionDigits = str3.length - dot - 1;
+      resolve(str4) {
+        const node = new Scalar.Scalar(parseFloat(str4));
+        const dot = str4.indexOf(".");
+        if (dot !== -1 && str4[str4.length - 1] === "0")
+          node.minFractionDigits = str4.length - dot - 1;
         return node;
       },
       stringify: stringifyNumber.stringifyNumber
@@ -2416,7 +2416,7 @@ var require_int = __commonJS({
     "use strict";
     var stringifyNumber = require_stringifyNumber();
     var intIdentify = (value) => typeof value === "bigint" || Number.isInteger(value);
-    var intResolve = (str3, offset, radix, { intAsBigInt }) => intAsBigInt ? BigInt(str3) : parseInt(str3.substring(offset), radix);
+    var intResolve = (str4, offset, radix, { intAsBigInt }) => intAsBigInt ? BigInt(str4) : parseInt(str4.substring(offset), radix);
     function intStringify(node, radix, prefix) {
       const { value } = node;
       if (intIdentify(value) && value >= 0)
@@ -2429,7 +2429,7 @@ var require_int = __commonJS({
       tag: "tag:yaml.org,2002:int",
       format: "OCT",
       test: /^0o[0-7]+$/,
-      resolve: (str3, _onError, opt) => intResolve(str3, 2, 8, opt),
+      resolve: (str4, _onError, opt) => intResolve(str4, 2, 8, opt),
       stringify: (node) => intStringify(node, 8, "0o")
     };
     var int = {
@@ -2437,7 +2437,7 @@ var require_int = __commonJS({
       default: true,
       tag: "tag:yaml.org,2002:int",
       test: /^[-+]?[0-9]+$/,
-      resolve: (str3, _onError, opt) => intResolve(str3, 0, 10, opt),
+      resolve: (str4, _onError, opt) => intResolve(str4, 0, 10, opt),
       stringify: stringifyNumber.stringifyNumber
     };
     var intHex = {
@@ -2446,7 +2446,7 @@ var require_int = __commonJS({
       tag: "tag:yaml.org,2002:int",
       format: "HEX",
       test: /^0x[0-9a-fA-F]+$/,
-      resolve: (str3, _onError, opt) => intResolve(str3, 2, 16, opt),
+      resolve: (str4, _onError, opt) => intResolve(str4, 2, 16, opt),
       stringify: (node) => intStringify(node, 16, "0x")
     };
     exports.int = int;
@@ -2499,7 +2499,7 @@ var require_schema2 = __commonJS({
         identify: (value) => typeof value === "string",
         default: true,
         tag: "tag:yaml.org,2002:str",
-        resolve: (str3) => str3,
+        resolve: (str4) => str4,
         stringify: stringifyJSON
       },
       {
@@ -2516,7 +2516,7 @@ var require_schema2 = __commonJS({
         default: true,
         tag: "tag:yaml.org,2002:bool",
         test: /^true$|^false$/,
-        resolve: (str3) => str3 === "true",
+        resolve: (str4) => str4 === "true",
         stringify: stringifyJSON
       },
       {
@@ -2524,7 +2524,7 @@ var require_schema2 = __commonJS({
         default: true,
         tag: "tag:yaml.org,2002:int",
         test: /^-?(?:0|[1-9][0-9]*)$/,
-        resolve: (str3, _onError, { intAsBigInt }) => intAsBigInt ? BigInt(str3) : parseInt(str3, 10),
+        resolve: (str4, _onError, { intAsBigInt }) => intAsBigInt ? BigInt(str4) : parseInt(str4, 10),
         stringify: ({ value }) => intIdentify(value) ? value.toString() : JSON.stringify(value)
       },
       {
@@ -2532,7 +2532,7 @@ var require_schema2 = __commonJS({
         default: true,
         tag: "tag:yaml.org,2002:float",
         test: /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]*)?(?:[eE][-+]?[0-9]+)?$/,
-        resolve: (str3) => parseFloat(str3),
+        resolve: (str4) => parseFloat(str4),
         stringify: stringifyJSON
       }
     ];
@@ -2540,9 +2540,9 @@ var require_schema2 = __commonJS({
       default: true,
       tag: "",
       test: /^/,
-      resolve(str3, onError) {
-        onError(`Unresolved plain scalar ${JSON.stringify(str3)}`);
-        return str3;
+      resolve(str4, onError) {
+        onError(`Unresolved plain scalar ${JSON.stringify(str4)}`);
+        return str4;
       }
     };
     var schema = [map.map, seq.seq].concat(jsonScalars, jsonError);
@@ -2573,10 +2573,10 @@ var require_binary = __commonJS({
         if (typeof Buffer === "function") {
           return Buffer.from(src, "base64");
         } else if (typeof atob === "function") {
-          const str3 = atob(src.replace(/[\n\r]/g, ""));
-          const buffer = new Uint8Array(str3.length);
-          for (let i = 0; i < str3.length; ++i)
-            buffer[i] = str3.charCodeAt(i);
+          const str4 = atob(src.replace(/[\n\r]/g, ""));
+          const buffer = new Uint8Array(str4.length);
+          for (let i = 0; i < str4.length; ++i)
+            buffer[i] = str4.charCodeAt(i);
           return buffer;
         } else {
           onError("This environment does not support reading binary tags; either Buffer or atob is required");
@@ -2585,14 +2585,14 @@ var require_binary = __commonJS({
       },
       stringify({ comment, type, value }, ctx, onComment, onChompKeep) {
         const buf = value;
-        let str3;
+        let str4;
         if (typeof Buffer === "function") {
-          str3 = buf instanceof Buffer ? buf.toString("base64") : Buffer.from(buf.buffer).toString("base64");
+          str4 = buf instanceof Buffer ? buf.toString("base64") : Buffer.from(buf.buffer).toString("base64");
         } else if (typeof btoa === "function") {
           let s = "";
           for (let i = 0; i < buf.length; ++i)
             s += String.fromCharCode(buf[i]);
-          str3 = btoa(s);
+          str4 = btoa(s);
         } else {
           throw new Error("This environment does not support writing binary tags; either Buffer or btoa is required");
         }
@@ -2600,14 +2600,14 @@ var require_binary = __commonJS({
           type = Scalar.Scalar.BLOCK_LITERAL;
         if (type !== Scalar.Scalar.QUOTE_DOUBLE) {
           const lineWidth = Math.max(ctx.options.lineWidth - ctx.indent.length, ctx.options.minContentWidth);
-          const n = Math.ceil(str3.length / lineWidth);
+          const n = Math.ceil(str4.length / lineWidth);
           const lines = new Array(n);
           for (let i = 0, o = 0; i < n; ++i, o += lineWidth) {
-            lines[i] = str3.substr(o, lineWidth);
+            lines[i] = str4.substr(o, lineWidth);
           }
-          str3 = lines.join(type === Scalar.Scalar.BLOCK_LITERAL ? "\n" : " ");
+          str4 = lines.join(type === Scalar.Scalar.BLOCK_LITERAL ? "\n" : " ");
         }
-        return stringifyString.stringifyString({ comment, type, value: str3 }, ctx, onComment, onChompKeep);
+        return stringifyString.stringifyString({ comment, type, value: str4 }, ctx, onComment, onChompKeep);
       }
     };
     exports.binary = binary;
@@ -2813,7 +2813,7 @@ var require_float2 = __commonJS({
       default: true,
       tag: "tag:yaml.org,2002:float",
       test: /^(?:[-+]?\.(?:inf|Inf|INF)|\.nan|\.NaN|\.NAN)$/,
-      resolve: (str3) => str3.slice(-3).toLowerCase() === "nan" ? NaN : str3[0] === "-" ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY,
+      resolve: (str4) => str4.slice(-3).toLowerCase() === "nan" ? NaN : str4[0] === "-" ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY,
       stringify: stringifyNumber.stringifyNumber
     };
     var floatExp = {
@@ -2822,10 +2822,10 @@ var require_float2 = __commonJS({
       tag: "tag:yaml.org,2002:float",
       format: "EXP",
       test: /^[-+]?(?:[0-9][0-9_]*)?(?:\.[0-9_]*)?[eE][-+]?[0-9]+$/,
-      resolve: (str3) => parseFloat(str3.replace(/_/g, "")),
+      resolve: (str4) => parseFloat(str4.replace(/_/g, "")),
       stringify(node) {
-        const num3 = Number(node.value);
-        return isFinite(num3) ? num3.toExponential() : stringifyNumber.stringifyNumber(node);
+        const num4 = Number(node.value);
+        return isFinite(num4) ? num4.toExponential() : stringifyNumber.stringifyNumber(node);
       }
     };
     var float = {
@@ -2833,11 +2833,11 @@ var require_float2 = __commonJS({
       default: true,
       tag: "tag:yaml.org,2002:float",
       test: /^[-+]?(?:[0-9][0-9_]*)?\.[0-9_]*$/,
-      resolve(str3) {
-        const node = new Scalar.Scalar(parseFloat(str3.replace(/_/g, "")));
-        const dot = str3.indexOf(".");
+      resolve(str4) {
+        const node = new Scalar.Scalar(parseFloat(str4.replace(/_/g, "")));
+        const dot = str4.indexOf(".");
         if (dot !== -1) {
-          const f = str3.substring(dot + 1).replace(/_/g, "");
+          const f = str4.substring(dot + 1).replace(/_/g, "");
           if (f[f.length - 1] === "0")
             node.minFractionDigits = f.length;
         }
@@ -2857,34 +2857,34 @@ var require_int2 = __commonJS({
     "use strict";
     var stringifyNumber = require_stringifyNumber();
     var intIdentify = (value) => typeof value === "bigint" || Number.isInteger(value);
-    function intResolve(str3, offset, radix, { intAsBigInt }) {
-      const sign = str3[0];
+    function intResolve(str4, offset, radix, { intAsBigInt }) {
+      const sign = str4[0];
       if (sign === "-" || sign === "+")
         offset += 1;
-      str3 = str3.substring(offset).replace(/_/g, "");
+      str4 = str4.substring(offset).replace(/_/g, "");
       if (intAsBigInt) {
         switch (radix) {
           case 2:
-            str3 = `0b${str3}`;
+            str4 = `0b${str4}`;
             break;
           case 8:
-            str3 = `0o${str3}`;
+            str4 = `0o${str4}`;
             break;
           case 16:
-            str3 = `0x${str3}`;
+            str4 = `0x${str4}`;
             break;
         }
-        const n2 = BigInt(str3);
+        const n2 = BigInt(str4);
         return sign === "-" ? BigInt(-1) * n2 : n2;
       }
-      const n = parseInt(str3, radix);
+      const n = parseInt(str4, radix);
       return sign === "-" ? -1 * n : n;
     }
     function intStringify(node, radix, prefix) {
       const { value } = node;
       if (intIdentify(value)) {
-        const str3 = value.toString(radix);
-        return value < 0 ? "-" + prefix + str3.substr(1) : prefix + str3;
+        const str4 = value.toString(radix);
+        return value < 0 ? "-" + prefix + str4.substr(1) : prefix + str4;
       }
       return stringifyNumber.stringifyNumber(node);
     }
@@ -2894,7 +2894,7 @@ var require_int2 = __commonJS({
       tag: "tag:yaml.org,2002:int",
       format: "BIN",
       test: /^[-+]?0b[0-1_]+$/,
-      resolve: (str3, _onError, opt) => intResolve(str3, 2, 2, opt),
+      resolve: (str4, _onError, opt) => intResolve(str4, 2, 2, opt),
       stringify: (node) => intStringify(node, 2, "0b")
     };
     var intOct = {
@@ -2903,7 +2903,7 @@ var require_int2 = __commonJS({
       tag: "tag:yaml.org,2002:int",
       format: "OCT",
       test: /^[-+]?0[0-7_]+$/,
-      resolve: (str3, _onError, opt) => intResolve(str3, 1, 8, opt),
+      resolve: (str4, _onError, opt) => intResolve(str4, 1, 8, opt),
       stringify: (node) => intStringify(node, 8, "0")
     };
     var int = {
@@ -2911,7 +2911,7 @@ var require_int2 = __commonJS({
       default: true,
       tag: "tag:yaml.org,2002:int",
       test: /^[-+]?[0-9][0-9_]*$/,
-      resolve: (str3, _onError, opt) => intResolve(str3, 0, 10, opt),
+      resolve: (str4, _onError, opt) => intResolve(str4, 0, 10, opt),
       stringify: stringifyNumber.stringifyNumber
     };
     var intHex = {
@@ -2920,7 +2920,7 @@ var require_int2 = __commonJS({
       tag: "tag:yaml.org,2002:int",
       format: "HEX",
       test: /^[-+]?0x[0-9a-fA-F_]+$/,
-      resolve: (str3, _onError, opt) => intResolve(str3, 2, 16, opt),
+      resolve: (str4, _onError, opt) => intResolve(str4, 2, 16, opt),
       stringify: (node) => intStringify(node, 16, "0x")
     };
     exports.int = int;
@@ -3024,26 +3024,26 @@ var require_timestamp = __commonJS({
   "node_modules/yaml/dist/schema/yaml-1.1/timestamp.js"(exports) {
     "use strict";
     var stringifyNumber = require_stringifyNumber();
-    function parseSexagesimal(str3, asBigInt) {
-      const sign = str3[0];
-      const parts = sign === "-" || sign === "+" ? str3.substring(1) : str3;
-      const num3 = (n) => asBigInt ? BigInt(n) : Number(n);
-      const res = parts.replace(/_/g, "").split(":").reduce((res2, p) => res2 * num3(60) + num3(p), num3(0));
-      return sign === "-" ? num3(-1) * res : res;
+    function parseSexagesimal(str4, asBigInt) {
+      const sign = str4[0];
+      const parts = sign === "-" || sign === "+" ? str4.substring(1) : str4;
+      const num4 = (n) => asBigInt ? BigInt(n) : Number(n);
+      const res = parts.replace(/_/g, "").split(":").reduce((res2, p) => res2 * num4(60) + num4(p), num4(0));
+      return sign === "-" ? num4(-1) * res : res;
     }
     function stringifySexagesimal(node) {
       let { value } = node;
-      let num3 = (n) => n;
+      let num4 = (n) => n;
       if (typeof value === "bigint")
-        num3 = (n) => BigInt(n);
+        num4 = (n) => BigInt(n);
       else if (isNaN(value) || !isFinite(value))
         return stringifyNumber.stringifyNumber(node);
       let sign = "";
       if (value < 0) {
         sign = "-";
-        value *= num3(-1);
+        value *= num4(-1);
       }
-      const _60 = num3(60);
+      const _60 = num4(60);
       const parts = [value % _60];
       if (value < 60) {
         parts.unshift(0);
@@ -3063,7 +3063,7 @@ var require_timestamp = __commonJS({
       tag: "tag:yaml.org,2002:int",
       format: "TIME",
       test: /^[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+$/,
-      resolve: (str3, _onError, { intAsBigInt }) => parseSexagesimal(str3, intAsBigInt),
+      resolve: (str4, _onError, { intAsBigInt }) => parseSexagesimal(str4, intAsBigInt),
       stringify: stringifySexagesimal
     };
     var floatTime = {
@@ -3072,7 +3072,7 @@ var require_timestamp = __commonJS({
       tag: "tag:yaml.org,2002:float",
       format: "TIME",
       test: /^[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*$/,
-      resolve: (str3) => parseSexagesimal(str3, false),
+      resolve: (str4) => parseSexagesimal(str4, false),
       stringify: stringifySexagesimal
     };
     var timestamp = {
@@ -3083,8 +3083,8 @@ var require_timestamp = __commonJS({
       // may be omitted altogether, resulting in a date format. In such a case, the time part is
       // assumed to be 00:00:00Z (start of day, UTC).
       test: RegExp("^([0-9]{4})-([0-9]{1,2})-([0-9]{1,2})(?:(?:t|T|[ \\t]+)([0-9]{1,2}):([0-9]{1,2}):([0-9]{1,2}(\\.[0-9]+)?)(?:[ \\t]*(Z|[-+][012]?[0-9](?::[0-9]{2})?))?)?$"),
-      resolve(str3) {
-        const match = str3.match(timestamp.test);
+      resolve(str4) {
+        const match = str4.match(timestamp.test);
         if (!match)
           throw new Error("!!timestamp expects a date, starting with yyyy-mm-dd");
         const [, year, month, day, hour, minute, second] = match.map(Number);
@@ -3932,12 +3932,12 @@ var require_util_map_includes = __commonJS({
   "node_modules/yaml/dist/compose/util-map-includes.js"(exports) {
     "use strict";
     var identity = require_identity();
-    function mapIncludes(ctx, items, search) {
+    function mapIncludes(ctx, items2, search) {
       const { uniqueKeys } = ctx.options;
       if (uniqueKeys === false)
         return false;
       const isEqual = typeof uniqueKeys === "function" ? uniqueKeys : (a, b) => a === b || identity.isScalar(a) && identity.isScalar(b) && a.value === b.value;
-      return items.some((pair2) => isEqual(pair2.key, search));
+      return items2.some((pair2) => isEqual(pair2.key, search));
     }
     exports.mapIncludes = mapIncludes;
   }
@@ -7292,6 +7292,16 @@ var require_dist = __commonJS({
   }
 });
 
+// src/core/reply.ts
+function replyOptions(chat) {
+  const r = chat?.reply ?? {};
+  return {
+    mode: r.mode === "chat" ? "chat" : "theater",
+    deepThink: r.deepThink === true,
+    note: typeof r.note === "string" ? r.note : ""
+  };
+}
+
 // src/plugins/tabletop/rules.ts
 var PROTAGONIST = "\u4E3B\u89D2";
 var CORE_ATTRIBUTES = ["\u529B\u91CF", "\u654F\u6377", "\u4F53\u8D28", "\u611F\u77E5", "\u667A\u529B", "\u610F\u5FD7", "\u9B45\u529B", "\u53E3\u624D"];
@@ -7319,11 +7329,11 @@ var TIERS = ["critical", "success", "failure", "fumble"];
 var TIER_LABEL = { critical: "\u5927\u6210\u529F", success: "\u6210\u529F", failure: "\u5931\u8D25", fumble: "\u5927\u5931\u8D25" };
 var DEFAULT_RULES = { exponent: 3, maxRounds: 5, moodDecay: 0.15 };
 function rulesFrom(config) {
-  const num3 = (v, min, max, fallback) => typeof v === "number" && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : fallback;
+  const num4 = (v, min, max, fallback) => typeof v === "number" && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : fallback;
   return {
-    exponent: num3(config.exponent, 1, 8, DEFAULT_RULES.exponent),
-    maxRounds: Math.round(num3(config.maxRounds, 1, 10, DEFAULT_RULES.maxRounds)),
-    moodDecay: num3(config.moodDecay, 0, 1, DEFAULT_RULES.moodDecay)
+    exponent: num4(config.exponent, 1, 8, DEFAULT_RULES.exponent),
+    maxRounds: Math.round(num4(config.maxRounds, 1, 10, DEFAULT_RULES.maxRounds)),
+    moodDecay: num4(config.moodDecay, 0, 1, DEFAULT_RULES.moodDecay)
   };
 }
 var clamp = (v, min, max) => Math.min(max, Math.max(min, v));
@@ -7367,7 +7377,9 @@ var AXES = [
 var AXIS_LABEL = Object.fromEntries(AXES);
 var TRAITS = ["\u654F\u611F", "\u8BB0\u4EC7", "\u591A\u7591"];
 var emptyAxes = () => ({ affection: 0, resentment: 0, trust: 0, respect: 0, fear: 0, attraction: 0 });
-var emptySheet = () => ({ custom: {}, characters: {}, relations: [] });
+var emptySheet = () => ({ custom: {}, characters: {}, relations: [], bonds: [] });
+var pairKey = (a, b) => [a, b].sort().join("\0");
+var sameBond = (x, a, b) => pairKey(x.between[0], x.between[1]) === pairKey(a, b);
 function newCharacter() {
   return { aliases: [], attributes: {}, skills: {}, traits: { \u654F\u611F: 1, \u8BB0\u4EC7: 1, \u591A\u7591: 1 }, status: [] };
 }
@@ -7443,8 +7455,9 @@ function readCharacter(v) {
 function readRelation(v) {
   if (!isRecord(v)) return null;
   const from = str(v["\u4ECE"]);
-  const to = str(v["\u5BF9"]);
-  if (!from || !to || from === to) return null;
+  const to = str(v["\u5BF9"]) || PROTAGONIST;
+  if (!from || from === to) return null;
+  if (from === PROTAGONIST) return null;
   const base = emptyAxes();
   for (const [axis, label] of AXES) {
     const n = num(v[label]);
@@ -7453,6 +7466,23 @@ function readRelation(v) {
   const familiarity = clamp(Math.round(num(v["\u719F\u6089"]) ?? 0), 0, 100);
   const reasons = list(v["\u7F18\u7531"]).slice(-5).map((text) => ({ turn: 0, text, change: "" }));
   return { from, to, base, mood: emptyAxes(), familiarity, reasons };
+}
+function readBond(v) {
+  if (!isRecord(v)) return null;
+  const between = list(v["\u4E4B\u95F4"]);
+  const text = str(v["\u73B0\u72B6"]);
+  if (between.length !== 2 || between[0] === between[1] || !text) return null;
+  const reasons = list(v["\u7F18\u7531"]).slice(-5).map((t) => ({ turn: 0, text: t, change: "" }));
+  return { between: [between[0], between[1]], text, reasons };
+}
+function upsertBond(list2, b) {
+  const i = list2.findIndex((x) => sameBond(x, b.between[0], b.between[1]));
+  if (i >= 0) list2[i] = b;
+  else list2.push(b);
+}
+function bondFrom(r) {
+  const top = AXES.map(([axis, label]) => [label, clamp(Math.round(r.base[axis] + r.mood[axis]), 0, 100)]).filter(([, v]) => v >= 40).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([label]) => label);
+  return { between: [r.from, r.to], text: `${r.from}\u5BF9${r.to}${top.length ? `\uFF1A${top.join("\u3001")}` : "\uFF1A\u5E73\u6DE1"}`, reasons: r.reasons };
 }
 function readSheet(v) {
   const sheet = emptySheet();
@@ -7475,7 +7505,14 @@ function readSheet(v) {
       if (r) upsertRelation(sheet.relations, r);
     }
   }
-  return sheet;
+  const bonds = v["\u5173\u7CFB"];
+  if (Array.isArray(bonds)) {
+    for (const raw of bonds) {
+      const b = readBond(raw);
+      if (b) upsertBond(sheet.bonds, b);
+    }
+  }
+  return normalizeSheet(sheet);
 }
 function parseYamlObject(text) {
   const body = text.replace(/^\s*```[a-z]*\s*\n/i, "").replace(/\n\s*```\s*$/, "");
@@ -7485,20 +7522,20 @@ function parseYamlObject(text) {
   } catch (error) {
     throw new Error(`\u89D2\u8272\u8868\u4E0D\u662F\u6709\u6548\u7684 YAML\uFF1A${error.message.split("\n")[0]}`);
   }
-  if (!isRecord(data)) throw new Error("\u89D2\u8272\u8868\u9700\u8981\u300C\u89D2\u8272\u300D\u548C\u300C\u6001\u5EA6\u300D\u4E24\u90E8\u5206");
+  if (!isRecord(data)) throw new Error("\u89D2\u8272\u8868\u9700\u8981\u300C\u89D2\u8272\u300D\u300C\u6001\u5EA6\u300D\u548C\u300C\u5173\u7CFB\u300D\u8FD9\u51E0\u90E8\u5206");
   return data;
 }
 function parseSheetPatch(text) {
   const data = parseYamlObject(text);
   const sheet = readSheet(data);
-  if (!Object.keys(sheet.characters).length && !sheet.relations.length && !Object.keys(sheet.custom).length) throw new Error("\u89D2\u8272\u8868\u91CC\u6CA1\u6709\u89D2\u8272\uFF0C\u4E5F\u6CA1\u6709\u6001\u5EA6");
+  if (!Object.keys(sheet.characters).length && !sheet.relations.length && !sheet.bonds.length && !Object.keys(sheet.custom).length) throw new Error("\u89D2\u8272\u8868\u91CC\u6CA1\u6709\u89D2\u8272\uFF0C\u4E5F\u6CA1\u6709\u6001\u5EA6");
   const given = { characters: {}, relations: /* @__PURE__ */ new Map() };
   if (isRecord(data["\u89D2\u8272"])) {
     for (const [name, raw] of Object.entries(data["\u89D2\u8272"])) given.characters[name.trim()] = new Set(isRecord(raw) ? Object.keys(raw) : []);
   }
   if (Array.isArray(data["\u6001\u5EA6"])) {
     for (const raw of data["\u6001\u5EA6"]) {
-      if (isRecord(raw)) given.relations.set(`${str(raw["\u4ECE"])}\u2192${str(raw["\u5BF9"])}`, new Set(Object.keys(raw)));
+      if (isRecord(raw)) given.relations.set(`${str(raw["\u4ECE"])}\u2192${str(raw["\u5BF9"]) || PROTAGONIST}`, new Set(Object.keys(raw)));
     }
   }
   return { sheet, given };
@@ -7543,6 +7580,7 @@ function mergeSheet(base, patch, given) {
     if (keys.has("\u719F\u6089")) old.familiarity = r.familiarity;
     if (keys.has("\u7F18\u7531")) old.reasons = r.reasons;
   }
+  for (const b of patch.bonds) upsertBond(next.bonds, b);
   return next;
 }
 function removeCharacter(sheet, name) {
@@ -7551,17 +7589,19 @@ function removeCharacter(sheet, name) {
   if (!key) throw new Error(`\u89D2\u8272\u8868\u91CC\u6CA1\u6709\u300C${name}\u300D`);
   delete next.characters[key];
   next.relations = next.relations.filter((r) => r.from !== key && r.to !== key);
+  next.bonds = next.bonds.filter((b) => !b.between.includes(key));
   return next;
 }
 function relationValue(r, axis) {
   return clamp(Math.round(r.base[axis] + r.mood[axis]), 0, 100);
 }
-function characterYaml(c) {
+function characterYaml(name, c) {
   return {
     ...c.aliases.length ? { \u522B\u540D: c.aliases } : {},
     \u5C5E\u6027: c.attributes,
     ...Object.keys(c.skills).length ? { \u7279\u957F: c.skills } : {},
-    \u6027\u683C: c.traits,
+    // Traits shape a character's attitudes; the protagonist has none on record.
+    ...name === PROTAGONIST ? {} : { \u6027\u683C: c.traits },
     ...c.status.length ? { \u72B6\u6001: c.status.map((s) => ({ \u540D\u79F0: s.name, ...Object.keys(s.effects).length ? { \u5F71\u54CD: s.effects } : {}, ...s.note ? { \u8BF4\u660E: s.note } : {} })) } : {},
     ...c.description ? { \u7B80\u4ECB: c.description } : {},
     ...c.basis ? { \u4F9D\u636E: c.basis } : {},
@@ -7571,14 +7611,17 @@ function characterYaml(c) {
 function sheetYamlObject(sheet) {
   return {
     ...Object.keys(sheet.custom).length ? { \u81EA\u5B9A\u4E49\u5C5E\u6027: Object.fromEntries(Object.entries(sheet.custom).map(([k, v]) => [k, { ...v.note ? { \u8BF4\u660E: v.note } : {}, ...v.anchor ? { \u57FA\u51C6: v.anchor } : {} }])) } : {},
-    \u89D2\u8272: Object.fromEntries(Object.entries(sheet.characters).map(([k, c]) => [k, characterYaml(c)])),
+    \u89D2\u8272: Object.fromEntries(Object.entries(sheet.characters).map(([k, c]) => [k, characterYaml(k, c)])),
     \u6001\u5EA6: sheet.relations.map((r) => ({
       \u4ECE: r.from,
       \u5BF9: r.to,
       ...Object.fromEntries(AXES.map(([axis, label]) => [label, relationValue(r, axis)])),
       \u719F\u6089: r.familiarity,
       ...r.reasons.length ? { \u7F18\u7531: r.reasons.map((x) => x.text) } : {}
-    }))
+    })),
+    ...sheet.bonds.length ? {
+      \u5173\u7CFB: sheet.bonds.map((b) => ({ \u4E4B\u95F4: b.between, \u73B0\u72B6: b.text, ...b.reasons.length ? { \u7F18\u7531: b.reasons.map((x) => x.text) } : {} }))
+    } : {}
   };
 }
 function sheetToYaml(sheet) {
@@ -7618,7 +7661,14 @@ function normalizeSheet(raw) {
     c.traits = Object.assign({ \u654F\u611F: 1, \u8BB0\u4EC7: 1, \u591A\u7591: 1 }, c.traits ?? {});
     c.status ??= [];
   }
-  out.relations = (out.relations ?? []).map((r) => ({ ...r, base: { ...emptyAxes(), ...r.base }, mood: { ...emptyAxes(), ...r.mood }, familiarity: r.familiarity ?? 0, reasons: r.reasons ?? [] }));
+  const relations = (out.relations ?? []).map((r) => ({ ...r, base: { ...emptyAxes(), ...r.base }, mood: { ...emptyAxes(), ...r.mood }, familiarity: r.familiarity ?? 0, reasons: r.reasons ?? [] }));
+  out.bonds = (out.bonds ?? []).map((b) => ({ ...b, reasons: b.reasons ?? [] }));
+  out.relations = [];
+  for (const r of relations) {
+    if (r.from === PROTAGONIST) continue;
+    if (r.to === PROTAGONIST) out.relations.push(r);
+    else if (!out.bonds.some((b) => sameBond(b, r.from, r.to))) out.bonds.push(bondFrom(r));
+  }
   return out;
 }
 function stateFromSheet(sheet) {
@@ -7644,6 +7694,7 @@ function stateBefore(chat, index, character) {
 
 // src/plugins/tabletop/attitude.ts
 var MAX_TURN_CHANGE = 30;
+var EDGE_FLOOR = 0.4;
 var KEEP_REASONS = 5;
 var traitOf = (state, name) => state.characters[name]?.traits ?? { \u654F\u611F: 1, \u8BB0\u4EC7: 1, \u591A\u7591: 1 };
 function findRelation(state, from, to, create = false) {
@@ -7669,11 +7720,11 @@ function changeAxis(rel, axis, proposed, traits) {
   if (axis === "trust") delta = delta > 0 ? delta / traits.\u591A\u7591 : delta * traits.\u591A\u7591;
   delta = clamp(delta, -MAX_TURN_CHANGE, MAX_TURN_CHANGE);
   const now = relationValue(rel, axis);
-  if (delta > 0 && now > 50) delta *= (100 - now) / 50;
-  if (delta < 0 && now < 50) delta *= now / 50;
-  const settle = 0.2 + 0.6 * (1 - rel.familiarity / 100);
-  rel.base[axis] = clamp(rel.base[axis] + delta * settle, 0, 100);
-  rel.mood[axis] += delta * (1 - settle);
+  if (delta > 0 && now > 50) delta *= EDGE_FLOOR + (1 - EDGE_FLOOR) * (100 - now) / 50;
+  if (delta < 0 && now < 50) delta *= EDGE_FLOOR + (1 - EDGE_FLOOR) * now / 50;
+  const settle2 = 0.2 + 0.6 * (1 - rel.familiarity / 100);
+  rel.base[axis] = clamp(rel.base[axis] + delta * settle2, 0, 100);
+  rel.mood[axis] += delta * (1 - settle2);
   const total = rel.base[axis] + rel.mood[axis];
   if (total > 100) rel.mood[axis] -= total - 100;
   if (total < 0) rel.mood[axis] -= total;
@@ -7690,8 +7741,8 @@ function applyAttitude(state, from, to, changes, reason) {
   const done = [];
   for (const [axis, proposed] of Object.entries(changes)) {
     if (!proposed) continue;
-    const real = changeAxis(rel, axis, proposed, traits);
-    done.push(`${AXIS_LABEL[axis]}${real >= 0 ? "+" : ""}${fmt(Math.round(real))}`);
+    const real = Math.round(changeAxis(rel, axis, proposed, traits));
+    if (real) done.push(`${AXIS_LABEL[axis]}${real > 0 ? "+" : ""}${fmt(real)}`);
   }
   const change = done.join(" ");
   addReason(rel, state.turn, reason, change);
@@ -7735,9 +7786,10 @@ function characterLine(name, state, userName) {
   const parts = [`${label}\uFF1A${attrs || "\uFF08\u5C5E\u6027\u672A\u767B\u8BB0\uFF0C\u6309\u666E\u901A\u4EBA\u4F30\u8BA1\uFF09"}`];
   const skills = Object.entries(c.skills).map(([k, v]) => `${k}\xB7${v}`);
   if (skills.length) parts.push(`\u7279\u957F\uFF1A${skills.join("\u3001")}`);
-  const traits = Object.entries(c.traits).filter(([, v]) => v !== 1).map(([k, v]) => `${k}${fmt(v)}`);
+  const traits = name === PROTAGONIST ? [] : Object.entries(c.traits).filter(([, v]) => v !== 1).map(([k, v]) => `${k}${fmt(v)}`);
   if (traits.length) parts.push(`\u6027\u683C\uFF1A${traits.join(" ")}`);
   if (c.status.length) parts.push(`\u72B6\u6001\uFF1A${c.status.map((s) => `${s.name}${Object.keys(s.effects).length ? `\uFF08${Object.entries(s.effects).map(([k, f]) => `${k}\xD7${fmt(f)}`).join(" ")}\uFF09` : ""}`).join("\u3001")}`);
+  if (c.description) parts.push(c.description);
   if (c.temporary) parts.push("\u4E34\u65F6\u767B\u8BB0");
   return parts.join("\uFF5C");
 }
@@ -7748,11 +7800,18 @@ function stateText(state, userName) {
   const names = Object.keys(state.characters).sort((a, b) => a === PROTAGONIST ? -1 : b === PROTAGONIST ? 1 : 0);
   for (const name of names) lines.push(characterLine(name, state, userName));
   if (state.relations.length) {
-    lines.push("", "\u3010\u6001\u5EA6\u3011\uFF08A\u2192B \u8868\u793A A \u5BF9 B\uFF1B\u516D\u6761\u7EBF\u5404\u81EA 0\uFF5E100\uFF0C\u4E92\u4E0D\u62B5\u6D88\uFF09");
+    lines.push("", "\u3010\u5BF9\u4E3B\u89D2\u7684\u6001\u5EA6\u3011\uFF08\u516D\u6761\u7EBF\u5404\u81EA 0\uFF5E100\uFF0C\u4E92\u4E0D\u62B5\u6D88\uFF1B\u4E3B\u89D2\u81EA\u5DF1\u7684\u611F\u60C5\u7531\u73A9\u5BB6\u51B3\u5B9A\uFF0C\u8FD9\u91CC\u4E0D\u8BB0\uFF09");
     for (const r of state.relations) {
       const values = AXES.map(([axis, label]) => `${label}${relationValue(r, axis)}`).join(" ");
       const recent = r.reasons.slice(-3).map((x) => x.change ? `${x.text}\uFF08${x.change}\uFF09` : x.text).filter(Boolean);
-      lines.push(`${r.from}\u2192${r.to}\uFF1A${describe(r)}\uFF08${values}\uFF5C\u719F\u6089${r.familiarity}\uFF09${recent.length ? `\uFF5C\u6700\u8FD1\uFF1A${recent.join("\uFF1B")}` : ""}`);
+      lines.push(`${r.from}\uFF1A${describe(r)}\uFF08${values}\uFF5C\u719F\u6089${r.familiarity}\uFF09${recent.length ? `\uFF5C\u6700\u8FD1\uFF1A${recent.join("\uFF1B")}` : ""}`);
+    }
+  }
+  if (state.bonds.length) {
+    lines.push("", "\u3010\u89D2\u8272\u4E4B\u95F4\u3011");
+    for (const b of state.bonds) {
+      const last = b.reasons.at(-1)?.text;
+      lines.push(`${b.between[0]}\u4E0E${b.between[1]}\uFF1A${b.text}${last ? `\uFF08${last}\uFF09` : ""}`);
     }
   }
   return lines.join("\n");
@@ -7781,14 +7840,13 @@ function rulingText(ruling) {
 
 // src/plugins/tabletop/adapt.ts
 var ADDRESS = "\u8DD1\u56E2\u89D2\u8272\u8868";
-var REQUEST = "\u8BF7\u4E3A\u8FD9\u5F20\u5361\u505A\u8DD1\u56E2\u6570\u636E\u5316\u9002\u914D\uFF1A\u901A\u8BFB\u89D2\u8272\u5361\u548C\u4E16\u754C\u4E66\uFF0C\u4E3A\u4E3B\u89D2\u548C\u6240\u6709\u91CD\u8981\u89D2\u8272\u5EFA\u7ACB\u89D2\u8272\u8868\uFF08\u5C5E\u6027\u3001\u7279\u957F\u3001\u6027\u683C\u7CFB\u6570\u3001\u521D\u59CB\u72B6\u6001\uFF0C\u6BCF\u9879\u9644\u539F\u6587\u4F9D\u636E\uFF09\uFF0C\u5E76\u5199\u51FA\u4ED6\u4EEC\u4E4B\u95F4\u3001\u4EE5\u53CA\u4ED6\u4EEC\u5BF9\u4E3B\u89D2\u7684\u521D\u59CB\u6001\u5EA6\u3002";
-var RELEVANT = /跑团|数据化|角色表|属性|态度|特长|性格系数/;
+var REQUEST = "\u8BF7\u4E3A\u8FD9\u5F20\u5361\u505A\u8DD1\u56E2\u6570\u636E\u5316\u9002\u914D\uFF1A\u901A\u8BFB\u89D2\u8272\u5361\u548C\u4E16\u754C\u4E66\uFF0C\u4E3A\u4E3B\u89D2\u548C\u6240\u6709\u91CD\u8981\u89D2\u8272\u5EFA\u7ACB\u89D2\u8272\u8868\uFF08\u5C5E\u6027\u3001\u7279\u957F\u3001\u6027\u683C\u7CFB\u6570\u3001\u521D\u59CB\u72B6\u6001\uFF0C\u6BCF\u9879\u9644\u539F\u6587\u4F9D\u636E\uFF09\uFF0C\u5199\u51FA\u4ED6\u4EEC\u5BF9\u4E3B\u89D2\u7684\u521D\u59CB\u6001\u5EA6\uFF0C\u4EE5\u53CA\u4ED6\u4EEC\u5F7C\u6B64\u4E4B\u95F4\u7684\u5173\u7CFB\u3002";
+var RELEVANT = /跑团|数据化|角色表|属性|态度|关系|特长|性格系数/;
 var EXAMPLE = `\u3010\u6539\u5199\u3011${ADDRESS}
 \u89D2\u8272:
   ${PROTAGONIST}:
     \u5C5E\u6027: { \u529B\u91CF: 95, \u654F\u6377: 120, \u4F53\u8D28: 100, \u611F\u77E5: 115, \u667A\u529B: 125, \u610F\u5FD7: 105, \u9B45\u529B: 110, \u53E3\u624D: 130 }
     \u7279\u957F: { \u5F00\u9501: \u7CBE\u901A, \u5251\u672F: \u5165\u95E8 }
-    \u6027\u683C: { \u654F\u611F: 1, \u8BB0\u4EC7: 1, \u591A\u7591: 1 }
     \u4F9D\u636E: \u5F00\u573A\u767D\u5199\u4E3B\u89D2\u662F\u9501\u5320\u5B66\u5F92\uFF0C\u300C\u624B\u6BD4\u8111\u5B50\u5FEB\u300D
   \u6797\u665A:
     \u522B\u540D: [\u665A\u665A]
@@ -7798,9 +7856,14 @@ var EXAMPLE = `\u3010\u6539\u5199\u3011${ADDRESS}
     \u72B6\u6001:
       - { \u540D\u79F0: \u65E7\u4F24\u672A\u6108, \u5F71\u54CD: { \u4F53\u8D28: 0.8 }, \u8BF4\u660E: \u5DE6\u80A9\u7684\u5200\u4F24\u8FD8\u6CA1\u597D }
     \u4F9D\u636E: \u8BBE\u5B9A\u5199\u5979\u300C\u81EA\u5E7C\u4E60\u5251\u300D\u300C\u8BB0\u4EC7\uFF0C\u4E00\u7B14\u4E00\u7B14\u90FD\u8BB0\u7740\u300D
+  \u6C88\u638C\u67DC:
+    \u5C5E\u6027: { \u529B\u91CF: 90, \u654F\u6377: 80, \u4F53\u8D28: 95, \u611F\u77E5: 130, \u667A\u529B: 140, \u610F\u5FD7: 120, \u9B45\u529B: 100, \u53E3\u624D: 150 }
+    \u4F9D\u636E: \u8BBE\u5B9A\u5199\u4ED6\u300C\u7B11\u9762\u864E\uFF0C\u8D26\u7B97\u5F97\u6BD4\u8C01\u90FD\u7CBE\u300D
 \u6001\u5EA6:
   - { \u4ECE: \u6797\u665A, \u5BF9: ${PROTAGONIST}, \u4EB2\u8FD1: 60, \u6028\u6068: 55, \u4FE1\u4EFB: 25, \u656C\u91CD: 40, \u754F\u60E7: 0, \u5438\u5F15: 45, \u719F\u6089: 85, \u7F18\u7531: [\u4E09\u5E74\u524D\u4E3B\u89D2\u4E0D\u544A\u800C\u522B] }
-  - { \u4ECE: ${PROTAGONIST}, \u5BF9: \u6797\u665A, \u4EB2\u8FD1: 75, \u6028\u6068: 0, \u4FE1\u4EFB: 60, \u656C\u91CD: 50, \u754F\u60E7: 5, \u5438\u5F15: 60, \u719F\u6089: 85 }`;
+  - { \u4ECE: \u6C88\u638C\u67DC, \u5BF9: ${PROTAGONIST}, \u4EB2\u8FD1: 20, \u6028\u6068: 0, \u4FE1\u4EFB: 30, \u656C\u91CD: 35, \u754F\u60E7: 0, \u5438\u5F15: 0, \u719F\u6089: 30, \u7F18\u7531: [\u4E3B\u89D2\u5E38\u6765\u5E97\u91CC\u8D4A\u8D26] }
+\u5173\u7CFB:
+  - { \u4E4B\u95F4: [\u6797\u665A, \u6C88\u638C\u67DC], \u73B0\u72B6: \u8868\u9762\u5BA2\u6C14\uFF0C\u6697\u4E2D\u63D0\u9632, \u7F18\u7531: [\u6C88\u638C\u67DC\u66FE\u628A\u6797\u5BB6\u7684\u6D88\u606F\u5356\u7ED9\u4EC7\u5BB6] }`;
 function wanted(ctx) {
   if (cardSheet(ctx.character)) return true;
   const recent = ctx.messages.filter((m) => m.mode === "edit" && m.role === "user").slice(-8);
@@ -7822,14 +7885,16 @@ function instruction(ctx) {
     `- \u7279\u957F\uFF1A\u6863\u4F4D\u53EA\u80FD\u662F ${Object.keys(SKILL_LEVELS).join("\u3001")}\uFF0C\u68C0\u5B9A\u65F6\u5206\u522B\u4E58\u4EE5 ${Object.values(SKILL_LEVELS).join("\u3001")}\u3002\u53EA\u5199\u89D2\u8272\u771F\u6B63\u64C5\u957F\u7684\u3002`,
     "- \u6027\u683C\u7CFB\u6570\uFF080.5\uFF5E2\uFF0C\u9ED8\u8BA4 1\uFF09\uFF1A\u654F\u611F\uFF08\u6001\u5EA6\u53D8\u5316\u7684\u5E45\u5EA6\uFF09\u3001\u8BB0\u4EC7\uFF08\u6028\u6068\u6D88\u9000\u7684\u5FEB\u6162\uFF0C\u8D8A\u5927\u8D8A\u6162\uFF09\u3001\u591A\u7591\uFF08\u8D8A\u5927\u4FE1\u4EFB\u8D8A\u96BE\u5EFA\u7ACB\u3001\u8D8A\u5BB9\u6613\u5931\u53BB\uFF09\u3002",
     "- \u72B6\u6001\uFF1A\u5F00\u5C40\u5C31\u6709\u7684\u4F24\u75C5\u3001\u9189\u9152\u3001\u75B2\u60EB\u7B49\uFF0C\u53EF\u4EE5\u5E26\u5C5E\u6027\u500D\u7387\uFF08\u5982 \u4F53\u8D28: 0.8\uFF09\u3002",
-    "- \u6001\u5EA6\u6709\u65B9\u5411\uFF0CA \u5BF9 B \u548C B \u5BF9 A \u5206\u5F00\u5199\u3002\u516D\u6761\u7EBF\uFF1A\u4EB2\u8FD1\u3001\u6028\u6068\u3001\u4FE1\u4EFB\u3001\u656C\u91CD\u3001\u754F\u60E7\u3001\u5438\u5F15\uFF0C\u5404 0\uFF5E100\uFF0C\u4E92\u4E0D\u62B5\u6D88\uFF0C\u7231\u548C\u6068\u53EF\u4EE5\u540C\u65F6\u5F88\u9AD8\uFF1B\u53E6\u6709\u719F\u6089 0\uFF5E100\u3002\u7F18\u7531\u5199\u5F62\u6210\u8FD9\u4EFD\u6001\u5EA6\u7684\u5F80\u4E8B\u3002\u81F3\u5C11\u5199\u6E05\u4E3B\u8981\u89D2\u8272\u5BF9\u4E3B\u89D2\u3001\u4E3B\u89D2\u5BF9\u4E3B\u8981\u89D2\u8272\u7684\u6001\u5EA6\u3002",
+    `- \u6001\u5EA6\uFF1A\u53EA\u5199\u5176\u4ED6\u89D2\u8272\u5BF9${PROTAGONIST}\u7684\u6001\u5EA6\uFF08\u300C\u4ECE\u300D\u662F\u89D2\u8272\uFF0C\u300C\u5BF9\u300D\u56FA\u5B9A\u662F${PROTAGONIST}\uFF09\u3002\u516D\u6761\u7EBF\uFF1A\u4EB2\u8FD1\u3001\u6028\u6068\u3001\u4FE1\u4EFB\u3001\u656C\u91CD\u3001\u754F\u60E7\u3001\u5438\u5F15\uFF0C\u5404 0\uFF5E100\uFF0C\u4E92\u4E0D\u62B5\u6D88\uFF0C\u7231\u548C\u6068\u53EF\u4EE5\u540C\u65F6\u5F88\u9AD8\uFF1B\u53E6\u6709\u719F\u6089 0\uFF5E100\u3002\u7F18\u7531\u5199\u5F62\u6210\u8FD9\u4EFD\u6001\u5EA6\u7684\u5F80\u4E8B\u3002\u6BCF\u4E2A\u91CD\u8981\u89D2\u8272\u90FD\u5199\u4E00\u4EFD\u3002`,
+    `- ${PROTAGONIST}\u5BF9\u522B\u4EBA\u7684\u611F\u60C5\u7531\u73A9\u5BB6\u51B3\u5B9A\uFF0C\u4E0D\u5199\uFF1B${PROTAGONIST}\u4E5F\u4E0D\u9700\u8981\u6027\u683C\u7CFB\u6570\u3002`,
+    "- \u5173\u7CFB\uFF1A\u91CD\u8981\u89D2\u8272\u5F7C\u6B64\u4E4B\u95F4\u7684\u5173\u7CFB\u4E0D\u6253\u5206\uFF0C\u7528\u51E0\u4E2A\u5B57\u5199\u300C\u73B0\u72B6\u300D\uFF0C\u9644\u7F18\u7531\uFF0C\u4F8B\u5982\u300C\u8868\u9762\u5BA2\u6C14\uFF0C\u6697\u4E2D\u63D0\u9632\u300D\u3002\u53EA\u5199\u5361\u7247\u91CC\u4EA4\u4EE3\u8FC7\u3001\u4F1A\u5F71\u54CD\u5267\u60C5\u7684\u51E0\u5BF9\u3002",
     `- \u96BE\u5EA6\u53C2\u8003\uFF08\u4E4B\u540E\u7684\u68C0\u5B9A\u4F1A\u7528\u5230\uFF09\uFF1A${DIFFICULTIES.map(([w, v]) => `${w} ${v}`).join("\u3001")}\u3002`,
     `- \u4E3B\u89D2\u7684\u8BBE\u5B9A\u6765\u81EA\u5361\u7247\u5BF9 {{user}} \u7684\u63CF\u5199${persona ? "\u548C\u4E0B\u9762\u7684\u7528\u6237\u89D2\u8272\u8BBE\u5B9A" : ""}\uFF1B\u5361\u7247\u6CA1\u5199\u7684\uFF0C\u6309\u666E\u901A\u6210\u5E74\u4EBA\u4F30\u8BA1\u3002`,
     "- \u4F9D\u636E\uFF1A\u6BCF\u4E2A\u89D2\u8272\u5199\u4E00\u4E24\u53E5\uFF0C\u5F15\u7528\u5361\u7247\u6216\u4E16\u754C\u4E66\u7684\u539F\u6587\u8BF4\u660E\u6570\u503C\u4ECE\u4F55\u800C\u6765\u3002",
     "",
     "## \u5199\u6CD5",
-    `- \u3010\u6539\u5199\u3011${ADDRESS}\uFF1A\u53EA\u6709\u5199\u5230\u7684\u90E8\u5206\u4F1A\u53D8\u3002\u5C5E\u6027\u3001\u7279\u957F\u3001\u6027\u683C\u6309\u9879\u5408\u5E76\uFF08\u53EA\u5199\u8981\u6539\u7684\u90A3\u51E0\u9879\u5373\u53EF\uFF09\uFF0C\u72B6\u6001\u3001\u522B\u540D\u3001\u4F9D\u636E\u5199\u4E86\u5C31\u6574\u4F53\u66FF\u6362\uFF1B\u6001\u5EA6\u6309\u300C\u4ECE\u3001\u5BF9\u300D\u627E\u5230\u540C\u4E00\u5BF9\u5173\u7CFB\uFF0C\u53EA\u6539\u5199\u5230\u7684\u7EBF\u3002\u6CA1\u5199\u5230\u7684\u89D2\u8272\u548C\u5173\u7CFB\u4FDD\u6301\u4E0D\u53D8\u3002`,
-    `- \u3010\u5220\u9664\u3011${ADDRESS} \u203A \u89D2\u8272\u540D\uFF1A\u5220\u9664\u8FD9\u4E2A\u89D2\u8272\u548C\u4E0E\u4ED6\u6709\u5173\u7684\u6001\u5EA6\u3002`,
+    `- \u3010\u6539\u5199\u3011${ADDRESS}\uFF1A\u53EA\u6709\u5199\u5230\u7684\u90E8\u5206\u4F1A\u53D8\u3002\u5C5E\u6027\u3001\u7279\u957F\u3001\u6027\u683C\u6309\u9879\u5408\u5E76\uFF08\u53EA\u5199\u8981\u6539\u7684\u90A3\u51E0\u9879\u5373\u53EF\uFF09\uFF0C\u72B6\u6001\u3001\u522B\u540D\u3001\u4F9D\u636E\u5199\u4E86\u5C31\u6574\u4F53\u66FF\u6362\uFF1B\u6001\u5EA6\u6309\u300C\u4ECE\u300D\u627E\u5230\u540C\u4E00\u4E2A\u89D2\u8272\uFF0C\u53EA\u6539\u5199\u5230\u7684\u7EBF\uFF1B\u5173\u7CFB\u6309\u300C\u4E4B\u95F4\u300D\u7684\u4E24\u4E2A\u4EBA\u6574\u6761\u66FF\u6362\u3002\u6CA1\u5199\u5230\u7684\u89D2\u8272\u3001\u6001\u5EA6\u548C\u5173\u7CFB\u4FDD\u6301\u4E0D\u53D8\u3002`,
+    `- \u3010\u5220\u9664\u3011${ADDRESS} \u203A \u89D2\u8272\u540D\uFF1A\u5220\u9664\u8FD9\u4E2A\u89D2\u8272\u548C\u4E0E\u4ED6\u6709\u5173\u7684\u6001\u5EA6\u3001\u5173\u7CFB\u3002`,
     "- \u4E0D\u8981\u6539\u52A8\u5361\u7247\u548C\u4E16\u754C\u4E66\u91CC\u7684\u5176\u4ED6\u5185\u5BB9\uFF0C\u9664\u975E\u7528\u6237\u4E5F\u8981\u6C42\u4E86\u3002",
     "",
     "\u793A\u4F8B\uFF1A",
@@ -8085,62 +8150,265 @@ ${results.map((c, i) => checkResultLine(c, i)).join("\n")}` }
   };
 }
 
-// src/plugins/tabletop/catgod.ts
-var SIG = "skip_thought_signature_validator";
-var REPLY_TOOL = "soliumbra_reply";
-var messagesOf = (body) => Array.isArray(body.messages) ? body.messages : [];
-function syncPayload(body) {
-  const sync = messagesOf(body).findLast((m) => m.role === "tool" && m.tool_call_id === "call_sync_final");
-  if (!sync || typeof sync.content !== "string") return null;
-  try {
-    return JSON.parse(sync.content);
-  } catch {
-    return {};
-  }
-}
-function isCatgodRequest(body) {
-  const tools = Array.isArray(body.tools) ? body.tools : [];
-  return tools.some((t) => t.function?.name === REPLY_TOOL) && syncPayload(body) !== null;
-}
-function isChatMode(body) {
-  return syncPayload(body)?.mode === "chat";
-}
-function contextTurn(id, query, think, content) {
-  return [
-    { role: "assistant", content: think, thoughtSignature: SIG },
-    {
-      role: "assistant",
-      thoughtSignature: SIG,
-      tool_calls: [{ id, type: "function", function: { name: "context", arguments: JSON.stringify({ query }) }, signature: SIG, extra_content: { google: { thoughtSignature: SIG } } }]
-    },
-    { role: "tool", tool_call_id: id, name: "context", content }
-  ];
-}
-var RULING_THINK = "<think>\u7B49\u4E00\u4E0B\u55B5\uFF01\u672C\u55B5\u662F\u8FD9\u573A\u6E38\u620F\u7684 DM\uFF0C\u52A8\u7B14\u5199\u6B63\u6587\u4E4B\u524D\u8981\u5148\u5F53\u88C1\u5224\uFF1A\u4EBA\u7C7B\u8FD9\u4E00\u8F6E\u7684\u884C\u52A8\u91CC\uFF0C\u54EA\u4E9B\u4E8B\u7684\u7ED3\u679C\u8BF4\u4E0D\u51C6\u3001\u5F97\u63B7\u9AB0\u5B50\u51B3\u5B9A\u3002\u672C\u55B5\u5148\u8C03 `context` \u8BFB\u4E00\u4E0B\u8DD1\u56E2\u89C4\u5219\u548C\u89D2\u8272\u6570\u503C\uFF0C\u7136\u540E\u8C03\u7528 `hearth_check` \u63D0\u4EA4\u68C0\u5B9A\u55B5\uFF01</think>";
-var NARRATE_THINK = "<think>\u9AB0\u5B50\u63B7\u5B8C\u5566\u55B5\uFF01\u672C\u55B5\u5148\u8C03 `context` \u770B\u770B\u8FD9\u4E00\u8F6E\u7684\u68C0\u5B9A\u7ED3\u679C\u548C\u8DD1\u56E2\u6570\u636E\uFF0C\u6B63\u6587\u8981\u7167\u7740\u7ED3\u679C\u5199\uFF0C\u7136\u540E\u518D\u8C03\u7528 `soliumbra_reply` \u5199\u51FA\u5B8C\u6574\u56DE\u590D\u55B5\uFF01</think>";
-var PASS_THINK = "<think>\u8FD9\u4E00\u8F6E\u4EBA\u7C7B\u5F00\u4E86\u300C\u68C0\u5B9A\u7EDD\u5BF9\u901A\u8FC7\u300D\u55B5\uFF01\u672C\u55B5\u5148\u8C03 `context` \u770B\u4E00\u4E0B\u8DD1\u56E2\u6570\u636E\uFF0C\u7136\u540E\u8C03\u7528 `soliumbra_reply` \u5199\u6B63\u6587\u55B5\uFF01</think>";
-function rulingRequest(body, content) {
-  const tools = Array.isArray(body.tools) ? body.tools : [];
-  return {
-    ...body,
-    messages: [...messagesOf(body), ...contextTurn("call_hearth_dm_rules", "dm_check", RULING_THINK, content)],
-    // The preset's tools stay declared (its history calls them); only the forced one changes.
-    tools: [...tools, checkTool()],
-    tool_choice: { type: "function", function: { name: CHECK_TOOL_NAME } },
-    toolConfig: { functionCallingConfig: { mode: "ANY", allowedFunctionNames: [CHECK_TOOL_NAME] } }
-  };
-}
-function narrationRequest(body, content, pass) {
-  return {
-    ...body,
-    messages: [...messagesOf(body), ...contextTurn("call_hearth_dm_results", "dm_results", pass ? PASS_THINK : NARRATE_THINK, content)]
-  };
-}
-
 // src/plugins/tabletop/settle.ts
+var SETTLE_TOOL_NAME = "hearth_settle";
 var BLOCK = /<结算>([\s\S]*?)(?:<\/结算>|$)/;
 var MAX_ATTRIBUTE_CHANGE = 10;
 var KEEP_LOG = 60;
+function settleTool() {
+  const axis = (label) => ({ type: "number", description: `${label}\u7684\u53D8\u5316\uFF1A\u65E5\u5E38 0\uFF5E2\uFF0C\u7559\u4E0B\u5370\u8C61 3\uFF5E8\uFF0C\u660E\u663E\u7684\u597D\u610F\u6216\u5192\u72AF 8\uFF5E15\uFF0C\u91CD\u5927\u4E8B\u4EF6 15\uFF5E30\uFF0C\u53EF\u6B63\u53EF\u8D1F\uFF1B\u6CA1\u53D8\u5199 0` });
+  return {
+    type: "function",
+    function: {
+      name: SETTLE_TOOL_NAME,
+      description: "\u8DD1\u56E2\u7ED3\u7B97\uFF1A\u8BB0\u4E0B\u521A\u624D\u8FD9\u6BB5\u56DE\u590D\u91CC\u53D1\u751F\u7684\u4E8B\u9020\u6210\u7684\u53D8\u5316\u3002Hearth \u6309\u89C4\u5219\u6267\u884C\uFF0C\u5B9E\u9645\u53D8\u5316\u53EF\u80FD\u6BD4\u5199\u7684\u5C0F\u3002",
+      parameters: {
+        type: "object",
+        properties: {
+          think: { type: "string", description: "\u7B80\u77ED\u56DE\u987E\uFF1A\u8FD9\u6BB5\u56DE\u590D\u91CC\u53D1\u751F\u4E86\u54EA\u4E9B\u4E8B\uFF0C\u5206\u522B\u5F71\u54CD\u4E86\u8C01" },
+          present: { type: "array", items: { type: "string" }, description: "\u8FD9\u6BB5\u56DE\u590D\u91CC\u5728\u573A\u7684\u89D2\u8272\uFF0C\u4E0D\u542B\u4E3B\u89D2" },
+          attitudes: {
+            type: "array",
+            description: "\u5728\u573A\u7684\u6BCF\u4E2A\u89D2\u8272\u5404\u5199\u4E00\u9879\uFF1A\u8FD9\u6BB5\u56DE\u590D\u91CC\u7684\u4E8B\u8BA9\u4ED6\u5BF9\u4E3B\u89D2\u7684\u6001\u5EA6\u600E\u6837\u53D8\u4E86\u3002\u6CA1\u6709\u53D8\u5316\u4E5F\u5199\u4E00\u9879\uFF0C\u5404\u6761\u7EBF\u5199 0\uFF0Creason \u5199\u300C\u6CA1\u6709\u53D8\u5316\u300D\u3002\u53EA\u5199\u89D2\u8272\u5BF9\u4E3B\u89D2\u7684\u6001\u5EA6\uFF1B\u4E3B\u89D2\u81EA\u5DF1\u7684\u611F\u60C5\u7531\u73A9\u5BB6\u51B3\u5B9A\uFF0C\u4E0D\u5199",
+            items: {
+              type: "object",
+              properties: {
+                who: { type: "string", description: "\u89D2\u8272\u540D" },
+                ...Object.fromEntries(AXES.map(([key, label]) => [key, axis(label)])),
+                familiarity: { type: "number", description: "\u719F\u6089\u7684\u53D8\u5316\uFF1A\u5171\u540C\u7ECF\u5386\u3001\u66F4\u4E86\u89E3\u4E3B\u89D2\u4E86\uFF1B\u6CA1\u53D8\u5199 0" },
+                reason: { type: "string", description: "\u662F\u54EA\u4EF6\u4E8B\uFF0C\u4E00\u53E5\u8BDD" }
+              },
+              required: ["who", "reason"]
+            }
+          },
+          bonds: {
+            type: "array",
+            description: "\u89D2\u8272\u4E4B\u95F4\uFF08\u4E0D\u542B\u4E3B\u89D2\uFF09\u7684\u5173\u7CFB\u56E0\u4E3A\u8FD9\u6BB5\u56DE\u590D\u6709\u4E86\u53D8\u5316\u65F6\u5199\uFF0C\u4F8B\u5982\u7ED3\u4EC7\u3001\u548C\u597D\u3001\u8D77\u4E86\u7591\u5FC3\u3002\u6CA1\u6709\u53D8\u5316\u5C31\u4E0D\u5199",
+            items: {
+              type: "object",
+              properties: {
+                between: { type: "array", items: { type: "string" }, description: "\u4E24\u4E2A\u89D2\u8272\u7684\u540D\u5B57" },
+                now: { type: "string", description: "\u73B0\u5728\u7684\u5173\u7CFB\uFF0C\u51E0\u4E2A\u5B57\uFF0C\u4F8B\u5982\u300C\u8868\u9762\u5BA2\u6C14\uFF0C\u6697\u4E2D\u63D0\u9632\u300D" },
+                reason: { type: "string", description: "\u662F\u54EA\u4EF6\u4E8B" }
+              },
+              required: ["between", "now", "reason"]
+            }
+          },
+          status: {
+            type: "array",
+            description: "\u53D7\u4F24\u3001\u9189\u9152\u3001\u75B2\u60EB\u7B49\u4E34\u65F6\u72B6\u6001\uFF1A\u65B0\u51FA\u73B0\u7684\u52A0\u4E0A\uFF0C\u597D\u4E86\u7684\u53BB\u6389\uFF08\u4E3B\u89D2\u548C\u5176\u4ED6\u89D2\u8272\u90FD\u7B97\uFF09",
+            items: {
+              type: "object",
+              properties: {
+                who: { type: "string" },
+                change: { type: "string", enum: ["add", "remove"], description: "add \u52A0\u4E0A\uFF0Cremove \u53BB\u6389" },
+                name: { type: "string", description: "\u72B6\u6001\u540D\uFF0C\u4F8B\u5982\u300C\u5DE6\u81C2\u5200\u4F24\u300D" },
+                effects: { type: "string", description: "\u52A0\u4E0A\u65F6\u5BF9\u5C5E\u6027\u7684\u5F71\u54CD\uFF0C\u4F8B\u5982\u300C\u529B\u91CF\xD70.8 \u654F\u6377\xD70.9\u300D\uFF1B\u6CA1\u6709\u5C31\u4E0D\u5199" },
+                note: { type: "string", description: "\u4E00\u53E5\u8BDD\u8BF4\u660E" }
+              },
+              required: ["who", "change", "name"]
+            }
+          },
+          new_characters: {
+            type: "array",
+            description: "\u8FD9\u6BB5\u56DE\u590D\u91CC\u65B0\u767B\u573A\u3001\u4EE5\u540E\u8FD8\u4F1A\u51FA\u73B0\u3001\u8DD1\u56E2\u6570\u636E\u91CC\u8FD8\u6CA1\u6709\u7684\u89D2\u8272",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                attributes: { type: "string", description: "\u4F30\u8BA1\u7684\u5C5E\u6027\uFF0C\u4F8B\u5982\u300C\u529B\u91CF160 \u654F\u6377120 \u611F\u77E5130\u300D\uFF08\u666E\u901A\u6210\u5E74\u7537\u6027\u4E3A 100\uFF09" },
+                note: { type: "string", description: "\u4E00\u53E5\u8BDD\u7B80\u4ECB" }
+              },
+              required: ["name"]
+            }
+          },
+          growth: {
+            type: "array",
+            description: "\u5F88\u5C11\u53D1\u751F\uFF1A\u957F\u671F\u7684\u6210\u957F\u6216\u8870\u9000\u3002\u5C5E\u6027\u5199\u300C+5\u300D\u8FD9\u6837\u7684\u53D8\u5316\uFF08\u6BCF\u6B21\u6700\u591A \xB110\uFF09\uFF0C\u7279\u957F\u5199\u65B0\u7684\u6863\u4F4D",
+            items: {
+              type: "object",
+              properties: {
+                who: { type: "string" },
+                item: { type: "string", description: "\u5C5E\u6027\u540D\u6216\u7279\u957F\u540D" },
+                change: { type: "string", description: `\u5C5E\u6027\u5199\u300C+5\u300D\u300C-3\u300D\uFF1B\u7279\u957F\u5199\u6863\u4F4D\uFF1A${Object.keys(SKILL_LEVELS).join("\u3001")}` },
+                reason: { type: "string" }
+              },
+              required: ["who", "item", "change"]
+            }
+          }
+        },
+        required: ["present", "attitudes"]
+      }
+    }
+  };
+}
+var isRecord3 = (v) => Boolean(v) && typeof v === "object" && !Array.isArray(v);
+var str3 = (v) => typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : "";
+var num3 = (v) => {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && /^\s*[+＋\-－−]?\s*\d+(\.\d+)?\s*$/.test(v)) return Number(v.replace(/[＋\s]/g, "").replace(/[－−]/g, "-"));
+  return 0;
+};
+var items = (v) => Array.isArray(v) ? v.filter(isRecord3) : [];
+function parseSettleArgs(text) {
+  const tries = [text, text.match(/<hearth_settle>([\s\S]*?)<\/hearth_settle>/i)?.[1], text.match(/\{[\s\S]*\}/)?.[0]];
+  for (const t of tries) {
+    if (!t) continue;
+    try {
+      const v = JSON.parse(t.trim().replace(/^```(?:json)?\s*|\s*```$/g, ""));
+      if (isRecord3(v) && (Array.isArray(v.attitudes) || Array.isArray(v.present))) return v;
+    } catch {
+    }
+  }
+  return null;
+}
+function attributePairs(text, multiplier = false) {
+  const out = {};
+  const re = multiplier ? /([^\s\d×x*:：,，、]+)\s*[×x*]\s*(\d+(?:\.\d+)?)/g : /([^\s\d:：,，、+\-]+)\s*[:：]?\s*(\d+(?:\.\d+)?)/g;
+  for (const m of text.matchAll(re)) out[m[1]] = Number(m[2]);
+  return out;
+}
+var Settler = class {
+  results = [];
+  state;
+  userName;
+  constructor(state, userName) {
+    this.state = state;
+    this.userName = userName;
+  }
+  log(text) {
+    this.state.log.push({ turn: this.state.turn, text });
+    if (this.state.log.length > KEEP_LOG) this.state.log.splice(0, this.state.log.length - KEEP_LOG);
+  }
+  /** Records one outcome; `null` text means nothing changed (nothing is shown or logged). */
+  run(line, fn) {
+    try {
+      const out = fn();
+      if (!out) return;
+      this.results.push({ line, ok: true, ...out });
+      this.log(out.text);
+    } catch (error) {
+      this.results.push({ line, ok: false, text: error.message });
+    }
+  }
+  isProtagonist(name) {
+    return resolveName(this.state, name, this.userName) === PROTAGONIST || canonicalName(name, this.userName) === PROTAGONIST;
+  }
+  /** The sheet key for a name; unknown names are registered as temporary characters when `create`. */
+  who(name, create = false) {
+    const key = resolveName(this.state, name, this.userName);
+    if (key) return key;
+    const fresh = canonicalName(name, this.userName);
+    if (!fresh) throw new Error("\u7F3A\u5C11\u89D2\u8272\u540D");
+    if (!create) throw new Error(`\u8DD1\u56E2\u6570\u636E\u91CC\u6CA1\u6709\u300C${name}\u300D`);
+    this.state.characters[fresh] = { ...newCharacter(), temporary: true };
+    return fresh;
+  }
+  attitude(name, changes, reason) {
+    if (!Object.values(changes).some(Boolean)) return null;
+    const from = this.who(name, true);
+    if (from === PROTAGONIST) throw new Error("\u4E3B\u89D2\u81EA\u5DF1\u7684\u611F\u60C5\u7531\u73A9\u5BB6\u51B3\u5B9A\uFF0C\u4E0D\u8BB0\u5F55");
+    const { familiarity = 0, ...axes } = changes;
+    const moving = Object.fromEntries(Object.entries(axes).filter(([, v]) => v));
+    const parts = [];
+    if (Object.keys(moving).length) {
+      const change = applyAttitude(this.state, from, PROTAGONIST, moving, reason);
+      if (change) parts.push(change);
+    }
+    if (familiarity) {
+      const real = changeFamiliarity(this.state, from, PROTAGONIST, familiarity);
+      if (real) parts.push(`\u719F\u6089${real > 0 ? "+" : ""}${real}`);
+    }
+    if (!parts.length) return null;
+    return { kind: "attitude", who: from, text: `${from}\u2192${PROTAGONIST}\uFF1A${parts.join(" ")}${reason ? `\uFF08${reason}\uFF09` : ""}` };
+  }
+  bond(a, b, now, reason) {
+    const x = this.who(a, true);
+    const y = this.who(b, true);
+    if (x === PROTAGONIST || y === PROTAGONIST) throw new Error("\u548C\u4E3B\u89D2\u6709\u5173\u7684\u5199\u5728\u6001\u5EA6\u91CC");
+    if (x === y || !now) throw new Error("\u9700\u8981\u4E24\u4E2A\u4E0D\u540C\u7684\u89D2\u8272\u548C\u73B0\u5728\u7684\u5173\u7CFB");
+    const old = this.state.bonds.find((v) => sameBond(v, x, y));
+    if (old?.text === now) return null;
+    const bond = old ?? { between: [x, y], text: now, reasons: [] };
+    bond.text = now;
+    bond.reasons.push({ turn: this.state.turn, text: reason, change: now });
+    if (bond.reasons.length > 5) bond.reasons.splice(0, bond.reasons.length - 5);
+    upsertBond(this.state.bonds, bond);
+    return { kind: "bond", who: x, text: `${x}\u4E0E${y}\uFF1A${now}${reason ? `\uFF08${reason}\uFF09` : ""}` };
+  }
+  addStatus(name, label, effectsText, note) {
+    const key = this.who(name);
+    const c = this.state.characters[key];
+    const effects = attributePairs(effectsText, true);
+    for (const k of Object.keys(effects)) effects[k] = clamp(effects[k], 0.1, 5);
+    const existed = c.status.some((s) => s.name === label);
+    c.status = [...c.status.filter((s) => s.name !== label), { name: label, effects, ...note ? { note } : {} }];
+    return { kind: "status", who: key, text: `${key}\uFF1A${existed ? "\u72B6\u6001\u66F4\u65B0" : "\u65B0\u72B6\u6001"}\u300C${label}\u300D${Object.keys(effects).length ? `\uFF08${Object.entries(effects).map(([k, f]) => `${k}\xD7${fmt(f)}`).join(" ")}\uFF09` : ""}` };
+  }
+  removeStatus(name, label) {
+    const key = this.who(name);
+    const c = this.state.characters[key];
+    const before = c.status.length;
+    c.status = c.status.filter((s) => s.name !== label);
+    if (c.status.length === before) throw new Error(`${key}\u6CA1\u6709\u300C${label}\u300D\u8FD9\u4E2A\u72B6\u6001`);
+    return { kind: "status", who: key, text: `${key}\uFF1A\u300C${label}\u300D\u89E3\u9664` };
+  }
+  newCharacter(name, attributesText, note) {
+    const fresh = canonicalName(name, this.userName);
+    if (!fresh) throw new Error("\u65B0\u89D2\u8272\u9700\u8981\u540D\u5B57");
+    const key = resolveName(this.state, fresh, this.userName) ?? fresh;
+    if (key === PROTAGONIST) throw new Error("\u4E3B\u89D2\u5DF2\u7ECF\u6709\u89D2\u8272\u8868\u4E86");
+    const existing = this.state.characters[key];
+    if (existing && !existing.temporary) return null;
+    const c = existing ?? newCharacter();
+    for (const [k, v] of Object.entries(attributePairs(attributesText))) c.attributes[k] = clamp(Math.round(v), 1, 9999);
+    if (note) c.description = note;
+    delete c.temporary;
+    this.state.characters[key] = c;
+    return { kind: "new", who: key, text: `${key}\uFF1A${existing ? "\u6B63\u5F0F\u5EFA\u6863" : "\u65B0\u767B\u573A"}` };
+  }
+  growth(name, item, change, reason) {
+    const key = this.who(name);
+    const c = this.state.characters[key];
+    if (change.trim() in SKILL_LEVELS) {
+      if (c.skills[item] === change.trim()) return null;
+      c.skills[item] = change.trim();
+      return { kind: "growth", who: key, text: `${key}\uFF1A${item}\xB7${change.trim()}${reason ? `\uFF08${reason}\uFF09` : ""}` };
+    }
+    const m = change.match(/^\s*([+＋\-－−])\s*(\d+(?:\.\d+)?)/);
+    if (!m) throw new Error("\u5C5E\u6027\u5199\u300C+5\u300D\u8FD9\u6837\u7684\u53D8\u5316\uFF0C\u7279\u957F\u5199\u6863\u4F4D");
+    const delta = clamp(Number(`${/[+＋]/.test(m[1]) ? "" : "-"}${m[2]}`), -MAX_ATTRIBUTE_CHANGE, MAX_ATTRIBUTE_CHANGE);
+    if (!delta) return null;
+    const before = c.attributes[item] ?? 100;
+    c.attributes[item] = clamp(Math.round(before + delta), 1, 9999);
+    return { kind: "growth", who: key, text: `${key}\uFF1A${item} ${before} \u2192 ${c.attributes[item]}${reason ? `\uFF08${reason}\uFF09` : ""}` };
+  }
+};
+function applySettleArgs(state, args, userName) {
+  const s = new Settler(state, userName);
+  for (const it of items(args.new_characters)) {
+    s.run(`\u65B0\u89D2\u8272 ${str3(it.name)}`, () => s.newCharacter(str3(it.name), str3(it.attributes), str3(it.note)));
+  }
+  for (const it of items(args.attitudes)) {
+    const changes = Object.fromEntries([...AXES.map(([k]) => k), "familiarity"].map((k) => [k, num3(it[k])]));
+    s.run(`\u6001\u5EA6 ${str3(it.who)}`, () => s.attitude(str3(it.who), changes, str3(it.reason)));
+  }
+  for (const it of items(args.bonds)) {
+    const between = Array.isArray(it.between) ? it.between.map(str3).filter(Boolean) : str3(it.between).split(/[与和、,，\s]+/).filter(Boolean);
+    s.run(`\u5173\u7CFB ${between.join("\u4E0E")}`, () => {
+      if (between.length !== 2) throw new Error("\u5173\u7CFB\u9700\u8981\u5199\u4E24\u4E2A\u89D2\u8272");
+      return s.bond(between[0], between[1], str3(it.now), str3(it.reason));
+    });
+  }
+  for (const it of items(args.status)) {
+    const remove = /^(remove|del|delete|去掉|解除|-)$/i.test(str3(it.change));
+    s.run(`\u72B6\u6001 ${str3(it.who)} ${str3(it.name)}`, () => remove ? s.removeStatus(str3(it.who), str3(it.name)) : s.addStatus(str3(it.who), str3(it.name), str3(it.effects), str3(it.note)));
+  }
+  for (const it of items(args.growth)) {
+    s.run(`\u6210\u957F ${str3(it.who)} ${str3(it.item)}`, () => s.growth(str3(it.who), str3(it.item), str3(it.change), str3(it.reason)));
+  }
+  return s.results;
+}
 function extractSettlement(text) {
   const m = text.match(BLOCK);
   if (!m) return { text, raw: null };
@@ -8155,137 +8423,164 @@ function axisChanges(text) {
   }
   return out;
 }
-function pair(text) {
-  const m = text.split(/\s*(?:→|->|＞|>|对)\s*/).map((s) => s.trim()).filter(Boolean);
+function pair(text, joiner = /\s*(?:→|->|＞|>|对)\s*/) {
+  const m = text.split(joiner).map((s) => s.trim()).filter(Boolean);
   return m.length === 2 ? [m[0], m[1]] : null;
 }
-function attributePairs(text, multiplier = false) {
-  const out = {};
-  const re = multiplier ? /([^\s\d×x*:：,，、]+)\s*[×x*]\s*(\d+(?:\.\d+)?)/g : /([^\s\d:：,，、+\-]+)\s*[:：]?\s*(\d+(?:\.\d+)?)/g;
-  for (const m of text.matchAll(re)) out[m[1]] = Number(m[2]);
-  return out;
-}
 function applySettlement(state, raw, userName) {
-  const results = [];
-  const log = (text) => {
-    state.log.push({ turn: state.turn, text });
-    if (state.log.length > KEEP_LOG) state.log.splice(0, state.log.length - KEEP_LOG);
-  };
-  const who = (name, create = false) => {
-    const key = resolveName(state, name, userName);
-    if (key || !create) return key;
-    const fresh = canonicalName(name, userName);
-    state.characters[fresh] = { ...newCharacter(), temporary: true };
-    return fresh;
-  };
+  const s = new Settler(state, userName);
   for (const rawLine of raw.split("\n")) {
     const line = rawLine.replace(/^\s*[-*·•\d.、]+\s*/, "").trim();
     if (!line) continue;
-    const cells = line.split(/\s*[｜|]\s*/).map((s) => s.trim());
+    const cells = line.split(/\s*[｜|]\s*/).map((c) => c.trim());
     const kind = cells[0];
-    const fail = (why) => results.push({ line, ok: false, text: why });
-    const done = (text) => {
-      results.push({ line, ok: true, text });
-      log(text);
-    };
-    try {
-      if (kind === "\u6001\u5EA6") {
+    s.run(line, () => {
+      if (kind === "\u6001\u5EA6" || kind === "\u719F\u6089") {
         const p = pair(cells[1] ?? "");
-        const changes = axisChanges(cells[2] ?? "");
-        if (!p || !Object.keys(changes).length) {
-          fail("\u770B\u4E0D\u61C2\u8FD9\u4E00\u884C\uFF08\u9700\u8981\u300C\u6001\u5EA6\uFF5CA\u2192B\uFF5C\u4EB2\u8FD1+8\uFF5C\u7F18\u7531\u300D\uFF09");
-          continue;
+        if (!p) throw new Error(`\u770B\u4E0D\u61C2\u8FD9\u4E00\u884C\uFF08\u9700\u8981\u300C${kind}\uFF5CA\u2192\u4E3B\u89D2\uFF5C\u2026\uFF5C\u7F18\u7531\u300D\uFF09`);
+        if (s.isProtagonist(p[0])) throw new Error("\u4E3B\u89D2\u81EA\u5DF1\u7684\u611F\u60C5\u7531\u73A9\u5BB6\u51B3\u5B9A\uFF0C\u4E0D\u8BB0\u5F55");
+        const to = s.who(p[1], true);
+        if (to !== PROTAGONIST) throw new Error("\u53EA\u8BB0\u5F55\u522B\u4EBA\u5BF9\u4E3B\u89D2\u7684\u6001\u5EA6\uFF1B\u89D2\u8272\u4E4B\u95F4\u5199\u300C\u5173\u7CFB\u300D");
+        if (kind === "\u6001\u5EA6") {
+          const changes = axisChanges(cells[2] ?? "");
+          if (!Object.keys(changes).length) throw new Error("\u770B\u4E0D\u61C2\u8FD9\u4E00\u884C\uFF08\u9700\u8981\u300C\u6001\u5EA6\uFF5CA\u2192\u4E3B\u89D2\uFF5C\u4EB2\u8FD1+8\uFF5C\u7F18\u7531\u300D\uFF09");
+          return s.attitude(p[0], changes, cells[3] ?? "");
         }
-        const from = who(p[0], true);
-        const to = who(p[1], true);
-        const change = applyAttitude(state, from, to, changes, cells[3] ?? "");
-        done(`${from}\u2192${to}\uFF1A${change || "\u6CA1\u6709\u53D8\u5316"}${cells[3] ? `\uFF08${cells[3]}\uFF09` : ""}`);
-      } else if (kind === "\u719F\u6089") {
-        const p = pair(cells[1] ?? "");
-        const delta = Number((cells[2] ?? "").replace(/[＋\s]/g, "").replace(/[－−]/g, "-"));
-        if (!p || !Number.isFinite(delta)) {
-          fail("\u770B\u4E0D\u61C2\u8FD9\u4E00\u884C\uFF08\u9700\u8981\u300C\u719F\u6089\uFF5CA\u2192B\uFF5C+10\uFF5C\u7F18\u7531\u300D\uFF09");
-          continue;
-        }
-        const from = who(p[0], true);
-        const to = who(p[1], true);
-        const real = changeFamiliarity(state, from, to, delta);
-        done(`${from}\u2192${to}\uFF1A\u719F\u6089${real >= 0 ? "+" : ""}${real}`);
-      } else if (kind === "\u72B6\u6001") {
-        const name = who(cells[1] ?? "");
+        const delta = num3(cells[2]);
+        if (!delta) throw new Error("\u770B\u4E0D\u61C2\u8FD9\u4E00\u884C\uFF08\u9700\u8981\u300C\u719F\u6089\uFF5CA\u2192\u4E3B\u89D2\uFF5C+10\uFF5C\u7F18\u7531\u300D\uFF09");
+        return s.attitude(p[0], { familiarity: delta }, cells[3] ?? "");
+      }
+      if (kind === "\u5173\u7CFB") {
+        const p = pair(cells[1] ?? "", /\s*(?:与|和|、|→|->)\s*/);
+        if (!p) throw new Error("\u770B\u4E0D\u61C2\u8FD9\u4E00\u884C\uFF08\u9700\u8981\u300C\u5173\u7CFB\uFF5CA\u4E0EB\uFF5C\u73B0\u5728\u7684\u5173\u7CFB\uFF5C\u7F18\u7531\u300D\uFF09");
+        return s.bond(p[0], p[1], cells[2] ?? "", cells[3] ?? "");
+      }
+      if (kind === "\u72B6\u6001") {
         const what = cells[2] ?? "";
-        if (!name || !/^[+\-＋－]/.test(what)) {
-          fail(name ? "\u72B6\u6001\u9700\u8981\u5199\u300C+\u540D\u79F0\u300D\u6216\u300C-\u540D\u79F0\u300D" : `\u6CA1\u6709\u300C${cells[1]}\u300D\u8FD9\u4E2A\u89D2\u8272`);
-          continue;
-        }
-        const c = state.characters[name];
+        if (!/^[+\-＋－]/.test(what)) throw new Error("\u72B6\u6001\u9700\u8981\u5199\u300C+\u540D\u79F0\u300D\u6216\u300C-\u540D\u79F0\u300D");
         const label = what.slice(1).trim();
         if (/^[+＋]/.test(what)) {
-          const effects = attributePairs(cells[3] ?? "", true);
-          for (const k of Object.keys(effects)) effects[k] = clamp(effects[k], 0.1, 5);
-          const note = (Object.keys(effects).length ? cells[4] : cells[3]) ?? "";
-          c.status = [...c.status.filter((s) => s.name !== label), { name: label, effects, ...note ? { note } : {} }];
-          done(`${name}\uFF1A\u65B0\u72B6\u6001\u300C${label}\u300D${Object.keys(effects).length ? `\uFF08${Object.entries(effects).map(([k, f]) => `${k}\xD7${fmt(f)}`).join(" ")}\uFF09` : ""}`);
-        } else {
-          const before = c.status.length;
-          c.status = c.status.filter((s) => s.name !== label);
-          if (c.status.length === before) {
-            fail(`${name}\u6CA1\u6709\u300C${label}\u300D\u8FD9\u4E2A\u72B6\u6001`);
-            continue;
-          }
-          done(`${name}\uFF1A\u300C${label}\u300D\u89E3\u9664`);
+          const hasEffects = Object.keys(attributePairs(cells[3] ?? "", true)).length > 0;
+          return s.addStatus(cells[1] ?? "", label, hasEffects ? cells[3] ?? "" : "", (hasEffects ? cells[4] : cells[3]) ?? "");
         }
-      } else if (kind === "\u65B0\u89D2\u8272") {
-        const name = canonicalName(cells[1] ?? "", userName);
-        if (!name) {
-          fail("\u65B0\u89D2\u8272\u9700\u8981\u540D\u5B57");
-          continue;
-        }
-        const attrs = attributePairs(cells.slice(2).join(" "));
-        const key = resolveName(state, name, userName) ?? name;
-        const existing = state.characters[key];
-        const c = existing ?? newCharacter();
-        for (const [k, v] of Object.entries(attrs)) c.attributes[k] = clamp(Math.round(v), 1, 9999);
-        const description = cells.slice(2).filter((s) => !/\d/.test(s)).join("\uFF1B");
-        if (description) c.description = description;
-        delete c.temporary;
-        state.characters[key] = c;
-        done(`${key}\uFF1A${existing ? "\u6B63\u5F0F\u5EFA\u6863" : "\u65B0\u767B\u573A"}`);
-      } else if (kind === "\u5C5E\u6027") {
-        const name = who(cells[1] ?? "");
-        const m = (cells[2] ?? "").match(/^(.+?)\s*([+\-＋－−]\s*\d+)/);
-        if (!name || !m) {
-          fail(name ? "\u9700\u8981\u300C\u5C5E\u6027\uFF5C\u89D2\u8272\uFF5C\u53E3\u624D+5\uFF5C\u7406\u7531\u300D" : `\u6CA1\u6709\u300C${cells[1]}\u300D\u8FD9\u4E2A\u89D2\u8272`);
-          continue;
-        }
-        const attr = m[1].trim();
-        const delta = clamp(Number(m[2].replace(/[＋\s]/g, "").replace(/[－−]/g, "-")), -MAX_ATTRIBUTE_CHANGE, MAX_ATTRIBUTE_CHANGE);
-        const c = state.characters[name];
-        const before = c.attributes[attr] ?? 100;
-        c.attributes[attr] = clamp(before + delta, 1, 9999);
-        done(`${name}\uFF1A${attr} ${before} \u2192 ${c.attributes[attr]}${cells[3] ? `\uFF08${cells[3]}\uFF09` : ""}`);
-      } else if (kind === "\u7279\u957F") {
-        const name = who(cells[1] ?? "");
-        const skill = cells[2] ?? "";
-        const level = cells[3] ?? "";
-        if (!name || !skill || !(level in SKILL_LEVELS)) {
-          fail("\u9700\u8981\u300C\u7279\u957F\uFF5C\u89D2\u8272\uFF5C\u7279\u957F\u540D\uFF5C\u672A\u5B66/\u5165\u95E8/\u719F\u7EC3/\u7CBE\u901A/\u5927\u5E08\u300D");
-          continue;
-        }
-        state.characters[name].skills[skill] = level;
-        done(`${name}\uFF1A${skill}\xB7${level}`);
-      } else {
-        fail(`\u4E0D\u8BA4\u8BC6\u300C${kind}\u300D\u8FD9\u4E00\u7C7B\u53D8\u5316`);
+        return s.removeStatus(cells[1] ?? "", label);
       }
-    } catch (error) {
-      fail(error.message);
-    }
+      if (kind === "\u65B0\u89D2\u8272") {
+        return s.newCharacter(cells[1] ?? "", cells.slice(2).join(" "), cells.slice(2).filter((c) => !/\d/.test(c)).join("\uFF1B"));
+      }
+      if (kind === "\u5C5E\u6027") {
+        const m = (cells[2] ?? "").match(/^(.+?)\s*([+\-＋－−]\s*\d+)/);
+        if (!m) throw new Error("\u9700\u8981\u300C\u5C5E\u6027\uFF5C\u89D2\u8272\uFF5C\u53E3\u624D+5\uFF5C\u7406\u7531\u300D");
+        return s.growth(cells[1] ?? "", m[1].trim(), m[2], cells[3] ?? "");
+      }
+      if (kind === "\u7279\u957F") {
+        if (!((cells[3] ?? "") in SKILL_LEVELS)) throw new Error("\u9700\u8981\u300C\u7279\u957F\uFF5C\u89D2\u8272\uFF5C\u7279\u957F\u540D\uFF5C\u672A\u5B66/\u5165\u95E8/\u719F\u7EC3/\u7CBE\u901A/\u5927\u5E08\u300D");
+        return s.growth(cells[1] ?? "", cells[2] ?? "", cells[3] ?? "", cells[4] ?? "");
+      }
+      throw new Error(`\u4E0D\u8BA4\u8BC6\u300C${kind}\u300D\u8FD9\u4E00\u7C7B\u53D8\u5316`);
+    });
   }
-  return results;
+  return s.results;
+}
+
+// src/plugins/tabletop/shape.ts
+var OURS = [CHECK_TOOL_NAME, SETTLE_TOOL_NAME];
+var messagesOf = (body) => Array.isArray(body.messages) ? body.messages : [];
+var toolsOf = (body) => Array.isArray(body.tools) ? body.tools : [];
+function lastCall(body) {
+  const messages = messagesOf(body);
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const calls = messages[i].tool_calls;
+    if (messages[i].role === "assistant" && Array.isArray(calls) && calls.length) return { message: messages[i], call: calls[calls.length - 1] };
+  }
+  return null;
+}
+function isToolConversation(body) {
+  return messagesOf(body).at(-1)?.role === "tool" && lastCall(body) !== null;
+}
+function extras(message, call) {
+  const fromMessage = "thoughtSignature" in message ? { thoughtSignature: message.thoughtSignature } : {};
+  const fromCall = Object.fromEntries(Object.entries(call).filter(([k]) => !["id", "type", "function", "index"].includes(k)));
+  return { message: fromMessage, call: fromCall };
+}
+function argsLike(call, label) {
+  try {
+    const args = JSON.parse(call.function?.arguments ?? "{}");
+    const key = "query" in args ? "query" : Object.keys(args).find((k) => typeof args[k] === "string");
+    return JSON.stringify(key ? { [key]: label } : {});
+  } catch {
+    return "{}";
+  }
+}
+function appendStep(body, step, label) {
+  const messages = [...messagesOf(body)];
+  const prev = lastCall(body);
+  if (isToolConversation(body) && prev) {
+    const result = messages[messages.length - 1];
+    const name = String(result.name ?? prev.call.function?.name ?? "context");
+    const x = extras(prev.message, prev.call);
+    const id = `call_hearth_${label}`;
+    if (step.lead?.trim()) messages.push({ role: "assistant", content: step.lead.trim(), ...x.message });
+    messages.push({ role: "assistant", ...x.message, tool_calls: [{ id, type: "function", function: { name, arguments: argsLike(prev.call, `hearth_${label}`) }, ...x.call }] });
+    messages.push({ role: "tool", tool_call_id: id, name, content: step.content });
+  } else {
+    messages.push({ role: step.role ?? "system", content: step.content });
+  }
+  return { ...body, messages };
+}
+function replyTool(body) {
+  const choice = body.tool_choice;
+  if (choice && typeof choice === "object" && choice.function?.name) return choice.function.name;
+  if (choice !== "required") return null;
+  const allowed = body.toolConfig?.functionCallingConfig?.allowedFunctionNames;
+  if (Array.isArray(allowed) && allowed.length === 1 && typeof allowed[0] === "string") return allowed[0];
+  const names = toolsOf(body).map((t) => t.function?.name).filter((n) => Boolean(n) && !OURS.includes(n));
+  return names.length === 1 ? names[0] : null;
+}
+function appendReply(body, text) {
+  const messages = [...messagesOf(body)];
+  const tool = replyTool(body);
+  const prev = lastCall(body);
+  if (tool && prev && isToolConversation(body)) {
+    const params = toolsOf(body).find((t) => t.function?.name === tool)?.function?.parameters;
+    const keys = [...params?.required ?? [], ...Object.keys(params?.properties ?? {})].filter((k) => !/think/i.test(k));
+    const field = keys.includes("game_content") ? "game_content" : keys[0] ?? "content";
+    const x = extras(prev.message, prev.call);
+    const id = "call_hearth_reply";
+    messages.push({ role: "assistant", ...x.message, tool_calls: [{ id, type: "function", function: { name: tool, arguments: JSON.stringify({ [field]: text }) }, ...x.call }] });
+    messages.push({ role: "tool", tool_call_id: id, name: tool, content: JSON.stringify({ ok: true }) });
+  } else {
+    messages.push({ role: "assistant", content: text });
+  }
+  return { ...body, messages };
+}
+function replyForHistory(text) {
+  return text.replace(/<(think_nya|report_nya|think|thinking)~?>[\s\S]*?<\/\1~?>/gi, "").replace(/<!--\s*<\/think>\s*-->/g, "").trim();
+}
+function withOurTools(body) {
+  return [...toolsOf(body).filter((t) => !OURS.includes(t.function?.name ?? "")), checkTool(), settleTool()];
+}
+function forceTool(body, name) {
+  return {
+    ...body,
+    tools: withOurTools(body),
+    tool_choice: { type: "function", function: { name } },
+    toolConfig: { functionCallingConfig: { mode: "ANY", allowedFunctionNames: [name] } }
+  };
+}
+function replyTools(body) {
+  const tool = replyTool(body);
+  if (!tool || !isToolConversation(body)) return body;
+  return {
+    ...body,
+    tools: withOurTools(body),
+    tool_choice: { type: "function", function: { name: tool } },
+    toolConfig: { functionCallingConfig: { mode: "ANY", allowedFunctionNames: [tool] } }
+  };
 }
 
 // src/plugins/tabletop/index.ts
-var MARKER = /<<<\|\s*hearth\s*\|\s*(ruling|narrate|pass)\s*>>>/gi;
+var MARKER = /<<<\|\s*hearth\s*\|\s*(ruling|narrate|pass|settle)(-lead)?\s*>>>/gi;
 function takeEntries(content) {
   const found = {};
   const marks = [...content.matchAll(MARKER)];
@@ -8293,7 +8588,7 @@ function takeEntries(content) {
   const rest = content.slice(0, marks[0].index).trimEnd();
   marks.forEach((m, i) => {
     const end = i + 1 < marks.length ? marks[i + 1].index : content.length;
-    const kind = m[1].toLowerCase();
+    const kind = `${m[1].toLowerCase()}${m[2] ? "-lead" : ""}`;
     const text = content.slice((m.index ?? 0) + m[0].length, end).trim();
     if (text) found[kind] = found[kind] ? `${found[kind]}
 
@@ -8301,9 +8596,12 @@ ${text}` : text;
   });
   return { rest, found };
 }
+var enabledEntries = (preset) => {
+  const on = new Set(preset.order.filter((o) => o.enabled).map((o) => o.id));
+  return preset.prompts.filter((p) => on.has(p.id));
+};
 function presetReady(preset) {
-  const enabled = new Set(preset.order.filter((o) => o.enabled).map((o) => o.id));
-  return preset.prompts.some((p) => enabled.has(p.id) && /<<<\|\s*hearth\s*\|\s*ruling\s*>>>/i.test(p.content));
+  return enabledEntries(preset).some((p) => /<<<\|\s*hearth\s*\|\s*ruling\s*>>>/i.test(p.content));
 }
 var passOn = (chat) => chat.plugins?.[PLUGIN_ID]?.pass === true;
 function lastUserText(messages, before) {
@@ -8318,11 +8616,40 @@ function withAdded(state, ruling) {
   for (const [name, sheet] of Object.entries(ruling?.added ?? {})) next.characters[name] ??= structuredClone(sheet);
   return next;
 }
-var DEFAULT_PASS = "\u3010\u672C\u8F6E\u68C0\u5B9A\u3011\u672C\u8F6E\u5F00\u542F\u4E86\u300C\u68C0\u5B9A\u7EDD\u5BF9\u901A\u8FC7\u300D\uFF1A\u6CA1\u6709\u63B7\u9AB0\uFF0C\u4E3B\u89D2\u8FD9\u4E00\u8F6E\u7684\u884C\u52A8\u5168\u90E8\u987A\u5229\u5B8C\u6210\u3002";
+var DEFAULT_PASS = "\u3010\u672C\u8F6E\u68C0\u5B9A\u3011\u8FD9\u4E00\u8F6E\u5F00\u542F\u4E86\u300C\u68C0\u5B9A\u7EDD\u5BF9\u901A\u8FC7\u300D\uFF1A\u4E0D\u63B7\u9AB0\uFF0C\u4E3B\u89D2\u7684\u884C\u52A8\u5168\u90E8\u987A\u5229\u5B8C\u6210\u3002";
+var SETTLE_RETRIES = 2;
+var swipePath = (messageId, swipeId) => ["messages", `@${messageId}`, "swipes", `@${swipeId}`, "plugins", PLUGIN_ID];
+async function settle(api, source, state, ruling, reply, opts = {}) {
+  const texts = source.texts;
+  const content = [texts.settle ?? "", ruling.checks.length ? rulingText(ruling) : "", stateText(state, source.userName)].filter(Boolean).join("\n\n");
+  const history = replyForHistory(reply);
+  const body = forceTool(Array.isArray(source.body.messages) && source.body.messages.length ? appendStep(appendReply(source.body, history), { content, lead: texts["settle-lead"], role: texts.role }, "settle") : { messages: [{ role: "system", content }, { role: "user", content: `\u3010\u521A\u624D\u7684\u56DE\u590D\u3011
+${history}` }] }, SETTLE_TOOL_NAME);
+  let lastError = "";
+  for (let attempt = 1; attempt <= SETTLE_RETRIES; attempt++) {
+    if (opts.signal?.aborted) break;
+    try {
+      opts.trace?.(attempt > 1 ? `\u8DD1\u56E2\u7ED3\u7B97\uFF08\u91CD\u8BD5\uFF09` : "\u8DD1\u56E2\u7ED3\u7B97", body);
+      const res = await api.send(body, opts.signal);
+      const call = res.toolCalls.find((c) => c.function?.name === SETTLE_TOOL_NAME) ?? res.toolCalls.find((c) => /"attitudes"/.test(c.function?.arguments ?? ""));
+      const args = parseSettleArgs(call?.function?.arguments ?? res.text);
+      if (!args) throw new Error(res.toolCalls.length ? `\u6A21\u578B\u8C03\u7528\u4E86 ${res.toolCalls.map((c) => c.function?.name).join("\u3001")}\uFF0C\u6CA1\u6709\u8C03\u7528\u7ED3\u7B97\u5DE5\u5177` : "\u6A21\u578B\u6CA1\u6709\u8C03\u7528\u7ED3\u7B97\u5DE5\u5177");
+      const next = structuredClone(state);
+      const results = applySettleArgs(next, args, source.userName);
+      const present = Array.isArray(args.present) ? args.present.map(String).filter(Boolean) : [];
+      return { state: next, settle: { raw: JSON.stringify(args), results, present } };
+    } catch (error) {
+      lastError = error.message;
+      api.log(`\u7ED3\u7B97\u5931\u8D25\uFF08\u7B2C ${attempt} \u6B21\uFF09\uFF1A`, lastError);
+    }
+  }
+  return { state, settle: { raw: "", results: [], status: "failed", error: lastError || "\u5DF2\u4E2D\u6B62" } };
+}
 var plugin = {
   setup(api) {
     const rules = () => rulesFrom(api.config());
     const entries = /* @__PURE__ */ new Map();
+    const sources = /* @__PURE__ */ new Map();
     api.onAfterAssemble((result, ctx) => {
       const found = {};
       let changed = false;
@@ -8332,6 +8659,7 @@ var plugin = {
         for (const [k, v] of Object.entries(out.found)) found[k] = found[k] ? `${found[k]}
 
 ${v}` : v;
+        if (out.found.ruling || out.found.settle) found.role ??= part.role;
         part.content = out.rest;
         changed = true;
       }
@@ -8345,10 +8673,10 @@ ${v}` : v;
       result.tokens.total = result.parts.reduce((s, p) => s + p.tokens, 0);
     });
     api.onRequest(async (body, ctx) => {
-      if (!ctx.messageId || !ctx.send) return;
+      if (!ctx.messageId || !ctx.swipeId || !ctx.send) return;
       const texts = entries.get(ctx.chat.id);
       if (!texts?.ruling || !texts.narrate) return;
-      if (!isCatgodRequest(body) || isChatMode(body)) return;
+      if (replyOptions(ctx.chat).mode === "chat") return;
       const chat = ctx.chat;
       const index = chat.messages.findIndex((m) => m.id === ctx.messageId);
       if (index < 0) return;
@@ -8356,6 +8684,7 @@ ${v}` : v;
       if (!before) return;
       const userName = ctx.userName ?? "";
       const userText = lastUserText(chat.messages, index);
+      const role = texts.role;
       let ruling = messageData(chat.messages[index])?.ruling;
       if (!ruling || ruling.userText !== userText) {
         if (passOn(chat)) {
@@ -8363,11 +8692,11 @@ ${v}` : v;
         } else {
           ctx.progress?.({ phase: "ruling", checks: [] });
           const working = structuredClone(before);
-          const content2 = [texts.ruling, stateText(working, userName), `\u3010\u4EBA\u7C7B\u8FD9\u4E00\u8F6E\u7684\u884C\u52A8\u3011
+          const content2 = [texts.ruling, stateText(working, userName), `\u3010\u8FD9\u4E00\u8F6E\u7684\u7528\u6237\u8F93\u5165\u3011
 ${userText || "\uFF08\u6CA1\u6709\u5199\u65B0\u7684\u884C\u52A8\uFF0C\u8BA9\u5267\u60C5\u81EA\u7136\u63A8\u8FDB\uFF09"}`].join("\n\n");
           try {
             ruling = await runRuling({
-              body: rulingRequest(body, content2),
+              body: forceTool(appendStep(body, { content: content2, lead: texts["ruling-lead"], role }, "ruling"), CHECK_TOOL_NAME),
               send: ctx.send,
               state: working,
               userName,
@@ -8395,7 +8724,10 @@ ${userText || "\uFF08\u6CA1\u6709\u5199\u65B0\u7684\u884C\u52A8\uFF0C\u8BA9\u526
       const pass = ruling.skipped === "pass";
       const state = withAdded(before, ruling);
       const content = [pass ? texts.pass || DEFAULT_PASS : rulingText(ruling), stateText(state, userName), texts.narrate].filter(Boolean).join("\n\n");
-      return narrationRequest(body, content, pass);
+      const lead = pass ? texts["pass-lead"] ?? texts["narrate-lead"] : texts["narrate-lead"];
+      const reply = replyTools(appendStep(body, { content, lead, role }, pass ? "pass" : "results"));
+      if (texts.settle) sources.set(chat.id, { messageId: ctx.messageId, swipeId: ctx.swipeId, body: reply, texts, userName });
+      return reply;
     });
     api.onAfterReceive((ctx) => {
       const ruling = messageData(ctx.message)?.ruling;
@@ -8409,15 +8741,53 @@ ${userText || "\uFF08\u6CA1\u6709\u5199\u65B0\u7684\u884C\u52A8\uFF0C\u8BA9\u526
       const state = withAdded(before, ruling);
       state.turn += 1;
       decay(state, rules());
-      const results = raw ? applySettlement(state, raw, userName) : [];
-      const data = { state, ...raw ? { settle: { raw, results } } : {} };
-      const ops = [{ op: "set", path: ["messages", `@${ctx.message.id}`, "swipes", `@${ctx.swipe.id}`, "plugins", PLUGIN_ID], value: data }];
+      const ops = [];
       if (ruling.skipped === "pass" && passOn(ctx.chat)) ops.push({ op: "set", path: ["plugins", PLUGIN_ID, "pass"], value: false });
-      return { text, ops };
+      const path = swipePath(ctx.message.id, ctx.swipe.id);
+      const source = sources.get(ctx.chat.id);
+      if (raw !== null || !source || source.messageId !== ctx.message.id || source.swipeId !== ctx.swipe.id) {
+        const results = raw ? applySettlement(state, raw, userName) : [];
+        const data = { state, ...raw ? { settle: { raw, results } } : {} };
+        return { text, ops: [{ op: "set", path, value: data }, ...ops] };
+      }
+      const pending = { state, settle: { raw: "", results: [], status: "pending", at: Date.now() } };
+      return {
+        text,
+        ops: [{ op: "set", path, value: pending }, ...ops],
+        background: async ({ signal, trace }) => {
+          const data = await settle(api, source, state, ruling, text, { signal, trace });
+          return { ops: [{ op: "set", path, value: data }] };
+        }
+      };
+    });
+    api.registerAction("settle", async ({ chat, character, payload }) => {
+      const messageId = String(payload.messageId ?? "");
+      const swipeId = String(payload.swipeId ?? "");
+      const message = chat.messages.find((m) => m.id === messageId);
+      const swipe = message?.swipes.find((s) => s.id === swipeId);
+      const ruling = messageData(message)?.ruling;
+      if (!message || !swipe || !ruling) throw Object.assign(new Error("\u627E\u4E0D\u5230\u8FD9\u6761\u56DE\u590D\u7684\u8DD1\u56E2\u6570\u636E"), { status: 404 });
+      const index = chat.messages.indexOf(message);
+      const kept = swipe.plugins?.[PLUGIN_ID]?.state;
+      const before = stateBefore(chat, index, character);
+      if (!kept && !before) throw Object.assign(new Error("\u8FD9\u5F20\u5361\u8FD8\u6CA1\u6709\u8DD1\u56E2\u6570\u636E"), { status: 400 });
+      const state = kept ? structuredClone(kept) : withAdded(before, ruling);
+      if (!kept) {
+        state.turn += 1;
+        decay(state, rules());
+      }
+      const known = sources.get(chat.id);
+      const userName = chat.messages.findLast((m) => m.role === "user")?.name ?? "";
+      const source = known && known.messageId === messageId && known.swipeId === swipeId ? known : { messageId, swipeId, userName, texts: { settle: entries.get(chat.id)?.settle ?? "" }, body: { messages: [] } };
+      if (!source.texts.settle) throw Object.assign(new Error("\u5F53\u524D\u9884\u8BBE\u91CC\u6CA1\u6709\u8DD1\u56E2\u7684\u7ED3\u7B97\u6761\u76EE"), { status: 400 });
+      const data = await settle(api, source, state, ruling, swipe.content);
+      if (data.settle?.status === "failed") throw Object.assign(new Error(`\u7ED3\u7B97\u6CA1\u6709\u5B8C\u6210\uFF1A${data.settle.error}`), { status: 502 });
+      return { ops: [{ op: "set", path: swipePath(messageId, swipeId), value: data }] };
     });
     api.registerControls({
       list: ({ chat, character, preset }) => {
         if (!presetReady(preset) || !stateBefore(chat, chat.messages.length, character)) return [];
+        if (replyOptions(chat).mode === "chat") return [];
         return [{ id: "pass", type: "toggle", label: "\u68C0\u5B9A\u7EDD\u5BF9\u901A\u8FC7", value: passOn(chat), hint: "\u8FD9\u4E00\u8F6E\u4E0D\u63B7\u9AB0\uFF0C\u4E3B\u89D2\u7684\u884C\u52A8\u5168\u90E8\u987A\u5229\uFF1B\u53D1\u51FA\u540E\u81EA\u52A8\u5173\u6389" }];
       },
       change: (id, value) => id === "pass" ? [{ op: "set", path: ["plugins", PLUGIN_ID, "pass"], value: value === true }] : []

@@ -104,6 +104,7 @@ export async function createHearth(options: HearthOptions): Promise<Hearth> {
     await plugins.loadAll(builtinPlugins, installedPlugins);
     const runtime = new Runtime(store, plugins);
     plugins.completer = req => runtime.complete(req);
+    plugins.sender = (body, signal) => runtime.send(body, signal);
     const updater = new PluginUpdater(plugins, installedPlugins, version, () => runtime.idle(120000));
     updater.setBuiltinDir(builtinPlugins);
     updater.schedule(id => store.settings.plugins?.[id]?.autoUpdate !== false);

@@ -65,7 +65,7 @@ function PromptTab({ chatId, preset }: { chatId: string; preset: Preset | null }
                         <div className="meter-bar"><span style={{ width: `${Math.min(100, shown.tokens.total / Math.max(1, shown.tokens.budget) * 100)}%` }} /></div>
                         <div className="muted small">{shown.parts.length} 条消息{snapshot?.model && !preview ? ` · ${snapshot.model}` : ''} · token 数为估算</div>
                     </div>
-                    {shown.tools && shown.tools.length > 0 && <div className="notice small">本次请求附带了预设定义的工具：{shown.tools.join('、')}，模型通过它返回回复。</div>}
+                    {shown.tools && shown.tools.length > 0 && <div className="notice small">本次请求附带的工具：{shown.tools.join('、')}。模型通过工具返回回复或数据。</div>}
                     {shown.warnings.map((w, i) => <div key={i} className="warn">{w}</div>)}
                     {shown.lore.length > 0 && (
                         <details className="lore-hits" open>

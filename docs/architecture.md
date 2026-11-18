@@ -1,6 +1,6 @@
 # 架构说明
 
-本文面向开发者，说明 Hearth 的数据模型、提示词组装、插件接口、安全边界、AI 改卡和桌面版，对应 0.5.x 版本。
+本文面向开发者，说明 Hearth 的数据模型、提示词组装、回复模式、插件接口、安全边界、AI 改卡和桌面版，对应 0.6.x 版本。
 
 ## 一轮对话是什么
 
@@ -52,6 +52,16 @@ assemble(角色卡, 用户角色, 预设, 世界书, 聊天记录, 状态) → �
 
 追踪信息直接来自组装过程，不需要额外的抓包扩展。
 
+## 回复模式和开关
+
+剧场、聊天、编辑三种模式，以及深度思考和纸条，是 Hearth 自己的功能，不属于任何预设（`src/core/reply.ts`）。
+
+- **状态**：存在对话的 `reply` 字段里：`{ mode: 'theater' | 'chat', deepThink, note }`。编辑模式是另一回事：它是消息的频道（`chat.mode` 和 `message.mode`），编辑消息不进入剧情的提示词。
+- **预设怎么配合**：条目开头的 `<<<|hearth|when:…>>>` 标记决定这一条在什么条件下发送，`{{hearth_note}}` 等宏取开关的值。写法见[预设适配](presets.md)。
+- **开关什么时候出现**：当前预设的条目声明了（`presetFeatures`），或者某个插件替它声明了（`registerFeatures`，例如酒馆助手替带控制台的 SPreset 预设声明）。都没有时，输入框旁只有「剧场」和「编辑」。
+- **回复之后**：剧情回复成功后，送达的纸条清空；聊天模式的回复之后回到剧场。深度思考保持不变。
+- 输入框旁的开关由 `/api/chats/:id/context` 的 `controls` 给出：先是这三个，再是插件的开关。改动走 `/api/chats/:id/controls`，不进修改历史。
+
 ## 4. 插件
 
 内核只负责两件事：按酒馆的规则组装提示词，以及显示模型的输出。其余功能都是插件，内置插件和第三方插件用同一套接口，可以在「设置 → 插件」里开关、安装、删除和自动更新。
@@ -59,8 +69,8 @@ assemble(角色卡, 用户角色, 预设, 世界书, 聊天记录, 状态) → �
 | 插件 | 对应的酒馆扩展 | 做什么 |
 | --- | --- | --- |
 | 提示词模板 | ST-Prompt-Template | 运行提示词里的 EJS 模板 |
-| 酒馆助手 | JS-Slash-Runner | 消息里的前端界面、MVU 变量、SPreset 类预设（回复工具和控制标记） |
-| 跑团 | — | 掷骰检定、属性和态度（见 [tabletop.md](tabletop.md)） |
+| 酒馆助手 | JS-Slash-Runner | 消息里的前端界面、MVU 变量、SPreset 类预设（运行预设的请求脚本，把回复模式、深度思考和纸条交给它） |
+| 跑团 | — | 掷骰检定、属性、别人对主角的态度和角色之间的关系（见 [tabletop.md](tabletop.md)） |
 
 关闭插件时，卡片和预设里对应的内容原样保存，只是不再处理。比如关掉酒馆助手，状态栏的 HTML 会显示成代码，预设的控制标记会原样发给模型。
 
@@ -107,13 +117,16 @@ export default {
 | `registerMacro(name, fn)` | 新的宏 | — |
 | `onBeforeAssemble(ctx)` | 往提示词里加内容（`ctx.injections`，对应酒馆的扩展提示词） | — |
 | `onAfterAssemble(result, ctx)` | 调整最终消息，或附加请求字段（`result.request`） | EJS 模板；SPreset 的控制标记和回复工具 |
-| `onAfterReceive(ctx)` | 处理回复，返回新文本和对资源的修改 | SPreset 的工具回复格式化、MVU 变量更新 |
+| `onAfterReceive(ctx)` | 处理回复，返回新文本和对资源的修改。还可以返回 `background`：回复保存并显示之后在后台运行的工作，结束时它的修改写进对话；这个对话的下一次回复会先等它完成 | SPreset 的工具回复格式化、MVU 变量更新；跑团的结算 |
 | `onChatCreate(ctx)` | 新对话创建时初始化 | MVU 初始变量 |
 | `onRequest(body, ctx)` | 请求发出前，查看或替换最终的请求体（对应酒馆的 `CHAT_COMPLETION_SETTINGS_READY`）。改写后的内容会出现在提示词追踪的「实际发送」里 | 运行预设自己的 Stage 1 |
-| `registerControls({ list, change })` | 在输入框旁边放开关：`mode` 会替换模式切换里的「剧情」，`toggle` 是开关，`note` 是随下一条回复发送的文字 | 小猫之神控制台；检定绝对通过 |
+| `registerControls({ list, change })` | 在输入框旁边放插件自己的开关（`toggle`），排在 Hearth 的回复开关后面 | 检定绝对通过 |
+| `registerFeatures(preset => …)` | 声明插件替这个预设处理哪些回复开关（`chat`、`deepThink`、`note`），开关就会出现 | 带控制台的 SPreset 预设 |
+| `registerAction(id, fn)` | 窗口里的按钮调用的操作（`/api/chats/:id/actions/<插件>/<id>`），返回对对话的修改 | 跑团的「重新结算」 |
 | `onRequest` 的 `ctx.send / progress / trace` | 在正文请求之前用当前连接另发请求（不流式，工具调用按原样返回）；向界面推送进度；把这次请求记进提示词追踪。`ctx.type`、`messageId`、`swipeId` 说明正在写哪条回复 | 跑团的裁定 |
 | `registerEditTask({ … })` | 编辑模式的任务：输入框下的按钮、追加到编辑提示词的说明，以及修改块里属于它的地址（如【改写】跑团角色表），由任务自己执行 | 数据化适配 |
 | `complete(req)` | 用当前模型连接发一次请求 | MVU 漏写时补全 |
+| `send(body, signal)` | 用当前模型连接发一个准备好的请求体（不流式，工具调用按原样返回），可以在生成之外使用 | 跑团的结算 |
 | `macros.evaluate / context` | 展开宏（包括其他插件注册的宏） | EJS 里的 `getwi` |
 | `sandbox.run(code, host)` | 在 QuickJS 沙箱里运行卡片或预设的代码 | EJS 模板 |
 | `config()` | 插件自己的设置 | — |

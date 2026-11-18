@@ -86,19 +86,19 @@ export function stateAt(messages: ChatMessage[], index = messages.length - 1): R
 }
 
 /** Small YAML emitter for showing variables to the model (TavernHelper format_*_variable). */
-export function toYaml(value: unknown, indent = 0): string {
+export function toYaml(value: unknown, indent = 0, quoted = false): string {
     const pad = '  '.repeat(indent);
     const scalar = (v: unknown): string => {
         if (v === null || v === undefined) return 'null';
         if (typeof v === 'string') {
-            return v === '' || /^[\s\-?:,[\]{}#&*!|>'"%@`]|[:#]\s|\n|^(?:true|false|null|~|[-+]?\d)/i.test(v) ? JSON.stringify(v) : v;
+            return quoted || v === '' || /^[\s\-?:,[\]{}#&*!|>'"%@`]|[:#]\s|\n|^(?:true|false|null|~|[-+]?\d)/i.test(v) ? JSON.stringify(v) : v;
         }
         return String(v);
     };
     if (Array.isArray(value)) {
         if (!value.length) return '[]';
         return value.map(v => (v && typeof v === 'object' && Object.keys(v).length)
-            ? `${pad}-\n${toYaml(v, indent + 1)}`
+            ? `${pad}-\n${toYaml(v, indent + 1, quoted)}`
             : `${pad}- ${v && typeof v === 'object' ? (Array.isArray(v) ? '[]' : '{}') : scalar(v)}`).join('\n');
     }
     if (value && typeof value === 'object') {
@@ -107,7 +107,7 @@ export function toYaml(value: unknown, indent = 0): string {
         return entries.map(([k, v]) => {
             const key = /^[\w一-鿿぀-ヿ-]+$/.test(k) ? k : JSON.stringify(k);
             if (v && typeof v === 'object' && (Array.isArray(v) ? v.length : Object.keys(v).length)) {
-                return `${pad}${key}:\n${toYaml(v, indent + 1)}`;
+                return `${pad}${key}:\n${toYaml(v, indent + 1, quoted)}`;
             }
             return `${pad}${key}: ${v && typeof v === 'object' ? (Array.isArray(v) ? '[]' : '{}') : scalar(v)}`;
         }).join('\n');

@@ -345,6 +345,17 @@ export interface CardEdits {
 /** Conversation channel. 'story' is the role-play; 'edit' talks about and edits the card. */
 export type ChatMode = 'story' | 'edit';
 
+/** How a story reply is asked for: 剧场 (the role-play) or 聊天 (talking with the AI outside the story). */
+export type ReplyMode = 'theater' | 'chat';
+
+/** The composer's switches for story replies (see core/reply.ts). */
+export interface ReplyOptions {
+    mode: ReplyMode;
+    deepThink: boolean;
+    /** Sent with the next reply, then cleared. */
+    note: string;
+}
+
 export interface ChatMessage {
     id: string;
     role: Role;
@@ -383,6 +394,8 @@ export interface Chat extends ResourceBase {
     authorsNote: AuthorsNote;
     /** Channel new messages go to. */
     mode?: ChatMode;
+    /** Switches for story replies; missing parts mean 剧场, no deep thinking, no note. */
+    reply?: Partial<ReplyOptions>;
     /** Per-plugin state for this chat, keyed by plugin id. The kernel does not read it. */
     plugins?: Record<string, Record<string, unknown>>;
     /** Set on a chat created as a branch of another. */

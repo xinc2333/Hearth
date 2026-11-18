@@ -705,7 +705,7 @@ input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 2px solid var
 .edit-card-head .btn { height: 26px; font-size: 12.5px; }
 .edit-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .edit-list li { display: flex; align-items: baseline; gap: 8px; line-height: 1.55; }
-.edit-mark { width: 14px; flex: none; text-align: center; color: var(--accent-text); }
+.edit-mark { width: 14px; flex: none; display: inline-flex; justify-content: center; padding-top: 2px; color: var(--accent-text); }
 .edit-list li.failed .edit-mark { color: var(--danger); }
 .edit-label { flex: 1; min-width: 0; color: var(--text-2); overflow-wrap: anywhere; }
 .edit-reason { color: var(--danger); }
@@ -730,7 +730,6 @@ input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 2px solid var
 .check.open { flex-basis: 100%; }
 .check-head { display: flex; align-items: center; gap: 6px; padding: 3px 9px; background: none; border: 0; color: var(--text-2); font: inherit; cursor: pointer; text-align: left; max-width: 100%; }
 .check-head:hover { color: var(--text); }
-.check-die { font-size: 12px; }
 .check-actor { color: var(--muted); }
 .check-action { font-weight: 550; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .check-meta { color: var(--muted); white-space: nowrap; }
@@ -748,6 +747,15 @@ input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 2px solid var
 .check-hidden { height: 24px; padding: 0 9px; border-radius: 8px; border: 1px dashed var(--border-strong); background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
 .check-hidden:hover { color: var(--text); }
 .check-status { display: flex; align-items: center; gap: 7px; height: 24px; color: var(--text-2); }
+.check-die { flex: none; }
+/* 跑团: the settlement note under a reply */
+.settle-note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 8px; font-size: 12.5px; color: var(--text-2); }
+.settle-note.muted { color: var(--muted); }
+.settle-note svg { flex: none; }
+.settle-note .link { font: inherit; cursor: pointer; }
+.settle-more { color: var(--muted); }
+.settle-more:hover { color: var(--text); }
+.settle-list { flex-basis: 100%; margin: 2px 0 0; padding-left: 18px; line-height: 1.6; color: var(--text-2); }
 
 /* 跑团: the inspector tab */
 .tt .tt-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; background: var(--surface); }

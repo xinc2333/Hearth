@@ -37,6 +37,9 @@ test('formats reply-tool JSON into tagged text, including truncated streams', ()
     const streamed = '\n<|tool_call|>soliumbra_reply\n{"think_nya":"嗯","game_content":"\\u003cgame\\u003e\\n正文\\n\\u003c/game\\u003e"}';
     assert.equal(normalizeModelOutput(streamed), '<think_nya>\n嗯\n</think_nya><!--</think>-->\n<game>\n正文\n</game>');
     assert.equal(normalizeModelOutput(inline), '<think_nya>\n想想\n</think_nya>\n<game>正文</game>');
+    // 2.1.7: placeholder thinking (pg models) is never shown; calls mentioned while thinking cannot run.
+    assert.equal(normalizeModelOutput(JSON.stringify({ think_nya: '[REDACTED: 历史轮次软萌思考已折叠]', game_content: '<game>正文</game>' })), '<game>正文</game>');
+    assert.ok(!normalizeModelOutput(JSON.stringify({ think_nya: "要不要 _.set('好感', 1)", game_content: '正文' })).includes('_.set('));
 });
 
 test('strips SPreset control markers and leaves the preset text as written', () => {

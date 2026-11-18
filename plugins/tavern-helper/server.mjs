@@ -7292,6 +7292,16 @@ var require_dist = __commonJS({
   }
 });
 
+// src/core/reply.ts
+function replyOptions(chat) {
+  const r = chat?.reply ?? {};
+  return {
+    mode: r.mode === "chat" ? "chat" : "theater",
+    deepThink: r.deepThink === true,
+    note: typeof r.note === "string" ? r.note : ""
+  };
+}
+
 // src/core/output.ts
 var TAGS = {
   think_nya: "think_nya",
@@ -7334,8 +7344,9 @@ function formatReplyArgs(args) {
     if (!(key in args)) continue;
     let value = String(args[key] ?? "").trim();
     if (!value) continue;
+    if (/^\[?\s*REDACTED\b/i.test(value)) continue;
     if (key === "think_nya") {
-      value = value.replace(/`{3,}/g, "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      value = value.replace(/`{3,}/g, "").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/_\.(?=(?:set|insert|assign|remove|unset|delete|add)\s*\()/g, "_\u200C.");
     }
     let wrapped = wrapTag(value, TAGS[key] ?? null);
     if (key === "think_nya" && wrapped && !wrapped.includes("<!--</think>-->")) {
@@ -7510,19 +7521,19 @@ function stateAt(messages, index = messages.length - 1) {
   }
   return void 0;
 }
-function toYaml(value, indent = 0) {
+function toYaml(value, indent = 0, quoted = false) {
   const pad = "  ".repeat(indent);
   const scalar = (v) => {
     if (v === null || v === void 0) return "null";
     if (typeof v === "string") {
-      return v === "" || /^[\s\-?:,[\]{}#&*!|>'"%@`]|[:#]\s|\n|^(?:true|false|null|~|[-+]?\d)/i.test(v) ? JSON.stringify(v) : v;
+      return quoted || v === "" || /^[\s\-?:,[\]{}#&*!|>'"%@`]|[:#]\s|\n|^(?:true|false|null|~|[-+]?\d)/i.test(v) ? JSON.stringify(v) : v;
     }
     return String(v);
   };
   if (Array.isArray(value)) {
     if (!value.length) return "[]";
     return value.map((v) => v && typeof v === "object" && Object.keys(v).length ? `${pad}-
-${toYaml(v, indent + 1)}` : `${pad}- ${v && typeof v === "object" ? Array.isArray(v) ? "[]" : "{}" : scalar(v)}`).join("\n");
+${toYaml(v, indent + 1, quoted)}` : `${pad}- ${v && typeof v === "object" ? Array.isArray(v) ? "[]" : "{}" : scalar(v)}`).join("\n");
   }
   if (value && typeof value === "object") {
     const entries = Object.entries(value);
@@ -7531,7 +7542,7 @@ ${toYaml(v, indent + 1)}` : `${pad}- ${v && typeof v === "object" ? Array.isArra
       const key = /^[\w一-鿿぀-ヿ-]+$/.test(k) ? k : JSON.stringify(k);
       if (v && typeof v === "object" && (Array.isArray(v) ? v.length : Object.keys(v).length)) {
         return `${pad}${key}:
-${toYaml(v, indent + 1)}`;
+${toYaml(v, indent + 1, quoted)}`;
       }
       return `${pad}${key}: ${v && typeof v === "object" ? Array.isArray(v) ? "[]" : "{}" : scalar(v)}`;
     }).join("\n");
@@ -7542,7 +7553,7 @@ ${toYaml(v, indent + 1)}`;
 // src/plugins/tavern-helper/spreset.ts
 var CONTROL = /<<<\|\s*catgodml\s*\|[\s\S]*?>>>|<\|(?:sep|merge)\|>|<run_tool_replacement>/;
 var TOOL_DESCRIPTION = "\u5C0F\u732B\u4E4B\u795E SoliUmbra \u7684\u795E\u57DF\u5267\u573A\u6B63\u5F0F\u8F93\u51FA\u901A\u9053\uFF08\u5148\u5728 think_nya \u4E2D\u5B8C\u6210\u8F6F\u840C\u601D\u8003\uFF0C\u518D\u8F93\u51FA\u6B63\u5F0F\u56DE\u590D\u5185\u5BB9\u55B5\uFF09\u3002";
-var THINK_DESCRIPTION = "\u5C0F\u732B\u4E4B\u795E\u5728<think_nya>\u4E2D\u7684\u8BE6\u7EC6\u8F6F\u840C\u601D\u8003\uFF08\u5168\u7A0B\u4FDD\u6301\u53EF\u7231\u7684\u201C\u55B5~\u201D\u8BED\u6C14\uFF0C\u56F4\u7ED5\u4EBA\u7269\u795E\u6001\u3001\u4E92\u52A8\u5F20\u529B\u3001\u52A8\u6001\u683C\u5F0F\u8981\u6C42\u4E0E\u5267\u60C5\u8D70\u5411\u8FDB\u884C\u6784\u601D\u55B5\uFF09\u3002";
+var THINK_DESCRIPTION = "\u5C0F\u732B\u4E4B\u795E\u5728<think_nya>\u4E2D\u7684\u8BE6\u7EC6\u8F6F\u840C\u601D\u8003\uFF08\u5168\u7A0B\u4FDD\u6301\u53EF\u7231\u7684\u201C\u55B5~\u201D\u8BED\u6C14\uFF0C\u4E25\u683C\u9075\u5FAA\u6700\u65B0\u540C\u6B65\u72B6\u6001\u4E2D\u7684\u601D\u8003\u6DF1\u5EA6\u4E0E\u6B65\u9AA4\u8981\u6C42\u8FDB\u884C\u6784\u601D\u63A8\u6F14\u55B5\uFF09\u3002";
 var GAME_DESCRIPTION = "\u5B8C\u6574\u7684\u6B63\u5F0F\u56DE\u590D\u5185\u5BB9\uFF08100%\u81EA\u7531\u52A8\u6001\u683C\u5F0F\uFF1A\u4E25\u683C\u6309\u7167\u5F53\u524D\u751F\u6548\u7684\u521B\u4F5C\u7EC6\u5219\u4E0E\u683C\u5F0F\u8981\u6C42\u8F93\u51FA\u6240\u6709\u6B63\u6587\u4E0E\u52A8\u6001\u683C\u5F0F\u5757\u55B5\uFF09\u3002";
 var OPTIONAL_PARTS = /* @__PURE__ */ new Set(["extra"]);
 function spresetConfig(preset) {
@@ -7563,7 +7574,7 @@ function boundReplyTool(preset) {
 }
 function replyToolRequest(name, texts, model) {
   const parts = [];
-  let autoTool = /^pg-/i.test(model);
+  let autoTool = /pg/i.test(model);
   for (const text of texts) {
     for (const m of text.matchAll(/<<<\|\s*catgodml\s*\|\s*([\s\S]*?)>>>/g)) {
       const directive = m[1].trim();
@@ -7632,13 +7643,14 @@ function setupSpreset(api) {
     const story = chat.messages.filter((m) => m.mode !== "edit");
     const last = story[story.length - 1];
     const history = last?.role === "assistant" && !last.swipes[last.activeSwipe]?.content ? story.slice(0, -1) : story;
+    const chatMetadata = withOracleState(own.chatMetadata ?? {}, chat);
     try {
       const out = await runStage1(api, script, {
         request: body,
         chatId: chat.id,
         names: { user: history.findLast((m) => m.role === "user")?.name ?? "User", char: ctx.character.name },
         chat: history.map((m) => ({ name: m.name, is_user: m.role === "user", is_system: m.hidden, mes: m.swipes[m.activeSwipe]?.content ?? "", extra: {} })),
-        chatMetadata: own.chatMetadata ?? {},
+        chatMetadata,
         vars: { chat: chat.variables ?? {}, message: stateAt(history) ?? {}, global: api.store.settings?.globalVariables ?? {}, preset: {} },
         windowState: windowStates.get(chat.id) ?? {},
         localStorage: own.localStorage ?? {}
@@ -7736,59 +7748,29 @@ return Promise.resolve((${script})({ request: __clone(__in.request) }))${EPILOGU
 function consoleEnabled(preset) {
   return preset.prompts.some((p) => p.content.includes("<<<|catgodml|enableMenu>>>")) && Boolean(stage1Script(preset));
 }
-function oracleState(chat, pluginId) {
-  const meta = chat.plugins?.[pluginId]?.chatMetadata;
-  const raw = meta?.catgod_oracle?.oracleState ?? {};
-  return {
+function withOracleState(meta, chat) {
+  const m = structuredClone(meta);
+  const old = m.catgod_oracle?.oracleState ?? {};
+  const r = replyOptions(chat);
+  const same = old.mode === r.mode && old.deepThink === r.deepThink && (old.note?.text ?? "") === r.note;
+  const state = {
     schema: 1,
-    mode: raw.mode === "chat" ? "chat" : "theater",
-    chat: { autoReturn: raw.chat?.autoReturn !== false },
-    deepThink: raw.deepThink === true,
-    rebuildCache: raw.rebuildCache === true,
-    note: { text: typeof raw.note?.text === "string" ? raw.note.text : "", autoClear: raw.note?.autoClear !== false },
-    rev: Number.isFinite(raw.rev) ? Number(raw.rev) : 0,
-    updatedAt: Number.isFinite(raw.updatedAt) ? Number(raw.updatedAt) : 0
+    mode: r.mode,
+    // Hearth returns to 剧场 after a 聊天 reply itself.
+    chat: { autoReturn: true },
+    deepThink: r.deepThink,
+    // Only the console's own button sets it, and the console clears it after one reply.
+    rebuildCache: false,
+    note: { text: r.note, autoClear: true },
+    rev: (Number.isFinite(old.rev) ? Number(old.rev) : 0) + (same ? 0 : 1),
+    // Newer than anything the script may have kept in localStorage.
+    updatedAt: same && Number.isFinite(old.updatedAt) ? Number(old.updatedAt) : Date.now()
   };
-}
-function save(pluginId, state, patch) {
-  const next = { ...state, ...patch, rev: state.rev + 1, updatedAt: Date.now() };
-  return [{ op: "set", path: ["plugins", pluginId, "chatMetadata", "catgod_oracle", "oracleState"], value: next }];
+  m.catgod_oracle = { ...m.catgod_oracle ?? {}, oracleState: state };
+  return m;
 }
 function setupConsole(api) {
-  const sent = /* @__PURE__ */ new Map();
-  api.registerControls({
-    list: ({ chat, preset }) => {
-      if (!consoleEnabled(preset)) return [];
-      const s = oracleState(chat, api.id);
-      return [
-        { id: "mode", type: "mode", label: "\u56DE\u590D\u6A21\u5F0F", value: s.mode, options: [["theater", "\u5267\u573A"], ["chat", "\u804A\u5929"]], hint: "\u804A\u5929\uFF1A\u6682\u505C\u5267\u60C5\uFF0C\u548C\u5C0F\u732B\u4E4B\u795E\u672C\u4F53\u76F4\u63A5\u804A\u5929" },
-        { id: "deepThink", type: "toggle", label: "\u6DF1\u5EA6\u601D\u8003", value: s.deepThink, hint: "\u6309\u9884\u8BBE\u767B\u8BB0\u7684\u601D\u8003\u6B65\u9AA4\uFF0C\u56DE\u590D\u524D\u5148\u6DF1\u5165\u63A8\u6F14" },
-        { id: "note", type: "note", label: "\u7EB8\u6761", value: s.note.text, hint: s.note.autoClear ? "\u968F\u4E0B\u4E00\u6761\u56DE\u590D\u9001\u8FBE\uFF0C\u9001\u8FBE\u540E\u81EA\u52A8\u6E05\u7A7A" : "\u6BCF\u6B21\u56DE\u590D\u90FD\u4F1A\u5E26\u4E0A" }
-      ];
-    },
-    change: (id, value, { chat }) => {
-      const s = oracleState(chat, api.id);
-      if (id === "mode") return save(api.id, s, { mode: value === "chat" ? "chat" : "theater" });
-      if (id === "deepThink") return save(api.id, s, { deepThink: value === true });
-      if (id === "note") return save(api.id, s, { note: { ...s.note, text: String(value ?? "").trim() } });
-      return [];
-    }
-  });
-  api.onRequest((_body, { chat, preset }) => {
-    if (!consoleEnabled(preset)) return;
-    const s = oracleState(chat, api.id);
-    sent.set(chat.id, { mode: s.mode, note: s.note.text });
-  });
-  api.onAfterReceive(({ chat, preset, text, finish }) => {
-    const was = sent.get(chat.id);
-    sent.delete(chat.id);
-    if (!was || !consoleEnabled(preset) || !text.trim() || finish !== "stop" && finish !== "length") return;
-    const s = oracleState(chat, api.id);
-    const patch = {};
-    if (was.note && s.note.autoClear && s.note.text === was.note) patch.note = { ...s.note, text: "" };
-    if (was.mode === "chat" && s.mode === "chat" && s.chat.autoReturn) patch.mode = "theater";
-    return Object.keys(patch).length ? { ops: save(api.id, s, patch) } : void 0;
-  });
+  api.registerFeatures((preset) => consoleEnabled(preset) ? { chat: true, deepThink: true, note: true } : {});
 }
 
 // src/plugins/tavern-helper/mvu.ts
@@ -8050,7 +8032,7 @@ function setupMvu(api) {
       let body = text.replace(PLACEHOLDER, "").trimEnd();
       let commands = parseMvuCommands(body);
       let source = "reply";
-      if (!commands.length && body && (finish === "stop" || finish === "length")) {
+      if (!commands.length && body && (finish === "stop" || finish === "length") && replyOptions(chat).mode !== "chat") {
         try {
           const lastUser = [...chat.messages.slice(0, index)].reverse().find((m) => m.role === "user");
           const block = await requestUpdate(api, list, base, body, lastUser?.name ?? "User", character.name, lastUser?.swipes[lastUser.activeSwipe]?.content ?? "");

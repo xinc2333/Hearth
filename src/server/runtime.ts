@@ -7,11 +7,12 @@ import type { LoreSource } from '../core/lore.ts';
 import { createMacroContext, evaluateMacros } from '../core/macros.ts';
 import type { Op } from '../core/ops.ts';
 import { applyRegex } from '../core/regex.ts';
+import { mergeFeatures, MODE_LABEL, presetFeatures, replyOptions, type ReplyFeatures } from '../core/reply.ts';
 import type { Character, Chat, ChatMessage, ChatMode, Connection, Lorebook, Persona, Preset, RegexScript, Swipe } from '../core/types.ts';
 import { newId } from '../core/util.ts';
 import { applyCardEdits, buildEditPrompt, type EditPrompt } from './card-edit.ts';
-import type { EditTaskContext, PluginHost } from './plugins.ts';
-import { buildBody, sendChat, streamChat, type ProviderHooks } from './providers/openai.ts';
+import type { ChatControl, EditTaskContext, PluginHost, ReceiveResult } from './plugins.ts';
+import { buildBody, sendChat, streamChat, type ProviderHooks, type SendResult } from './providers/openai.ts';
 import { estimateTokens, MESSAGE_OVERHEAD } from '../core/tokens.ts';
 import type { Store } from './store.ts';
 
@@ -23,6 +24,8 @@ export type GenerateEvent =
     | { type: 'reasoning'; text: string }
     | { type: 'finalizing' }
     | { type: 'done'; message: ChatMessage }
+    /** A plugin's background work after the reply (e.g. 跑团's settlement) changed the message. */
+    | { type: 'update'; message: ChatMessage }
     | { type: 'error'; error: string; message?: ChatMessage };
 
 interface Job {
@@ -76,6 +79,8 @@ export class Runtime {
     private plugins: PluginHost;
     private jobs = new Map<string, Job>();
     private lastPrompts = new Map<string, PromptSnapshot>();
+    /** Background work after a reply, per chat; the chat's next reply waits for it. */
+    private followUps = new Map<string, Promise<void>>();
 
     constructor(store: Store, plugins: PluginHost) {
         this.store = store;
@@ -167,8 +172,46 @@ export class Runtime {
                 collapseNewlines: s.collapseNewlines,
             },
             model: this.connection()?.conn.model ?? '',
+            reply: replyOptions(chat),
             injections: [],
         };
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // The composer's switches
+    // ------------------------------------------------------------------------------------------
+
+    /** Which of Hearth's reply switches the current preset supports (its entries, or a plugin for it). */
+    features(chat: Chat): ReplyFeatures {
+        const preset = this.preset(chat);
+        return mergeFeatures(presetFeatures(preset), this.plugins.features(preset));
+    }
+
+    /** Hearth's own switches first, then the plugins'. */
+    controls(chat: Chat): ChatControl[] {
+        const character = this.store.require<Character>('character', chat.characterId);
+        const f = this.features(chat);
+        const r = replyOptions(chat);
+        const own: ChatControl[] = [];
+        if (f.chat) own.push({ id: 'mode', type: 'mode', label: '回复模式', value: r.mode, options: [['theater', MODE_LABEL.theater], ['chat', MODE_LABEL.chat]], hint: '聊天：暂停剧情，直接和 AI 聊天，回复一次后回到剧场' });
+        if (f.deepThink) own.push({ id: 'deepThink', type: 'toggle', label: '深度思考', value: r.deepThink, hint: '回复前先按预设的要求深入思考' });
+        if (f.note) own.push({ id: 'note', type: 'note', label: '纸条', value: r.note, hint: '随下一条回复送达，送达后自动清空' });
+        return [...own, ...this.plugins.controls({ chat, character, preset: this.preset(chat) })];
+    }
+
+    async changeControl(chat: Chat, id: string, value: unknown): Promise<Op[]> {
+        if (id === 'mode') return [{ op: 'set', path: ['reply', 'mode'], value: value === 'chat' ? 'chat' : 'theater' }];
+        if (id === 'deepThink') return [{ op: 'set', path: ['reply', 'deepThink'], value: value === true }];
+        if (id === 'note') return [{ op: 'set', path: ['reply', 'note'], value: String(value ?? '').trim() }];
+        const character = this.store.require<Character>('character', chat.characterId);
+        return this.plugins.changeControl(id, value, { chat, character, preset: this.preset(chat) });
+    }
+
+    /** A prepared request body sent with the active connection (for plugins). */
+    async send(body: Record<string, unknown>, signal?: AbortSignal): Promise<SendResult> {
+        const link = this.connection();
+        if (!link) throw new Error('还没有配置模型连接');
+        return sendChat(link.conn, link.key, { model: link.conn.model, ...body }, signal ?? AbortSignal.timeout(300_000), undefined, this.providerHooks(link.conn));
     }
 
     private async runAssemble(chat: Chat, input: AssembleInput): Promise<AssembleResult> {
@@ -402,6 +445,13 @@ export class Runtime {
         if (mode === 'edit' && type === 'normal' && !req.text?.trim()) {
             throw Object.assign(new Error('编辑模式下，请写下想怎么改角色卡或世界书'), { status: 400 });
         }
+        // The last reply's background work (e.g. its settlement) finishes first: this turn builds on it.
+        const pending = this.followUps.get(chatId);
+        if (pending) {
+            emit({ type: 'progress', plugin: 'hearth', data: { phase: 'waiting' } });
+            await Promise.race([pending, new Promise(r => setTimeout(r, 180_000))]);
+            chat = this.store.require<Chat>('chat', chatId);
+        }
 
         if (type === 'normal' && req.text?.trim()) {
             const message = this.userMessage(chat, req.text, mode);
@@ -465,6 +515,7 @@ export class Runtime {
             await this.store.saveSettings({ globalVariables: result.variables.global });
         }
 
+        const sentReply = replyOptions(chat);
         const job: Job = { id: newId('job'), chatId: chat.id, controller: new AbortController() };
         this.jobs.set(job.id, job);
         emit({ type: 'job', jobId: job.id, messageId, swipeId, prefix });
@@ -568,6 +619,7 @@ export class Runtime {
         const { current, message, swipe } = live();
         let content = prefix + text;
         const extraOps: Op[] = [];
+        const background: NonNullable<ReceiveResult['background']>[] = [];
         let edits = swipe.edits;
         if (edit) {
             if (finish === 'aborted' || finish === 'error') {
@@ -587,6 +639,14 @@ export class Runtime {
                 const out = await fn({ chat: current, character, preset: input.preset, message, swipe, text: content, finish: finish ?? 'stop' });
                 if (out?.text !== undefined) content = out.text;
                 if (out?.ops) extraOps.push(...out.ops);
+                if (out?.background) background.push(out.background);
+            }
+            // After a story reply arrives, a delivered note is cleared and 聊天 goes back to 剧场.
+            const ended = finish as Swipe['finish'];
+            if ((ended === 'stop' || ended === 'length') && content.trim()) {
+                const now = replyOptions(current);
+                if (sentReply.note && now.note === sentReply.note && this.features(current).note) extraOps.push({ op: 'set', path: ['reply', 'note'], value: '' });
+                if (sentReply.mode === 'chat' && now.mode === 'chat') extraOps.push({ op: 'set', path: ['reply', 'mode'], value: 'theater' });
             }
         }
         const latest = this.store.require<Chat>('chat', chatId);
@@ -612,5 +672,41 @@ export class Runtime {
         } else {
             emit({ type: 'done', message: finalMessage });
         }
+        if (background.length) {
+            const trace = (label: string, b: Record<string, unknown>) => {
+                snapshot.stages = [...(snapshot.stages ?? []), { label, parts: sentParts(b.messages), tools: toolNames(b) }];
+                emit({ type: 'prompt', parts: result.parts, warnings: snapshot.warnings, tokens: result.tokens, lore: snapshot.lore, tools: snapshot.tools, sent: snapshot.sent, stages: snapshot.stages });
+            };
+            await this.runFollowUps(chatId, messageId, background, emit, trace);
+        }
+    }
+
+    /** Runs plugins' background work after a reply, one after another, and reports each change. */
+    private async runFollowUps(chatId: string, messageId: string, list: NonNullable<ReceiveResult['background']>[], emit: (e: GenerateEvent) => void, trace: (label: string, body: Record<string, unknown>) => void) {
+        const controller = new AbortController();
+        const work = (async () => {
+            for (const fn of list) {
+                try {
+                    const out = await fn({ signal: controller.signal, trace });
+                    if (!out?.ops?.length || !this.store.get<Chat>('chat', chatId)) continue;
+                    const done = await this.store.apply({ target: { kind: 'chat', id: chatId }, ops: out.ops, author: 'system', journal: false });
+                    const message = (done.resource as Chat).messages.find(m => m.id === messageId);
+                    if (message) emit({ type: 'update', message });
+                } catch (e) {
+                    console.warn('[runtime] 回复之后的后台处理出错：', (e as Error).message);
+                }
+            }
+        })();
+        this.followUps.set(chatId, work);
+        try {
+            await work;
+        } finally {
+            if (this.followUps.get(chatId) === work) this.followUps.delete(chatId);
+        }
+    }
+
+    /** The chat has background work running (the next reply will wait for it). */
+    following(chatId: string): boolean {
+        return this.followUps.has(chatId);
     }
 }

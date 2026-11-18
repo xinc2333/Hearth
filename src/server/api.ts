@@ -171,21 +171,31 @@ export function registerApi(router: Router, store: Store, runtime: Runtime, plug
             charName: character.name,
             regex: runtime.regexScripts(chat),
             preset: { id: runtime.preset(chat).id, name: runtime.preset(chat).name },
-            controls: plugins.controls({ chat, character, preset: runtime.preset(chat) }),
+            controls: runtime.controls(chat),
             editTasks: plugins.editTasks.map(t => ({ id: t.id, label: t.label, hint: t.hint ?? '', request: t.request })),
             busy: runtime.isBusy(chat.id) ?? null,
         };
     });
 
-    // A plugin control (e.g. a preset's reply mode) changed in the composer.
+    // A switch next to the message box changed (Hearth's own, or a plugin's).
     router.post('/api/chats/:id/controls', async req => {
         const body = await req.json<{ id: string; value: unknown }>();
         const chat = store.require<Chat>('chat', req.params.id);
-        const character = store.require<Character>('character', chat.characterId);
-        const preset = runtime.preset(chat);
-        const ops = await plugins.changeControl(String(body.id), body.value, { chat, character, preset });
+        const ops = await runtime.changeControl(chat, String(body.id), body.value);
         const next = ops.length ? (await store.apply({ target: { kind: 'chat', id: chat.id }, ops, author: 'user', journal: false })).resource as Chat : chat;
-        return { chat: next, controls: plugins.controls({ chat: next, character, preset }) };
+        return { chat: next, controls: runtime.controls(next) };
+    });
+
+    // A plugin's button in the window (e.g. 跑团's「重新结算」).
+    router.post('/api/chats/:id/actions/:plugin/:action', async req => {
+        const payload = await req.json<Record<string, unknown>>().catch(() => ({}));
+        const chat = store.require<Chat>('chat', req.params.id);
+        const character = store.require<Character>('character', chat.characterId);
+        const run = plugins.action(req.params.plugin, req.params.action);
+        if (!run) throw Object.assign(new Error('没有这个操作，或者插件没有开启'), { status: 404 });
+        const out = await run({ chat, character, preset: runtime.preset(chat), payload: payload ?? {} });
+        const next = out?.ops?.length ? (await store.apply({ target: { kind: 'chat', id: chat.id }, ops: out.ops, author: `plugin:${req.params.plugin}`, journal: false })).resource as Chat : chat;
+        return { chat: next };
     });
 
     router.post('/api/chats/:id/generate', async (req, res) => {

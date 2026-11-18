@@ -12,14 +12,15 @@ function characterLine(name: string, state: TabletopState, userName: string): st
     const parts = [`${label}：${attrs || '（属性未登记，按普通人估计）'}`];
     const skills = Object.entries(c.skills).map(([k, v]) => `${k}·${v}`);
     if (skills.length) parts.push(`特长：${skills.join('、')}`);
-    const traits = Object.entries(c.traits).filter(([, v]) => v !== 1).map(([k, v]) => `${k}${fmt(v)}`);
+    const traits = name === PROTAGONIST ? [] : Object.entries(c.traits).filter(([, v]) => v !== 1).map(([k, v]) => `${k}${fmt(v)}`);
     if (traits.length) parts.push(`性格：${traits.join(' ')}`);
     if (c.status.length) parts.push(`状态：${c.status.map(s => `${s.name}${Object.keys(s.effects).length ? `（${Object.entries(s.effects).map(([k, f]) => `${k}×${fmt(f)}`).join(' ')}）` : ''}`).join('、')}`);
+    if (c.description) parts.push(c.description);
     if (c.temporary) parts.push('临时登记');
     return parts.join('｜');
 }
 
-/** The 跑团 data block: characters, then attitudes with their words and recent reasons. */
+/** The 跑团 data block: characters, their attitudes toward the protagonist, and how others stand with each other. */
 export function stateText(state: TabletopState, userName: string): string {
     const lines = ['【跑团数据】（属性以普通成年男性 = 100 为基准，按倍数理解；下面的数值是本轮的事实依据）'];
     const custom = Object.entries(state.custom);
@@ -27,11 +28,18 @@ export function stateText(state: TabletopState, userName: string): string {
     const names = Object.keys(state.characters).sort((a, b) => (a === PROTAGONIST ? -1 : b === PROTAGONIST ? 1 : 0));
     for (const name of names) lines.push(characterLine(name, state, userName));
     if (state.relations.length) {
-        lines.push('', '【态度】（A→B 表示 A 对 B；六条线各自 0～100，互不抵消）');
+        lines.push('', '【对主角的态度】（六条线各自 0～100，互不抵消；主角自己的感情由玩家决定，这里不记）');
         for (const r of state.relations) {
             const values = AXES.map(([axis, label]) => `${label}${relationValue(r, axis)}`).join(' ');
             const recent = r.reasons.slice(-3).map(x => (x.change ? `${x.text}（${x.change}）` : x.text)).filter(Boolean);
-            lines.push(`${r.from}→${r.to}：${describe(r)}（${values}｜熟悉${r.familiarity}）${recent.length ? `｜最近：${recent.join('；')}` : ''}`);
+            lines.push(`${r.from}：${describe(r)}（${values}｜熟悉${r.familiarity}）${recent.length ? `｜最近：${recent.join('；')}` : ''}`);
+        }
+    }
+    if (state.bonds.length) {
+        lines.push('', '【角色之间】');
+        for (const b of state.bonds) {
+            const last = b.reasons.at(-1)?.text;
+            lines.push(`${b.between[0]}与${b.between[1]}：${b.text}${last ? `（${last}）` : ''}`);
         }
     }
     return lines.join('\n');

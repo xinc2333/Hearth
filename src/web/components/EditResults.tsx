@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 
 import type { CardEditResult, CardEdits, Chat, ChatMessage } from '../../core/types.ts';
 import { api } from '../api.ts';
+import { Icon } from '../icons.tsx';
 import { changeChat, refresh, reportError, toast } from '../state.ts';
 import { Button, Modal } from './common.tsx';
 
@@ -85,7 +86,7 @@ export function EditResults({ chat, message, edits }: { chat: Chat; message: Cha
             <ul className="edit-list">
                 {edits.results.map((r, i) => (
                     <li key={i} className={r.ok ? 'ok' : 'failed'}>
-                        <span className="edit-mark" aria-hidden="true">{r.ok ? (r.action === '新增' ? '＋' : r.action === '删除' ? '－' : '✎') : '⚠'}</span>
+                        <span className="edit-mark" aria-hidden="true"><Icon name={r.ok ? (r.action === '新增' ? 'plus' : r.action === '删除' ? 'minus' : 'edit') : 'alert'} size={13} /></span>
                         <span className="edit-label">{r.action} {r.label}{!r.ok && <span className="edit-reason">：{r.reason}</span>}</span>
                         {r.ok && (r.before !== undefined || r.after !== undefined) && <button className="link small" onClick={() => setOpen(r)}>查看改动</button>}
                     </li>

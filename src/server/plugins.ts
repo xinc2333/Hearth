@@ -12,15 +12,18 @@
 //   - request:         api.onRequest((body, ctx) => body)                      (final request body, like ST's
 //                                                                                CHAT_COMPLETION_SETTINGS_READY)
 //   - controls:        api.registerControls({ list, change })                  (switches shown in the composer)
+//   - reply switches:  api.registerFeatures(preset => ({ chat, deepThink, note })) (a preset's script handles them)
+//   - actions:         api.registerAction(id, fn)                              (buttons in the window, e.g. retry)
 //   - card edits:      api.registerEditTask({ … })                             (a 编辑-mode task with its own address)
 //   - data:            api.store.get / list / apply                            (same change channel as the UI)
-//   - services:        api.macros, api.sandbox, api.complete, api.config
+//   - services:        api.macros, api.sandbox, api.complete, api.send, api.config
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import type { AssembleInput, AssembleResult, Injection } from '../core/assemble.ts';
+import { mergeFeatures, type ReplyFeatures } from '../core/reply.ts';
 import { createMacroContext, evaluateMacros, registerMacro, unregisterMacro, type MacroHandler } from '../core/macros.ts';
 import type { Op } from '../core/ops.ts';
 import type { CardEditResult, Character, Chat, ChatMessage, Persona, Preset, Swipe } from '../core/types.ts';
@@ -52,6 +55,17 @@ export interface ReceiveResult {
     text?: string;
     /** Extra ops on the chat (paths relative to the chat resource). */
     ops?: Op[];
+    /**
+     * Work to do once the reply is saved and shown (e.g. 跑团's settlement). It runs in the
+     * background; the chat's next reply waits for it. Its ops are applied to the chat when it ends.
+     */
+    background?: (ctx: BackgroundContext) => Promise<{ ops?: Op[] } | void>;
+}
+
+export interface BackgroundContext {
+    signal: AbortSignal;
+    /** Adds a request this work sent to the reply's prompt trace. */
+    trace: (label: string, body: Record<string, unknown>) => void;
 }
 
 export interface ChatCreateContext {
@@ -59,6 +73,16 @@ export interface ChatCreateContext {
     chat: Chat;
     character: Character;
 }
+
+/** Context for a plugin action (a button in the window). */
+export interface ActionContext {
+    chat: Chat;
+    character: Character;
+    preset: Preset;
+    payload: Record<string, unknown>;
+}
+
+export type ActionHandler = (ctx: ActionContext) => { ops?: Op[] } | void | Promise<{ ops?: Op[] } | void>;
 
 export interface CompleteRequest {
     messages: { role: 'system' | 'user' | 'assistant'; content: string }[];
@@ -129,10 +153,10 @@ export interface EditTask {
 
 export type { CardEditResult };
 
-/** A switch a plugin shows next to the message box, stored in the chat (e.g. a preset's reply mode). */
+/** A switch next to the message box, stored in the chat. Hearth's own come first (剧场 / 聊天, deep thinking, the note). */
 export interface ChatControl {
     id: string;
-    /** 'mode' replaces 剧情 in the mode switch with its options; 'toggle' is on/off; 'note' holds text for the next reply. */
+    /** 'mode' fills the mode switch with its options; 'toggle' is on/off; 'note' holds text for the next reply. */
     type: 'mode' | 'toggle' | 'note';
     label: string;
     value: unknown;
@@ -163,9 +187,15 @@ export interface PluginApi {
     /** Sees (and may replace) the request body right before it is sent. 编辑 requests skip it. */
     onRequest: (fn: RequestHook) => void;
     registerControls: (provider: ControlProvider) => void;
+    /** Declares that the plugin handles Hearth's reply switches for a preset (e.g. its own request script does). */
+    registerFeatures: (fn: (preset: Preset) => Partial<ReplyFeatures> | void) => void;
+    /** A button in the window calls it through /api/chats/:id/actions/<plugin>/<id>. */
+    registerAction: (id: string, fn: ActionHandler) => void;
     registerEditTask: (task: EditTask) => void;
     /** One-off completion with the active model connection (no streaming to the UI). */
     complete: (req: CompleteRequest) => Promise<string>;
+    /** Sends a prepared request body with the active connection (non-streaming; tool calls come back as data). */
+    send: (body: Record<string, unknown>, signal?: AbortSignal) => Promise<SendResult>;
     store: Pick<Store, 'get' | 'list' | 'apply' | 'settings'>;
     /** Macro evaluation with every registered macro, including other plugins'. */
     macros: { context: typeof createMacroContext; evaluate: typeof evaluateMacros };
@@ -247,6 +277,7 @@ export function readManifest(dir: string): PluginManifest {
 export class PluginHost {
     readonly plugins = new Map<string, PluginInfo>();
     completer: ((req: CompleteRequest) => Promise<string>) | null = null;
+    sender: ((body: Record<string, unknown>, signal?: AbortSignal) => Promise<SendResult>) | null = null;
     private hooks = {
         before: [] as { plugin: string; fn: BeforeHook }[],
         after: [] as { plugin: string; fn: AfterHook }[],
@@ -254,6 +285,8 @@ export class PluginHost {
         create: [] as { plugin: string; fn: CreateHook }[],
         request: [] as { plugin: string; fn: RequestHook }[],
         controls: [] as { plugin: string; fn: ControlProvider }[],
+        features: [] as { plugin: string; fn: (preset: Preset) => Partial<ReplyFeatures> | void }[],
+        actions: [] as { plugin: string; fn: { id: string; run: ActionHandler } }[],
         editTasks: [] as { plugin: string; fn: EditTask }[],
     };
     private macros = new Map<string, { names: string | string[]; handler: MacroHandler }[]>();
@@ -287,6 +320,23 @@ export class PluginHost {
                     return [];
                 }
             });
+    }
+
+    /** Reply switches that enabled plugins handle for this preset. */
+    features(preset: Preset): ReplyFeatures {
+        return mergeFeatures(...this.active(this.hooks.features).map(fn => {
+            try {
+                return fn(preset) ?? {};
+            } catch (error) {
+                console.warn('[plugins] 声明回复开关时出错：', error);
+                return {};
+            }
+        }));
+    }
+
+    action(plugin: string, id: string): ActionHandler | null {
+        const hit = this.hooks.actions.find(h => h.plugin === plugin && h.fn.id === id && this.enabled(h.plugin));
+        return hit?.fn.run ?? null;
     }
 
     async changeControl(id: string, value: unknown, ctx: RequestContext): Promise<Op[]> {
@@ -331,10 +381,16 @@ export class PluginHost {
             onChatCreate: fn => { this.hooks.create.push({ plugin: id, fn }); },
             onRequest: fn => { this.hooks.request.push({ plugin: id, fn }); },
             registerControls: provider => { this.hooks.controls.push({ plugin: id, fn: provider }); },
+            registerFeatures: fn => { this.hooks.features.push({ plugin: id, fn }); },
+            registerAction: (action, run) => { this.hooks.actions.push({ plugin: id, fn: { id: action, run } }); },
             registerEditTask: task => { this.hooks.editTasks.push({ plugin: id, fn: task }); },
             complete: req => {
                 if (!this.completer) throw new Error('模型连接尚未就绪');
                 return this.completer(req);
+            },
+            send: (body, signal) => {
+                if (!this.sender) throw new Error('模型连接尚未就绪');
+                return this.sender(body, signal);
             },
             store: this.store,
             macros: { context: createMacroContext, evaluate: evaluateMacros },

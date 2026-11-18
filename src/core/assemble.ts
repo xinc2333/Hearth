@@ -11,8 +11,9 @@ import { scanLore, type LoreScanResult, type LoreSource } from './lore.ts';
 import { estimateTokens, MESSAGE_OVERHEAD } from './tokens.ts';
 import type {
     AuthorsNote, Character, ChatMessage, LoreSettings, PersonaPosition, Preset, PromptEntry,
-    RegexPlacement, RegexScript, Role, TimedLoreState,
+    RegexPlacement, RegexScript, ReplyOptions, Role, TimedLoreState,
 } from './types.ts';
+import { entryAllowed, replyOptions, stripConditions } from './reply.ts';
 import { stateAt } from './state.ts';
 import { collapseNewlines, stringFormat } from './util.ts';
 
@@ -53,6 +54,8 @@ export interface AssembleInput {
         collapseNewlines: boolean;
     };
     model: string;
+    /** The composer's switches (剧场 / 聊天, deep thinking, the note); entries can depend on them. */
+    reply?: ReplyOptions;
     /** Extra injections contributed by plugins. */
     injections?: Injection[];
     quietPrompt?: string;
@@ -237,6 +240,7 @@ export function assemble(input: AssembleInput): AssembleResult {
     const isContinue = input.type === 'continue';
     const userName = input.userName;
     const charName = character.name;
+    const reply = input.reply ?? replyOptions(undefined);
     const chatVars = structuredClone(input.variables.chat);
     const globalVars = structuredClone(input.variables.global);
 
@@ -259,6 +263,7 @@ export function assemble(input: AssembleInput): AssembleResult {
         now,
         random,
         seed: input.chatId,
+        reply,
     });
     const sub = (text: string, extra?: { original?: string; values?: Record<string, string> }) => {
         if (!text) return text ?? '';
@@ -503,9 +508,9 @@ export function assemble(input: AssembleInput): AssembleResult {
     for (const entry of preset.order) {
         const p = presetPrompt(entry.id);
         if (!p) continue;
-        const allowed = entry.enabled && (!p.triggers.length || p.triggers.includes(generationType));
+        const allowed = entry.enabled && (!p.triggers.length || p.triggers.includes(generationType)) && entryAllowed(p.content, reply);
         if (allowed) {
-            prompts.add(preparePrompt(toCPrompt(p)));
+            prompts.add(preparePrompt(toCPrompt({ ...p, content: stripConditions(p.content) })));
         } else if (entry.id === 'main') {
             prompts.add(preparePrompt({ ...toCPrompt(p), content: '' }));
         }

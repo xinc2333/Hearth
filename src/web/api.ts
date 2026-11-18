@@ -101,6 +101,7 @@ export const api = {
     importFile: (file: File) => request<{ created: { kind: ResourceKind; id: string; name: string }[] }>('POST', `/api/import?filename=${encodeURIComponent(file.name)}`, undefined, file),
     createChat: (characterId: string) => request<Chat>('POST', '/api/chats', { characterId }),
     setControl: (chatId: string, id: string, value: unknown) => request<{ chat: Chat; controls: ChatControl[] }>('POST', `/api/chats/${chatId}/controls`, { id, value }),
+    action: (chatId: string, plugin: string, id: string, payload: Record<string, unknown>) => request<{ chat: Chat }>('POST', `/api/chats/${chatId}/actions/${plugin}/${id}`, payload),
     branchChat: (chatId: string, messageId: string, swipeId: string) =>
         request<Chat>('POST', `/api/chats/${chatId}/messages/${messageId}/swipes/${swipeId}/branch`),
     context: (chatId: string) => request<ChatContext>('GET', `/api/chats/${chatId}/context`),
@@ -127,7 +128,7 @@ export interface ChatContext {
     charName: string;
     regex: import('../core/types.ts').RegexScript[];
     preset: { id: string; name: string };
-    /** Switches plugins show in the composer (e.g. a preset's reply mode). */
+    /** Switches in the composer: Hearth's own (剧场 / 聊天, deep thinking, the note), then the plugins'. */
     controls: ChatControl[];
     /** Buttons plugins add to 编辑 mode (e.g. 数据化适配). */
     editTasks?: { id: string; label: string; hint: string; request: string }[];
@@ -174,6 +175,8 @@ export type GenerateEvent =
     | { type: 'finalizing' }
     | { type: 'progress'; plugin: string; data: unknown }
     | { type: 'done'; message: import('../core/types.ts').ChatMessage }
+    /** Background work after the reply (e.g. 跑团's settlement) changed the message. */
+    | { type: 'update'; message: import('../core/types.ts').ChatMessage }
     | { type: 'error'; error: string; message?: import('../core/types.ts').ChatMessage };
 
 /** Starts a generation and calls `onEvent` for each server-sent event. */

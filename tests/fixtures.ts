@@ -9,5 +9,5 @@ const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
 export const SERAPHINA = process.env.HEARTH_FIXTURE_SERAPHINA ?? path.join(dir, 'default_Seraphina.png');
 export const ELDORIA = process.env.HEARTH_FIXTURE_ELDORIA ?? path.join(dir, 'Eldoria.json');
-export const MEOWSSIAH = process.env.HEARTH_FIXTURE_MEOWSSIAH ?? path.join(dir, 'Meowssiah-2.1.6.json');
+export const MEOWSSIAH = process.env.HEARTH_FIXTURE_MEOWSSIAH ?? path.join(dir, 'Meowssiah-2.1.7.json');
 export const MVU_CARD = process.env.HEARTH_FIXTURE_MVU_CARD ?? path.join(dir, 'mvu-card.png');

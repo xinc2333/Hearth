@@ -13,7 +13,7 @@ import {
 } from '../state.ts';
 import { AutoTextarea, Avatar, Button, clockTime, Empty, IconButton, isModalOpen, Segmented } from './common.tsx';
 import { EditResults } from './EditResults.tsx';
-import { CheckBar, hideSettlement, type TabletopProgress } from './Tabletop.tsx';
+import { CheckBar, hideSettlement, SettleNote, type TabletopProgress } from './Tabletop.tsx';
 import { ReadingControls } from './Reading.tsx';
 import { pickImportFiles } from './Sidebar.tsx';
 
@@ -199,6 +199,7 @@ const MessageView = memo(function MessageView({ chat, message, index, isLast, co
             {writingEdits >= 0 && !live?.finalizing && <div className="msg-note"><span className="pulse" /> 正在写修改{writingEdits ? `（${writingEdits} 处）` : ''}…</div>}
             {isEdit && !live && swipe?.edits && <EditResults chat={chat} message={message} edits={swipe.edits} />}
             {live?.finalizing && <div className="msg-note delayed">{isEdit ? '回复已完成，正在保存修改…' : '回复已完成，正在整理（例如更新变量）…'}</div>}
+            {!isUser && !isEdit && !live && editing === null && <SettleNote chat={chat} message={message} />}
             {swipe?.finish === 'error' && !live && <div className="msg-error">生成失败：{swipe.error}</div>}
             {swipe?.finish === 'aborted' && !live && <div className="msg-note">已中止</div>}
             {swipe?.finish === 'length' && !live && <div className="msg-note">达到长度上限，可以点「继续写」</div>}
@@ -245,9 +246,9 @@ function Composer({ chatId }: { chatId: string }) {
     const [noteOpen, setNoteOpen] = useState(false);
     const editing = mode === 'edit';
     const setMode = (next: 'story' | 'edit') => void changeChat(chatId, [{ op: 'set', path: ['mode'], value: next }]).catch(reportError);
-    // A plugin's reply modes (e.g. 剧场 / 聊天) take the place of 剧情.
+    // 剧场 / 聊天 when the preset supports 聊天; otherwise just 剧场.
     const modeControl = controls.find(c => c.type === 'mode');
-    const modeOptions: [string, string][] = [...(modeControl?.options?.map(([v, l]) => [`p:${v}`, l] as [string, string]) ?? [['story', '剧情']]), ['edit', '编辑']];
+    const modeOptions: [string, string][] = [...(modeControl?.options?.map(([v, l]) => [`p:${v}`, l] as [string, string]) ?? [['story', '剧场']]), ['edit', '编辑']];
     const modeValue = editing ? 'edit' : modeControl ? `p:${String(modeControl.value)}` : 'story';
     const chooseMode = (value: string) => {
         if (value === 'edit') return setMode('edit');
@@ -258,6 +259,7 @@ function Composer({ chatId }: { chatId: string }) {
     const note = controls.find(c => c.type === 'note');
     const editTasks = useAppState(s => s.contexts[chatId]?.editTasks) ?? [];
     const judging = (streaming?.progress?.tabletop as { phase?: string } | undefined)?.phase === 'ruling';
+    const waiting = (streaming?.progress?.hearth as { phase?: string } | undefined)?.phase === 'waiting' && !streaming?.messageId;
     const send = () => {
         if (busy || (editing && !text.trim())) return;
         const value = text;
@@ -299,7 +301,7 @@ function Composer({ chatId }: { chatId: string }) {
                 )}
                 <span className="composer-hint grow">
                     {busy
-                        ? <><span className="pulse" />{streaming.finalizing ? '正在整理回复…' : written ? `正在生成 · ${written.toLocaleString()} 字` : judging ? '正在裁定，掷骰中…' : '正在等待回复…'}<kbd>Esc</kbd>停止</>
+                        ? <><span className="pulse" />{streaming.finalizing ? '正在整理回复…' : written ? `正在生成 · ${written.toLocaleString()} 字` : judging ? '正在裁定，掷骰中…' : waiting ? '正在等上一轮结算完…' : '正在等待回复…'}<kbd>Esc</kbd>停止</>
                         : text ? <><kbd>Enter</kbd>发送<kbd>Shift</kbd>+<kbd>Enter</kbd>换行</> : editing ? <>改动会直接保存，可以撤销</> : modeHint ? <>{modeHint}</> : <>留空发送，让角色继续说</>}
                 </span>
                 {busy
@@ -315,7 +317,7 @@ function NotePopover({ control, onClose, onSave }: { control: { label: string; v
     return (
         <div className="popover note-popover" role="dialog" aria-label={control.label}>
             <div className="popover-title">{control.label}</div>
-            <AutoTextarea minRows={3} maxHeight={240} value={value} autoFocus placeholder="写给小猫之神的场外指示，例如：这一轮多写环境描写" onChange={e => setValue(e.target.value)}
+            <AutoTextarea minRows={3} maxHeight={240} value={value} autoFocus placeholder="写给 AI 的场外指示，例如：这一轮多写环境描写" onChange={e => setValue(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) onSave(value); }} />
             {control.hint && <p className="muted small">{control.hint}</p>}
             <div className="row-end">

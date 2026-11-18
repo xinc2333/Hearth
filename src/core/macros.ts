@@ -4,6 +4,7 @@
 // Macros are looked up in a registry, so plugins can add their own with registerMacro().
 
 import { getPath, toYaml } from './state.ts';
+import type { ReplyOptions } from './types.ts';
 import { hashString } from './util.ts';
 
 export interface MacroContext {
@@ -39,6 +40,8 @@ export interface MacroContext {
     seed: string;
     /** Extra named values, e.g. format-string parameters. */
     values?: Record<string, string>;
+    /** The composer's switches for this reply. */
+    reply?: ReplyOptions;
 }
 
 export type MacroHandler = (args: string[], ctx: MacroContext, raw: string) => string | undefined;
@@ -231,12 +234,21 @@ for (const [scope, pick] of [
         const value = getPath(pick(ctx), args.join('::').trim());
         return value && typeof value === 'object' ? toYaml(value) : stringify(value);
     });
+    // TavernHelper 4.11.3: strings always quoted, so 「100/100」 is not read as a division.
+    registerMacro(`format_${scope}_variable_quoted`, (args, ctx) => {
+        const value = getPath(pick(ctx), args.join('::').trim());
+        return value && typeof value === 'object' ? toYaml(value, 0, true) : typeof value === 'string' ? JSON.stringify(value) : stringify(value);
+    });
 }
 variableMacros('global', ctx => ctx.globalVariables);
 
 registerMacro(['user', 'notchar'], (_a, ctx) => ctx.user);
 registerMacro(['char', 'charifnotgroup', 'group', 'groupnotmuted'], (_a, ctx) => ctx.char);
 registerMacro('persona', (_a, ctx) => ctx.persona);
+// Hearth's composer switches (see core/reply.ts).
+registerMacro('hearth_note', (_a, ctx) => ctx.reply?.note ?? '');
+registerMacro('hearth_mode', (_a, ctx) => ctx.reply?.mode ?? 'theater');
+registerMacro('hearth_deepthink', (_a, ctx) => String(ctx.reply?.deepThink === true));
 registerMacro(['description', 'chardescription'], (_a, ctx) => ctx.description);
 registerMacro(['personality', 'charpersonality'], (_a, ctx) => ctx.personality);
 registerMacro(['scenario', 'charscenario'], (_a, ctx) => ctx.scenario);

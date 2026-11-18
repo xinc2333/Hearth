@@ -1,4 +1,5 @@
-// 跑团: dice, attitudes, settlement, the card sheet, and a full turn through the 小猫之神 preset.
+// 跑团: dice, attitudes, settlement, the card sheet, and full turns through a plain preset and
+// through the Meowssiah preset (a tool conversation built by its own request script).
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -21,8 +22,8 @@ import { changeAxis, decay, describe } from '../src/plugins/tabletop/attitude.ts
 import { TABLETOP_ENTRIES } from '../src/plugins/tabletop/entries.ts';
 import { effectiveValue, resolveChecks } from '../src/plugins/tabletop/ruling.ts';
 import { DEFAULT_RULES, successChance, successLine, tierOf } from '../src/plugins/tabletop/rules.ts';
-import { applySettlement, extractSettlement } from '../src/plugins/tabletop/settle.ts';
-import { cardSheet, emptyAxes, parseSheetYaml, relationValue, sheetToYaml, stateFromSheet, type Relation, type SwipeData, type TabletopState } from '../src/plugins/tabletop/sheet.ts';
+import { applySettleArgs, applySettlement, extractSettlement } from '../src/plugins/tabletop/settle.ts';
+import { cardSheet, emptyAxes, normalizeSheet, parseSheetYaml, relationValue, sheetToYaml, stateFromSheet, type Relation, type Sheet, type SwipeData, type TabletopState } from '../src/plugins/tabletop/sheet.ts';
 import { MEOWSSIAH } from './fixtures.ts';
 
 const SHEET_YAML = `
@@ -100,7 +101,8 @@ test('跑团 attitudes: lasting part and passing feeling, traits, limits and wor
     assert.equal(Math.round(old.base.affection), 2, 'an old friend keeps 20%');
     assert.equal(Math.round(old.mood.affection), 8);
     const high = rel(0, 80);
-    assert.equal(Math.round(changeAxis(high, 'affection', 10, plain)), 4, 'slower near the top');
+    assert.equal(Math.round(changeAxis(high, 'affection', 10, plain)), 6, 'slower near the top');
+    assert.equal(Math.round(changeAxis({ ...rel(0), base: { ...emptyAxes(), trust: 10 } }, 'trust', -10, plain)), -5, 'but still moves near the bottom');
     assert.equal(Math.round(changeAxis(rel(0), 'affection', 100, plain)), 30, 'capped per turn');
     assert.equal(Math.round(changeAxis(rel(0), 'affection', 10, { ...plain, 敏感: 2 })), 20);
     assert.equal(Math.round(changeAxis(rel(0), 'trust', 10, { ...plain, 多疑: 2 })), 5, 'trust is slow to build for the suspicious');
@@ -134,6 +136,61 @@ test('跑团 settlement: the hidden block is applied line by line and taken out 
     assert.equal(state.characters['主角'].attributes['口才'], 135, 'attribute growth is capped per turn');
     assert.equal(state.log.length, 4);
     assert.equal(extractSettlement('没有结算').raw, null);
+
+    // Only others' attitudes toward the protagonist are numbers; others stand with each other in words.
+    const more = applySettlement(state, '态度｜主角→林晚｜亲近+5｜我喜欢她\n态度｜林晚→守卫甲｜怨恨+5｜他拦路\n关系｜林晚与守卫甲｜结了仇｜他拦住了她', '阿尘');
+    assert.deepEqual(more.map(r => r.ok), [false, false, true]);
+    assert.match(more[0].text, /玩家决定/);
+    assert.deepEqual(state.bonds.map(b => [b.between, b.text]), [[['林晚', '守卫甲'], '结了仇']]);
+    assert.equal(state.relations.length, 1);
+});
+
+test('跑团 settlement tool: every character on scene, bonds in words, statuses, newcomers and growth', () => {
+    const state = stateFromSheet(parseSheetYaml(SHEET_YAML));
+    state.turn = 3;
+    const rel = () => state.relations.find(r => r.from === '林晚')!;
+    const before = { affection: relationValue(rel(), 'affection'), trust: relationValue(rel(), 'trust'), familiarity: rel().familiarity };
+    const results = applySettleArgs(state, {
+        present: ['林晚', '守卫甲'],
+        attitudes: [
+            { who: '晚晚', affection: 10, trust: '+6', familiarity: 5, reason: '你替她挡了一刀' },
+            { who: '守卫甲', fear: 12, reason: '被主角打退' },
+            { who: '主角', affection: 30, reason: '心动了' },
+            { who: '沈掌柜', affection: 0, reason: '没有变化' },
+        ],
+        bonds: [{ between: ['林晚', '守卫甲'], now: '互相提防', reason: '守卫甲认出了她' }],
+        status: [{ who: '我', change: 'add', name: '左臂刀伤', effects: '力量×0.8', note: '被划了一刀' }, { who: '林晚', change: 'remove', name: '旧伤未愈' }],
+        new_characters: [{ name: '守卫甲', attributes: '力量160 感知130', note: '后门守卫' }],
+        growth: [{ who: '主角', item: '开锁', change: '大师', reason: '一夜之间开了七把锁' }, { who: '主角', item: '口才', change: '+50', reason: '练习' }],
+    }, '阿尘');
+    const failed = results.filter(r => !r.ok);
+    assert.deepEqual(failed.map(r => r.line), ['态度 主角'], 'the protagonist\'s own feelings are not recorded');
+    assert.ok(relationValue(rel(), 'affection') > before.affection && relationValue(rel(), 'trust') > before.trust);
+    assert.equal(rel().familiarity, before.familiarity + 5);
+    assert.equal(rel().reasons.at(-1)?.text, '你替她挡了一刀');
+    const guard = state.relations.find(r => r.from === '守卫甲');
+    assert.ok(guard && relationValue(guard, 'fear') > 0, 'a newcomer is registered before its attitude');
+    assert.equal(state.characters['守卫甲'].attributes['力量'], 160);
+    assert.ok(!state.relations.some(r => r.from === '沈掌柜'), 'no change, nothing recorded');
+    assert.deepEqual(state.bonds[0].between, ['林晚', '守卫甲']);
+    assert.equal(state.characters['主角'].status[0].effects['力量'], 0.8);
+    assert.equal(state.characters['林晚'].status.length, 0);
+    assert.equal(state.characters['主角'].skills['开锁'], '大师');
+    assert.equal(state.characters['主角'].attributes['口才'], 135);
+    const attitudeLines = results.filter(r => r.ok && r.kind === 'attitude').map(r => r.who);
+    assert.deepEqual(attitudeLines, ['林晚', '守卫甲']);
+    assert.ok(results.some(r => r.kind === 'status' && r.who === '主角'));
+});
+
+test('跑团 older sheets: the protagonist\'s own attitudes go, attitudes between others become words', () => {
+    const old = parseSheetYaml(`${SHEET_YAML}
+  - { 从: 林晚, 对: 沈掌柜, 亲近: 10, 怨恨: 70, 信任: 5 }
+`);
+    assert.equal(old.relations.length, 1);
+    assert.equal(old.bonds.length, 1);
+    assert.match(old.bonds[0].text, /怨恨/);
+    const legacy = normalizeSheet({ custom: {}, characters: {}, relations: [{ from: '主角', to: '林晚', base: emptyAxes(), mood: emptyAxes(), familiarity: 0, reasons: [] }] } as unknown as Sheet);
+    assert.deepEqual([legacy.relations.length, legacy.bonds.length], [0, 0]);
 });
 
 test('跑团 sheet: YAML round trip, and 数据化适配 writes it through the 编辑 block', async t => {
@@ -183,111 +240,166 @@ test('跑团 sheet: YAML round trip, and 数据化适配 writes it through the �
 });
 
 test('跑团 entries are taken out of the ordinary prompt', () => {
-    const { rest, found } = takeEntries(`前文\n${TABLETOP_ENTRIES[0].content}\n${TABLETOP_ENTRIES[2].content}`);
+    const entry = (kind: string) => TABLETOP_ENTRIES.find(e => e.kind === kind)!.content;
+    const { rest, found } = takeEntries(`前文\n${entry('ruling')}\n${entry('pass')}\n<<<|hearth|settle-lead>>>\n<think>记账了</think>`);
     assert.equal(rest, '前文');
     assert.match(found.ruling!, /^【DM 裁定】/);
     assert.match(found.pass!, /绝对通过/);
+    assert.equal(found['settle-lead'], '<think>记账了</think>');
     assert.equal(found.narrate, undefined);
+    assert.ok(TABLETOP_ENTRIES.every(e => !/\p{Extended_Pictographic}/u.test(e.name + e.content)), 'no emoji');
 });
 
-test('跑团 with 小猫之神: ruling, dice, narration and settlement in one turn', { skip: !existsSync(MEOWSSIAH) }, async t => {
-    const dir = await mkdtemp(path.join(tmpdir(), 'hearth-tabletop-turn-'));
-    t.after(() => rm(dir, { recursive: true, force: true }));
-
+/** A mock endpoint: 裁定 and 结算 answer through their tools, the reply streams as text. */
+async function mockModel(t: { after: (fn: () => unknown) => void }, reply: string) {
     const bodies: Record<string, any>[] = [];
-    let rulingCalls = 0;
+    const calls = { ruling: 0, settle: 0 };
     const server = createServer(async (req, res) => {
         let raw = '';
         for await (const chunk of req) raw += chunk;
         const body = JSON.parse(raw);
         bodies.push(body);
-        if (body.tool_choice?.function?.name === 'hearth_check') {
-            rulingCalls++;
-            const round = body.messages.filter((m: { role: string; name?: string }) => m.role === 'tool' && m.name === 'hearth_check').length;
-            const args = round === 0
-                ? { think: '要撬锁', checks: [{ actor: '主角', action: '撬开后门的锁', reason: '锁很旧', attribute: '敏捷', skill: '开锁', difficulty: 150, outcomes: { critical: '锁应声而开', success: '锁开了', failure: '锁芯卡住', fumble: '发卡断了' } }], done: false }
-                : { checks: [{ actor: '林晚', action: '察觉主角的动静', attribute: '感知', opponent: { name: '主角', attribute: '敏捷' }, hidden: true, outcomes: { critical: '她早就看见了', success: '她听见了', failure: '她没注意', fumble: '她睡着了' } }], done: true };
+        const forced = body.tool_choice?.function?.name;
+        const answer = (name: string, args: unknown) => {
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: `call_${round}`, type: 'function', function: { name: 'hearth_check', arguments: JSON.stringify(args) } }] }, finish_reason: 'tool_calls' }] }));
-            return;
+            res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: `call_${bodies.length}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: 'tool_calls' }] }));
+        };
+        if (forced === 'hearth_check') {
+            calls.ruling++;
+            const round = body.messages.filter((m: { role: string; name?: string }) => m.role === 'tool' && m.name === 'hearth_check').length;
+            return answer('hearth_check', round === 0
+                ? { think: '要撬锁', checks: [{ actor: '主角', action: '撬开后门的锁', reason: '锁很旧', attribute: '敏捷', skill: '开锁', difficulty: 150, outcomes: { critical: '锁应声而开', success: '锁开了', failure: '锁芯卡住', fumble: '发卡断了' } }], done: false }
+                : { checks: [{ actor: '林晚', action: '察觉主角的动静', attribute: '感知', opponent: { name: '主角', attribute: '敏捷' }, hidden: true, outcomes: { critical: '她早就看见了', success: '她听见了', failure: '她没注意', fumble: '她睡着了' } }], done: true });
         }
-        const reply = '<game>后门的锁咔哒一声。林晚回过头。</game>\n<结算>\n态度｜林晚→主角｜亲近+10｜你回来了\n</结算>';
+        if (forced === 'hearth_settle') {
+            calls.settle++;
+            return answer('hearth_settle', {
+                present: ['林晚'],
+                attitudes: [{ who: '林晚', affection: 10, familiarity: 3, reason: '你回来了' }],
+                status: [{ who: '主角', change: 'add', name: '手上的划伤', effects: '敏捷×0.9' }],
+            });
+        }
         res.writeHead(200, { 'Content-Type': 'text/event-stream' });
         res.end(`data: ${JSON.stringify({ choices: [{ delta: { content: reply } }] })}\n\ndata: [DONE]\n\n`);
     });
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
     t.after(() => new Promise<void>(resolve => server.close(() => resolve())));
-    const port = (server.address() as { port: number }).port;
+    return { bodies, calls, url: `http://127.0.0.1:${(server.address() as { port: number }).port}/v1` };
+}
 
+async function tabletopRuntime(dir: string, base: Preset, url: string) {
     const store = new Store(dir);
     store.load();
-    const imported = importStPreset(JSON.parse(readFileSync(MEOWSSIAH, 'utf8')), 'Meowssiah', 'm.json');
-    for (const [i, e] of TABLETOP_ENTRIES.entries()) {
-        const id = `hearth-tabletop-${i}`;
-        imported.prompts.push({ ...imported.prompts.find(p => !p.marker && p.content)!, id, name: e.name, content: e.content });
-        imported.order.push({ id, enabled: true });
+    for (const e of TABLETOP_ENTRIES) {
+        const id = `hearth-tabletop-${e.kind}`;
+        base.prompts.push({ ...(base.prompts.find(p => !p.marker && p.content) ?? base.prompts[0]), id, name: e.name, role: 'system', content: e.content, marker: false, builtin: false });
+        base.order.push({ id, enabled: true });
     }
-    const preset = await store.create(imported as Preset);
+    const preset = await store.create(base);
     await store.saveSettings({
         presetId: preset.id,
         userName: '阿尘',
-        connections: [{ id: 'c', name: 'mock', provider: 'openai-compatible', baseUrl: `http://127.0.0.1:${port}/v1`, model: 'gemini-3.8-flash', sendNames: true }],
+        connections: [{ id: 'c', name: 'mock', provider: 'openai-compatible', baseUrl: url, model: 'gemini-3.8-flash', sendNames: true }],
         connectionId: 'c',
     });
-    const host = new PluginHost(store, '0.4.0');
-    await host.use(tavernHelper, { id: 'tavern-helper', name: '酒馆助手', version: '1.0.0', order: 20 });
-    await host.use(tabletop, { id: 'tabletop', name: '跑团', version: '1.0.0', order: 30 });
+    const host = new PluginHost(store, '0.6.0');
+    await host.use(tavernHelper, { id: 'tavern-helper', name: '酒馆助手', version: '1.1.0', order: 20 });
+    await host.use(tabletop, { id: 'tabletop', name: '跑团', version: '1.1.0', order: 30 });
     const runtime = new Runtime(store, host);
+    host.sender = (body, signal) => runtime.send(body, signal);
     const card = importCard({ name: '林晚', first_mes: '雨夜，后门紧锁。' }, 'c.json').character;
     card.extra = { hearth: { rpg: parseSheetYaml(SHEET_YAML) } };
     const character = await store.create(card);
     const chat = await runtime.createChat(character.id);
-    const control = () => host.controls({ chat: store.require<Chat>('chat', chat.id), character, preset }).find(c => c.id === 'tabletop:pass');
-    assert.ok(control(), 'the 检定绝对通过 switch appears for a card with a sheet');
+    return { store, host, runtime, preset, character, chat };
+}
+
+const lastSwipe = (chat: Chat) => {
+    const m = chat.messages.at(-1)!;
+    return m.swipes[m.activeSwipe].plugins?.tabletop as SwipeData;
+};
+
+test('跑团 with a plain preset: ruling, reply and settlement as three steps', async t => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'hearth-tabletop-plain-'));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const mock = await mockModel(t, '后门的锁咔哒一声。林晚回过头。');
+    const { store, runtime, chat } = await tabletopRuntime(dir, importStPreset({ openai_max_context: 64000, openai_max_tokens: 4096, stream_openai: true }, '默认', '') as Preset, mock.url);
 
     const events: { type: string; plugin?: string }[] = [];
     await runtime.generate(chat.id, { type: 'normal', text: '我用发卡去撬后门的锁' }, e => events.push(e as never));
-    assert.ok(events.some(e => e.type === 'done'));
-    assert.equal(rulingCalls, 2, 'a dependent check came in a second round');
-    assert.ok(events.some(e => e.type === 'progress' && e.plugin === 'tabletop'));
+    assert.deepEqual(mock.calls, { ruling: 2, settle: 1 });
+    const [first, , narration, settle] = mock.bodies;
+    const base = narration.messages.length - 1;
+    assert.deepEqual(first.messages.slice(0, base), narration.messages.slice(0, base), 'every step keeps the preset\'s request and adds to its end');
+    assert.match(first.messages.at(-1).content, /【DM 裁定】/);
+    assert.match(first.messages.at(-1).content, /主角（阿尘）：力量100/);
+    assert.equal(first.messages.at(-1).role, 'system');
+    assert.deepEqual(first.tools.map((x: any) => x.function.name), ['hearth_check', 'hearth_settle']);
+    assert.equal(narration.tools, undefined, 'a plain reply request gets no tools');
+    assert.match(narration.messages.at(-1).content, /【本轮检定结果】[\s\S]*【写作要求】/);
+    assert.ok(!JSON.stringify(narration.messages).includes('【结算】'), 'the reply step carries no bookkeeping');
+    assert.deepEqual(settle.messages.slice(0, base + 1), narration.messages);
+    assert.deepEqual(settle.messages.at(-2), { role: 'assistant', content: '后门的锁咔哒一声。林晚回过头。' });
+    assert.match(settle.messages.at(-1).content, /【结算】/);
+    assert.equal(settle.tool_choice.function.name, 'hearth_settle');
+    assert.ok(events.findIndex(e => e.type === 'done') < events.findIndex(e => e.type === 'update'), 'the reply is shown before it is settled');
 
-    const [first, second, narration] = bodies;
-    const n = narration.messages.length - 3;
-    assert.deepEqual(first.messages.slice(0, n), narration.messages.slice(0, n), 'both steps keep the preset\'s request as it is');
-    assert.equal(first.messages.length, narration.messages.length, 'each step appends one context turn');
-    assert.ok(first.tools.some((x: any) => x.function.name === 'soliumbra_reply'), 'the reply tool stays declared');
+    const data = lastSwipe(store.require<Chat>('chat', chat.id));
+    assert.equal(data.settle?.status, undefined);
+    assert.deepEqual(data.settle?.present, ['林晚']);
+    const rel = data.state!.relations.find(r => r.from === '林晚')!;
+    assert.ok(relationValue(rel, 'affection') > 60);
+    assert.equal(rel.familiarity, 88);
+    assert.equal(data.state!.characters['主角'].status[0].name, '手上的划伤');
+    assert.deepEqual(data.settle!.results.map(r => [r.kind, r.who]), [['attitude', '林晚'], ['status', '主角']]);
+    assert.equal(runtime.lastPrompt(chat.id)?.stages?.length, 3, 'two ruling rounds and the settlement are in the prompt trace');
+});
+
+test('跑团 with Meowssiah: the steps continue its tool conversation, with the same tools', { skip: !existsSync(MEOWSSIAH) }, async t => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'hearth-tabletop-turn-'));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const mock = await mockModel(t, '<game>后门的锁咔哒一声。林晚回过头。</game>');
+    const imported = importStPreset(JSON.parse(readFileSync(MEOWSSIAH, 'utf8')), 'Meowssiah', 'm.json') as Preset;
+    const { store, runtime, chat } = await tabletopRuntime(dir, imported, mock.url);
+    const control = () => runtime.controls(store.require<Chat>('chat', chat.id)).find(c => c.id === 'tabletop:pass');
+    assert.ok(control(), 'the 检定绝对通过 switch appears for a card with a sheet');
+
+    await runtime.generate(chat.id, { type: 'normal', text: '我用发卡去撬后门的锁' }, () => {});
+    assert.deepEqual(mock.calls, { ruling: 2, settle: 1 });
+    const [first, second, narration, settle] = mock.bodies;
+    const base = narration.messages.length - 2;
+    assert.deepEqual(first.messages.slice(0, base), narration.messages.slice(0, base), 'every step keeps the preset\'s request as it is');
+    assert.equal(narration.messages[base - 1].tool_call_id, 'call_sync_final', 'the steps come after the preset\'s own last sync');
+    const names = (b: any) => b.tools.map((x: any) => x.function.name);
+    assert.deepEqual(names(first), names(narration));
+    assert.deepEqual(names(settle), names(narration), 'all three steps declare the same tools');
+    assert.ok(names(first).includes('soliumbra_reply'));
     assert.equal(first.toolConfig.functionCallingConfig.allowedFunctionNames[0], 'hearth_check');
-    const rulingTurn = first.messages.at(-1).content as string;
-    assert.match(rulingTurn, /【DM 裁定】/);
-    assert.match(rulingTurn, /主角（阿尘）：力量100/);
-    assert.match(rulingTurn, /我用发卡去撬后门的锁/);
+    assert.equal(narration.tool_choice.function.name, 'soliumbra_reply', 'the reply still goes through the preset\'s reply tool');
+    assert.equal(first.messages.at(-2).tool_calls[0].function.name, 'context');
+    assert.match(first.messages.at(-1).content, /【DM 裁定】/);
     assert.match(second.messages.at(-1).content, /掷骰结果/);
-    assert.equal(narration.tool_choice, 'required', 'the narration still answers through the reply tool');
-    const results = narration.messages.at(-1).content as string;
-    assert.match(results, /【本轮检定结果】/);
-    assert.match(results, /撬开后门的锁/);
-    assert.match(results, /暗骰/);
-    assert.match(results, /【写作要求】/);
-    const sentBefore = JSON.stringify(narration.messages.slice(0, n));
-    assert.ok(!sentBefore.includes('<<<|hearth') && !sentBefore.includes('【DM 裁定】') && !sentBefore.includes('【写作要求】'), 'the 🎲 entries never go out as ordinary entries');
+    assert.match(narration.messages.at(-1).content, /【本轮检定结果】[\s\S]*暗骰[\s\S]*【写作要求】/);
+    const sentBefore = JSON.stringify(narration.messages.slice(0, base));
+    assert.ok(!sentBefore.includes('<<<|hearth') && !sentBefore.includes('【DM 裁定】') && !sentBefore.includes('【写作要求】'), 'the 跑团 entries never go out as ordinary entries');
+    assert.deepEqual(settle.messages.slice(0, narration.messages.length), narration.messages);
+    const replyCall = settle.messages[narration.messages.length].tool_calls[0];
+    assert.equal(replyCall.function.name, 'soliumbra_reply');
+    assert.equal(JSON.parse(replyCall.function.arguments).game_content, '<game>后门的锁咔哒一声。林晚回过头。</game>');
+    assert.match(settle.messages.at(-1).content, /【结算】/);
+    assert.equal(settle.toolConfig.functionCallingConfig.allowedFunctionNames[0], 'hearth_settle');
 
     let current = store.require<Chat>('chat', chat.id);
     let reply = current.messages.at(-1)!;
-    assert.equal(reply.swipes[0].content.includes('<结算>'), false, 'the settlement block is not shown');
     const ruling = (reply.plugins?.tabletop as { ruling: { checks: { roll: number }[] } }).ruling;
     assert.equal(ruling.checks.length, 2);
-    const data = reply.swipes[0].plugins?.tabletop as SwipeData;
-    assert.equal(data.state?.turn, 1);
-    assert.equal(data.settle?.results[0].ok, true);
-    const rel = data.state!.relations.find(r => r.from === '林晚' && r.to === '主角')!;
-    assert.ok(relationValue(rel, 'affection') > 60);
-    const snapshot = runtime.lastPrompt(chat.id);
-    assert.equal(snapshot?.stages?.length, 2, 'both ruling requests are in the prompt trace');
+    assert.equal(lastSwipe(current).state?.turn, 1);
+    assert.ok(relationValue(lastSwipe(current).state!.relations[0], 'affection') > 60);
 
-    // Another version of the reply keeps the dice.
+    // Another version of the reply keeps the dice and is settled on its own.
     await runtime.generate(chat.id, { type: 'swipe' }, () => {});
-    assert.equal(rulingCalls, 2);
-    const again = bodies.at(-1)!.messages.at(-1).content as string;
+    assert.deepEqual(mock.calls, { ruling: 2, settle: 2 });
+    const again = mock.bodies.at(-2)!.messages.at(-1).content as string;
     assert.ok(again.includes(`掷出 ${ruling.checks[0].roll}`));
     current = store.require<Chat>('chat', chat.id);
     reply = current.messages.at(-1)!;
@@ -298,22 +410,25 @@ test('跑团 with 小猫之神: ruling, dice, narration and settlement in one tu
     const user = current.messages.at(-2)!;
     await store.apply({ target: { kind: 'chat', id: chat.id }, ops: [{ op: 'set', path: ['messages', `@${user.id}`, 'swipes', `@${user.swipes[0].id}`, 'content'], value: '我直接踹门' }], author: 'user' });
     await runtime.generate(chat.id, { type: 'regenerate' }, () => {});
-    assert.equal(rulingCalls, 4);
+    assert.equal(mock.calls.ruling, 4);
 
-    // 检定绝对通过: no ruling, the switch turns itself off after the reply.
-    await store.apply({ target: { kind: 'chat', id: chat.id }, ops: await host.changeControl('tabletop:pass', true, { chat: store.require<Chat>('chat', chat.id), character, preset }), author: 'user' });
+    // 检定绝对通过: no ruling, the switch turns itself off after the reply; the reply is still settled.
+    await store.apply({ target: { kind: 'chat', id: chat.id }, ops: await runtime.changeControl(store.require<Chat>('chat', chat.id), 'tabletop:pass', true), author: 'user' });
     assert.equal(control()?.value, true);
+    const settled = mock.calls.settle;
     await runtime.generate(chat.id, { type: 'normal', text: '我推门进去' }, () => {});
-    assert.equal(rulingCalls, 4);
-    assert.match(bodies.at(-1)!.messages.at(-1).content, /检定绝对通过/);
+    assert.equal(mock.calls.ruling, 4);
+    assert.equal(mock.calls.settle, settled + 1);
+    assert.match(mock.bodies.at(-2)!.messages.at(-1).content, /检定绝对通过/);
     assert.equal(control()?.value, false);
-    current = store.require<Chat>('chat', chat.id);
-    assert.equal((current.messages.at(-1)!.swipes[0].plugins?.tabletop as SwipeData).state?.turn, 2);
+    assert.equal(lastSwipe(store.require<Chat>('chat', chat.id)).state?.turn, 2);
 
-    // 聊天 mode talks to 小猫之神 itself: no 跑团 at all.
-    await store.apply({ target: { kind: 'chat', id: chat.id }, ops: await host.changeControl('tavern-helper:mode', 'chat', { chat: store.require<Chat>('chat', chat.id), character, preset }), author: 'user' });
-    const count = bodies.length;
-    await runtime.generate(chat.id, { type: 'normal', text: '猫神你好' }, () => {});
-    assert.equal(bodies.length, count + 1);
-    assert.ok(!JSON.stringify(bodies.at(-1)!.messages.slice(-3)).includes('dm_results'));
+    // 聊天 talks with the AI outside the story: no 跑团, and the next reply is back in 剧场.
+    await store.apply({ target: { kind: 'chat', id: chat.id }, ops: await runtime.changeControl(store.require<Chat>('chat', chat.id), 'mode', 'chat'), author: 'user' });
+    assert.equal(control(), undefined, 'no 检定绝对通过 in 聊天');
+    const count = mock.bodies.length;
+    await runtime.generate(chat.id, { type: 'normal', text: '你好' }, () => {});
+    assert.equal(mock.bodies.length, count + 1);
+    assert.ok(!JSON.stringify(mock.bodies.at(-1)!.messages.slice(-3)).includes('hearth_'));
+    assert.equal(store.require<Chat>('chat', chat.id).reply?.mode, 'theater');
 });

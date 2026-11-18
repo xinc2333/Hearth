@@ -299,7 +299,18 @@ export async function runGeneration(chatId: string, type: GenerationKind, text?:
                     break;
                 case 'done':
                     finish(event.message);
+                    // The switches may change with the reply (a note delivered, 聊天 back to 剧场).
+                    void reloadContext(chatId).catch(() => {});
                     break;
+                case 'update': {
+                    const message = event.message;
+                    setState(s => {
+                        const chat = s.chats[chatId];
+                        if (!chat) return {};
+                        return { chats: { ...s.chats, [chatId]: { ...chat, messages: chat.messages.map(m => (m.id === message.id ? message : m)) } } };
+                    });
+                    break;
+                }
                 case 'error':
                     toast(event.error, 'error');
                     finish(event.message);
@@ -311,11 +322,19 @@ export async function runGeneration(chatId: string, type: GenerationKind, text?:
     } finally {
         finish();
         const chat = await api.get<Chat>('chat', chatId).catch(() => null);
-        if (chat) setState(s => ({ chats: { ...s.chats, [chatId]: chat } }));
+        // A newer reply may have started while background work kept this stream open.
+        if (chat && getState().streaming?.chatId !== chatId) setState(s => ({ chats: { ...s.chats, [chatId]: chat } }));
         void refresh();
         // Plugins may change their switches after a reply (a note delivered, a mode returned).
         void reloadContext(chatId).catch(() => {});
     }
+}
+
+/** Runs a plugin's action for a chat (e.g. 跑团's「重新结算」) and stores the changed chat. */
+export async function pluginAction(chatId: string, plugin: string, id: string, payload: Record<string, unknown>) {
+    const { chat } = await api.action(chatId, plugin, id, payload);
+    setState(s => ({ chats: { ...s.chats, [chatId]: chat } }));
+    return chat;
 }
 
 export async function stopGeneration() {

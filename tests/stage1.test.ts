@@ -1,5 +1,5 @@
 // The preset's own Stage 1 script (SPreset FinalRequestProcessing) running in the sandbox, driven by
-// the 小猫之神 console switches.
+// Hearth's reply switches (剧场 / 聊天, deep thinking, the note) through the preset's console state.
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -12,7 +12,7 @@ import { importStPreset } from '../src/core/compat/st-preset.ts';
 import type { Chat } from '../src/core/types.ts';
 import { buildBody } from '../src/server/providers/openai.ts';
 import plugin from '../src/plugins/tavern-helper/index.ts';
-import { consoleEnabled, oracleState } from '../src/plugins/tavern-helper/console.ts';
+import { consoleEnabled } from '../src/plugins/tavern-helper/console.ts';
 import { PluginHost } from '../src/server/plugins.ts';
 import { Runtime } from '../src/server/runtime.ts';
 import { Store } from '../src/server/store.ts';
@@ -26,8 +26,8 @@ test('Meowssiah: its own request script shapes the request, and the console swit
     const preset = await store.create(importStPreset(JSON.parse(readFileSync(MEOWSSIAH, 'utf8')), 'Meowssiah', 'm.json'));
     await store.saveSettings({ presetId: preset.id });
     assert.ok(consoleEnabled(preset));
-    const host = new PluginHost(store, '0.3.0');
-    await host.use(plugin, { id: 'tavern-helper', name: '酒馆助手', version: '1.0.0' });
+    const host = new PluginHost(store, '0.6.0');
+    await host.use(plugin, { id: 'tavern-helper', name: '酒馆助手', version: '1.1.0' });
     const runtime = new Runtime(store, host);
     const character = await store.create(importCard({ name: '简珣祎', first_mes: '秋深矣，不知邻人作何事？' }, 'c.json').character);
     let chat = await runtime.createChat(character.id);
@@ -44,9 +44,11 @@ test('Meowssiah: its own request script shapes the request, and the console swit
         return { body: body as { messages: { role: string; content: unknown }[]; tools?: { function: { name: string; parameters: { properties: Record<string, { description: string }> } } }[]; tool_choice?: unknown }, warnings, ms: Date.now() - started };
     };
     const change = async (id: string, value: unknown) => {
-        const ops = await host.changeControl(`tavern-helper:${id}`, value, { chat: store.require<Chat>('chat', chat.id), character, preset });
+        const ops = await runtime.changeControl(store.require<Chat>('chat', chat.id), id, value);
         await store.apply({ target: { kind: 'chat', id: chat.id }, ops, author: 'user', journal: false });
     };
+    // The preset's console makes Hearth's switches available.
+    assert.deepEqual(runtime.controls(chat).map(c => c.id), ['mode', 'deepThink', 'note']);
 
     const theater = await request();
     assert.deepEqual(theater.warnings, []);
@@ -58,23 +60,18 @@ test('Meowssiah: its own request script shapes the request, and the console swit
     assert.ok(!/catgodml|run_tool_replacement|<\|sep\|>/.test(sent), 'the preset strips its own markers');
     assert.ok(sent.includes('你好'));
 
-    await change('mode', 'chat');
+    // Deep thinking: the preset's own wording, at the end of its request.
     await change('deepThink', true);
+    const deep = await request();
+    assert.ok(JSON.stringify(deep.body.messages.slice(-3)).includes('深度大思考'), 'deep thinking uses the preset\'s own wording');
+    assert.equal(JSON.stringify(deep.body.tools), JSON.stringify(theater.body.tools), 'and does not change its tools');
+
+    await change('mode', 'chat');
     await change('note', '这一轮多写环境描写');
     const chatMode = await request();
     const think = chatMode.body.tools?.find(x => x.function.name === 'soliumbra_reply')!.function.parameters.properties.think_nya.description;
     assert.match(think!, /本体的身份/, 'chat mode uses the preset\'s own chat-mode wording');
-    assert.match(think!, /深度/, 'deep thinking uses the preset\'s own wording');
     assert.ok(JSON.stringify(chatMode.body.messages).includes('这一轮多写环境描写'), 'the note goes into the request');
-    assert.notEqual(JSON.stringify(chatMode.body.tools), JSON.stringify(theater.body.tools));
-
-    // After a successful reply the note is delivered and 聊天 returns to 剧场, like the console.
-    for (const fn of host.receive) {
-        const out = await fn({ chat: store.require<Chat>('chat', chat.id), character, preset, message: chat.messages[0], swipe: chat.messages[0].swipes[0], text: '喵', finish: 'stop' });
-        if (out?.ops) await store.apply({ target: { kind: 'chat', id: chat.id }, ops: out.ops, author: 'system', journal: false });
-    }
-    const after = oracleState(store.require<Chat>('chat', chat.id), 'tavern-helper');
-    assert.equal(after.note.text, '');
-    assert.equal(after.mode, 'theater');
-    assert.equal(after.deepThink, true, 'deep thinking stays on');
+    const meta = store.require<Chat>('chat', chat.id).plugins?.['tavern-helper']?.chatMetadata as { catgod_oracle?: { oracleState?: { mode: string; deepThink: boolean; note: { text: string } } } };
+    assert.deepEqual([meta.catgod_oracle?.oracleState?.mode, meta.catgod_oracle?.oracleState?.deepThink, meta.catgod_oracle?.oracleState?.note.text], ['chat', true, '这一轮多写环境描写'], 'the switches reach the script as its console state');
 });

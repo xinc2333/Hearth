@@ -5,6 +5,7 @@ import { clamp, DEFAULT_RULES, fmt, type Rules } from './rules.ts';
 import { AXES, AXIS_LABEL, emptyAxes, relationValue, type Axis, type CharacterSheet, type Relation, type TabletopState } from './sheet.ts';
 
 export const MAX_TURN_CHANGE = 30;
+const EDGE_FLOOR = 0.4;
 const KEEP_REASONS = 5;
 
 const traitOf = (state: TabletopState, name: string) => state.characters[name]?.traits ?? { 敏感: 1, 记仇: 1, 多疑: 1 };
@@ -40,8 +41,9 @@ export function changeAxis(rel: Relation, axis: Axis, proposed: number, traits: 
     if (axis === 'trust') delta = delta > 0 ? delta / traits.多疑 : delta * traits.多疑;
     delta = clamp(delta, -MAX_TURN_CHANGE, MAX_TURN_CHANGE);
     const now = relationValue(rel, axis);
-    if (delta > 0 && now > 50) delta *= (100 - now) / 50;
-    if (delta < 0 && now < 50) delta *= now / 50;
+    // Harder to move near either end, but never to a standstill: at the very end 40% still applies.
+    if (delta > 0 && now > 50) delta *= EDGE_FLOOR + (1 - EDGE_FLOOR) * (100 - now) / 50;
+    if (delta < 0 && now < 50) delta *= EDGE_FLOOR + (1 - EDGE_FLOOR) * now / 50;
     const settle = 0.2 + 0.6 * (1 - rel.familiarity / 100);
     rel.base[axis] = clamp(rel.base[axis] + delta * settle, 0, 100);
     rel.mood[axis] += delta * (1 - settle);
@@ -64,8 +66,9 @@ export function applyAttitude(state: TabletopState, from: string, to: string, ch
     const done: string[] = [];
     for (const [axis, proposed] of Object.entries(changes) as [Axis, number][]) {
         if (!proposed) continue;
-        const real = changeAxis(rel, axis, proposed, traits);
-        done.push(`${AXIS_LABEL[axis]}${real >= 0 ? '+' : ''}${fmt(Math.round(real))}`);
+        const real = Math.round(changeAxis(rel, axis, proposed, traits));
+        // A change the rules shrink to nothing is not worth showing.
+        if (real) done.push(`${AXIS_LABEL[axis]}${real > 0 ? '+' : ''}${fmt(real)}`);
     }
     const change = done.join(' ');
     addReason(rel, state.turn, reason, change);
