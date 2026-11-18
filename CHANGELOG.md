@@ -6,6 +6,8 @@
 
 ## [未发布]
 
+## [0.5.0] - 2026-11-18
+
 ### 新增
 
 - 桌面版：Hearth 现在是一个正常的 Windows 程序。用安装包安装，不用另装 Node.js，打开时也没有黑色的命令行窗口。
@@ -106,7 +108,8 @@
 - 对接 OpenAI 兼容接口的流式对话：显示思考过程，支持中途停止、重新生成、续写和多版本切换。
 - Windows 启动脚本：如果后台还在运行旧版本，会自动替换为新版本；可选的 `Start.local.bat` 用来写本机专属设置（例如代理）。
 
-[未发布]: https://github.com/xinc2333/Hearth/compare/v0.4.0...HEAD
+[未发布]: https://github.com/xinc2333/Hearth/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/xinc2333/Hearth/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/xinc2333/Hearth/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/xinc2333/Hearth/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/xinc2333/Hearth/compare/v0.1.0...v0.2.0
