@@ -67,8 +67,9 @@ function ConnectionSection() {
         }
     };
 
+    const changed = Boolean(key) || (['name', 'baseUrl', 'model'] as const).some(k => (form[k] ?? '') !== (current?.[k] ?? ''));
     return (
-        <div className="settings-section">
+        <div className="settings-section" data-unsaved={changed ? '' : undefined}>
             <div className="chip-row">
                 {connections.map(c => (
                     <button key={c.id} className={`chip${c.id === selected ? ' active' : ''}`} onClick={() => setSelected(c.id)}>
@@ -107,9 +108,10 @@ function PersonaSection() {
     const settings = boot?.settings;
     const [selected, setSelected] = useState<string | null>(settings?.personaId ?? null);
     const [persona, setPersona] = useState<Persona | null>(null);
+    const [saved, setSaved] = useState<Persona | null>(null);
     useEffect(() => {
-        if (selected) void api.get<Persona>('persona', selected).then(setPersona).catch(reportError);
-        else setPersona(null);
+        if (selected) void api.get<Persona>('persona', selected).then(p => { setPersona(p); setSaved(p); }).catch(reportError);
+        else { setPersona(null); setSaved(null); }
     }, [selected]);
     const [userName, setUserName] = useState(settings?.userName ?? 'User');
 
@@ -126,12 +128,16 @@ function PersonaSection() {
             { op: 'set', path: ['description'], value: persona.description },
             { op: 'set', path: ['position'], value: persona.position },
         ], '编辑用户角色');
+        setSaved(persona);
         await refresh();
         toast('已保存', 'success');
     };
+    const changed = persona
+        ? (['name', 'description', 'position'] as const).some(k => persona[k] !== saved?.[k])
+        : userName !== (settings?.userName ?? 'User');
 
     return (
-        <div className="settings-section">
+        <div className="settings-section" data-unsaved={changed ? '' : undefined}>
             <p className="muted small">用户角色就是「你」在故事里的身份，对应酒馆的 Persona，会以 {'{{user}}'} 出现在提示词里。</p>
             <div className="chip-row">
                 <button className={`chip${!selected ? ' active' : ''}`} onClick={() => { setSelected(null); void api.saveSettings({ personaId: null }).then(refresh); }}>仅名字</button>
@@ -331,7 +337,8 @@ function appUpdateText(u: AppUpdateStatus | null | undefined): string {
         case 'checking': return '正在检查更新…';
         case 'latest': return '已是最新版';
         case 'downloading': return downloadText(u);
-        case 'ready': return `${u.version} 已经下载好，退出 Hearth 时会自动安装`;
+        case 'ready': return `${u.version} 已经下载好，Hearth 空闲时会自动重启完成更新`;
+        case 'installing': return `正在重启，完成更新到 ${u.version}`;
         case 'error': return `检查更新失败：${u.error ?? '未知原因'}`;
         default: return '';
     }
@@ -353,8 +360,8 @@ function VersionField() {
         <Field label="版本">
             <div className="version-row">
                 <span className="muted small">Hearth {info?.version || '未知'}{status && ` · ${status}`}</span>
-                {info?.desktop && (update?.state === 'ready'
-                    ? <Button variant="primary" onClick={() => void api.installAppUpdate().catch(reportError)}>重启更新</Button>
+                {info?.desktop && (update?.state === 'ready' || update?.state === 'installing'
+                    ? <Button variant="ghost" disabled={update.state === 'installing'} onClick={() => void api.installAppUpdate().catch(reportError)}>现在重启</Button>
                     : <Button variant="ghost" disabled={busy} onClick={check}>{update?.state === 'downloading' ? '下载中…' : busy ? '检查中…' : '检查更新'}</Button>)}
                 <a className="small" href={RELEASES_URL} target="_blank" rel="noreferrer">更新记录</a>
             </div>

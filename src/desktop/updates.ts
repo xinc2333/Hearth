@@ -1,9 +1,11 @@
 // Updating Hearth itself: electron-updater reads the newest GitHub Release (latest.yml and the
-// installer), downloads it in the background and installs it on restart or when Hearth closes.
+// installer) and downloads it in the background. Hearth then restarts on its own to install it, as
+// soon as that interrupts nobody (restart.ts); quitting before that installs it as well.
 
 import electronUpdater from 'electron-updater';
 
 import type { AppUpdateStatus, DesktopShell } from '../server/app.ts';
+import { AutoRestart } from './restart.ts';
 
 export interface Logger {
     info(...args: unknown[]): void;
@@ -40,8 +42,11 @@ export class AppUpdates implements DesktopShell {
         this.enabled = packaged || Boolean(this.testFeed);
     }
 
-    /** Called whenever the status changes (the tray menu follows it). */
-    onChange: ((status: AppUpdateStatus) => void) | null = null;
+    /** Whether restarting now would interrupt nobody (see restart.ts). Unset: wait until Hearth quits. */
+    canRestart: (() => Promise<boolean>) | null = null;
+    /** Called right before Hearth quits to install the update. */
+    beforeInstall: (() => void) | null = null;
+    private autoRestart: AutoRestart | null = null;
 
     updateStatus(): AppUpdateStatus {
         return this.status;
@@ -49,7 +54,6 @@ export class AppUpdates implements DesktopShell {
 
     private set(status: AppUpdateStatus) {
         this.status = status;
-        this.onChange?.(status);
     }
 
     /** Hooks up electron-updater and schedules the checks. Call once the app is ready. */
@@ -90,11 +94,12 @@ export class AppUpdates implements DesktopShell {
             if (size && seconds) this.log.info(`下载更新 ${info.version}：${(size / 1048576).toFixed(1)} MB，用时 ${Math.round(seconds)} 秒，平均 ${(size / 1048576 / seconds).toFixed(2)} MB/s`);
             this.downloadStarted = null;
             this.set({ state: 'ready', version: info.version, checkedAt: Date.now() });
-            this.log.info(`新版本 ${info.version} 已下载好，退出 Hearth 时安装`);
+            this.log.info(`新版本 ${info.version} 已下载好，空闲时自动重启安装`);
+            this.scheduleRestart();
         });
         updater.on('error', error => {
             this.log.warn('检查更新失败：', error);
-            if (this.status.state !== 'ready') this.set({ state: 'error', error: friendly(error), checkedAt: Date.now() });
+            if (this.status.state !== 'ready' && this.status.state !== 'installing') this.set({ state: 'error', error: friendly(error), checkedAt: Date.now() });
         });
         setTimeout(() => this.checkForUpdates(), FIRST_CHECK_MS).unref();
         setInterval(() => this.checkForUpdates(), EVERY_MS).unref();
@@ -105,7 +110,7 @@ export class AppUpdates implements DesktopShell {
             this.set({ state: 'error', error: '从源码运行时不会自动更新', checkedAt: Date.now() });
             return;
         }
-        if (!this.started || ['checking', 'downloading', 'ready'].includes(this.status.state)) return;
+        if (!this.started || ['checking', 'downloading', 'ready', 'installing'].includes(this.status.state)) return;
         this.set({ state: 'checking' });
         electronUpdater.autoUpdater.checkForUpdates().catch(error => {
             // The 'error' event usually reports it as well; make sure the state does not stay "checking".
@@ -113,8 +118,31 @@ export class AppUpdates implements DesktopShell {
         });
     }
 
+    private scheduleRestart() {
+        const canRestart = this.canRestart;
+        if (!canRestart || this.autoRestart) return;
+        this.autoRestart = new AutoRestart({
+            canRestart,
+            announce: soon => {
+                if (this.status.state === 'ready' || this.status.state === 'installing') this.set({ ...this.status, state: soon ? 'installing' : 'ready' });
+            },
+            restart: () => {
+                this.log.info(`Hearth 空闲，重启安装 ${this.status.version}`);
+                this.installUpdate();
+            },
+        });
+        this.autoRestart.start();
+    }
+
     installUpdate() {
-        if (this.status.state !== 'ready') return;
+        if (this.status.state !== 'ready' && this.status.state !== 'installing') return;
+        this.autoRestart?.stop();
+        this.set({ ...this.status, state: 'installing' });
+        try {
+            this.beforeInstall?.();
+        } catch (error) {
+            this.log.warn('记录窗口状态失败：', error);
+        }
         // Silent install, then start the new version.
         setImmediate(() => electronUpdater.autoUpdater.quitAndInstall(true, true));
     }

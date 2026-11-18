@@ -294,7 +294,7 @@ export function TabletopTab({ chat, userName, presetId }: { chat: Chat; userName
             {!reveal && <p className="muted small">按主角的视角：NPC 只显示大致水平，他们心里的态度默认藏着。点「揭开」查看全部数值。</p>}
             {editing !== null ? (
                 <Field label="跑团数据（YAML）" hint="态度改过的线会成为长期态度；保存后从这一轮开始生效">
-                    <AutoTextarea className="mono" value={editing} minRows={12} maxHeight={Math.round(window.innerHeight * 0.65)} spellCheck={false} onChange={e => setEditing(e.target.value)} />
+                    <AutoTextarea className="mono" data-unsaved={editing !== sheetToYaml(state) ? '' : undefined} value={editing} minRows={12} maxHeight={Math.round(window.innerHeight * 0.65)} spellCheck={false} onChange={e => setEditing(e.target.value)} />
                     <div className="row-end">
                         {fromCard && <Button variant="ghost" onClick={() => void save({ ...stateFromSheet(fromCard), turn: state.turn, log: state.log }, '从卡片重新载入跑团数据').then(() => setEditing(null)).catch(reportError)}>从卡片重新载入</Button>}
                         <span className="grow" />

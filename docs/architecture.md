@@ -223,8 +223,14 @@ export default {
 用 electron-updater，更新来源是 GitHub Releases（`electron-builder.yml` 里的 `publish`，打包时写进安装目录的 `resources/app-update.yml`）。
 
 1. 启动 15 秒后检查一次，之后每 6 小时一次：读取最新 Release 的 `latest.yml`，版本更高就在后台下载安装包。有上一版的 `.blockmap` 时只下载有变化的部分。
-2. 下载好后，`/api/version` 的 `update` 变成 `ready`，界面顶部出现提示条。
-3. 点「现在重启更新」（`POST /api/app-update/install`）：Hearth 退出，安装包静默安装，然后启动新版本。不点的话，下次退出 Hearth 时静默安装，下次打开就是新版本。窗口隐藏在通知区域时，下载好会弹一条通知，托盘菜单里也会多出「重启并更新到 X.Y.Z」。
+2. 下载好后，`/api/version` 的 `update` 变成 `ready`。Hearth 每 10 秒检查一次能不能重启（`src/desktop/restart.ts`），同时满足这三条才重启：
+   - 没有回复在生成，回复之后的后台工作（例如跑团的结算）也做完了（`runtime.busy()`）。
+   - 页面上没有没保存的修改：主进程调用页面的 `window.hearthUnsaved()`（`src/web/unsaved.ts`）。带「保存」按钮的表单有改动时，它的元素带 `data-unsaved` 属性；失去焦点才保存的输入框，打过字并且还有焦点时也算。输入框里的草稿会自动保存，不算。
+   - 用户不在：窗口隐藏或最小化，或者在后台超过 1 分钟，或者 3 分钟没有键盘鼠标操作（`powerMonitor.getSystemIdleTime()`）。
+3. 满足时，`update` 先变成 `installing`，页面顶部显示「正在重启 Hearth」，3 秒后再检查一次。用户在这期间回来就取消，回到 `ready`；否则 Hearth 退出，安装包静默安装，然后带着 `--updated` 启动新版本。
+4. 重启前，主进程把窗口当时的样子写进 `window.json` 的 `afterUpdate`。新版本按它恢复：隐藏的继续留在通知区域，在后台的用 `showInactive()` 显示，不抢焦点。页面发现版本变了，提示一次「已更新到 X.Y.Z」。
+
+「设置 → 阅读与外观」的「现在重启」（`POST /api/app-update/install`）可以不等空闲直接重启。在自动重启之前退出 Hearth，也会静默安装。
 
 安装包没有签名，所以不校验更新包的签名，只校验 `latest.yml` 里的 SHA-512。
 
@@ -233,6 +239,7 @@ export default {
 ### 安装包
 
 - 页面顺序：欢迎 → 安装位置 → 安装 → 完成。欢迎页和完成页左侧的图是 `resources/installerSidebar.bmp`（由 `installer-sidebar.svg` 渲染，164×314）。
+- 图标：`resources/icon.svg` 是原稿，一个小写的 h：竖笔是烟囱，拱是壁炉，拱下烧着火。`icon.ico`（16～256 px 共 9 种尺寸，每种单独渲染）、`icon.png`（512 px）和网页用的 `src/web/public/logo.svg` 都从它生成。
 - 完成页有「运行 Hearth」和「创建桌面快捷方式」两个复选框（`resources/installer.nsh` 的 `customFinishPage`）。快捷方式在安装时就建好，不勾选就删掉；更新时保留用户当时的选择，卸载时删除。
 - 只为当前用户安装（`resources/installer.nsh` 跳过「为所有用户安装」那一页），默认装到 `%LOCALAPPDATA%\Programs\Hearth`，可以换位置。不需要管理员权限，自动更新时也不会弹出权限请求。
 - 应用文件不打成 asar 包，因为内置插件要用 `import()` 从各自的文件夹加载。

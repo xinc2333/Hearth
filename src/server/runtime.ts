@@ -424,6 +424,11 @@ export class Runtime {
         return this.jobs.size;
     }
 
+    /** A reply is being generated, or the background work after one (e.g. 结算) is still running. */
+    busy(): boolean {
+        return this.jobs.size > 0 || this.followUps.size > 0;
+    }
+
     isBusy(chatId: string): string | undefined {
         return [...this.jobs.values()].find(j => j.chatId === chatId)?.id;
     }

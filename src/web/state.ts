@@ -7,7 +7,8 @@ import type { Chat, ChatMessage, ReadingSettings, ResourceKind } from '../core/t
 import { api, generate, type Bootstrap, type ChatContext, type PromptSnapshot, type VersionInfo } from './api.ts';
 
 export type GenerationKind = 'normal' | 'swipe' | 'regenerate' | 'continue';
-export type InspectorTab = 'prompt' | 'state' | 'tabletop' | 'character' | 'lore' | 'preset' | 'history';
+export type InspectorTab = 'prompt' | 'state' | 'tabletop' | 'character' | 'lore' | 'history';
+const INSPECTOR_TABS: InspectorTab[] = ['prompt', 'state', 'tabletop', 'character', 'lore', 'history'];
 
 export interface Streaming {
     chatId: string;
@@ -130,7 +131,9 @@ export function toggleSidebar() {
 /** Opens a panel; without a tab, toggles the one used last. */
 export function toggleInspector(tab?: InspectorTab) {
     const current = getState().inspector;
-    const next = tab ? (current === tab ? null : tab) : current ? null : loadPref<InspectorTab>('inspector', 'prompt');
+    // The tab used last may be gone (the 预设 tab moved to Settings).
+    const last = loadPref<InspectorTab>('inspector', 'prompt');
+    const next = tab ? (current === tab ? null : tab) : current ? null : INSPECTOR_TABS.includes(last) ? last : 'prompt';
     if (next) savePref('inspector', next);
     setState({ inspector: next });
 }

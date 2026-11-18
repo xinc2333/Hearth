@@ -177,7 +177,7 @@ const MessageView = memo(function MessageView({ chat, message, index, isLast, co
             {reasoning && <Reasoning text={reasoning} live={thinking} />}
             <div className="msg-body">
                 {editing !== null ? (
-                    <div className="msg-edit">
+                    <div className="msg-edit" data-unsaved={editing !== (swipe?.content ?? '') ? '' : undefined}>
                         <AutoTextarea value={editing} onChange={e => setEditing(e.target.value)} minRows={3} maxHeight={Math.round(window.innerHeight * 0.6)} autoFocus spellCheck={false}
                             onKeyDown={e => {
                                 if (e.key === 'Escape') { e.stopPropagation(); setEditing(null); }
@@ -315,7 +315,7 @@ function Composer({ chatId }: { chatId: string }) {
 function NotePopover({ control, onClose, onSave }: { control: { label: string; value: unknown; hint?: string }; onClose: () => void; onSave: (value: string) => void }) {
     const [value, setValue] = useState(String(control.value ?? ''));
     return (
-        <div className="popover note-popover" role="dialog" aria-label={control.label}>
+        <div className="popover note-popover" role="dialog" aria-label={control.label} data-unsaved={value !== String(control.value ?? '') ? '' : undefined}>
             <div className="popover-title">{control.label}</div>
             <AutoTextarea minRows={3} maxHeight={240} value={value} autoFocus placeholder="写给 AI 的场外指示，例如：这一轮多写环境描写" onChange={e => setValue(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) onSave(value); }} />
@@ -365,10 +365,10 @@ function Welcome() {
             <div className="welcome">
                 <div className="welcome-mark" aria-hidden="true" />
                 <h1>欢迎来到 Hearth</h1>
-                <p>把酒馆的角色卡（PNG / JSON）、世界书或预设拖进窗口就能导入，然后在左侧选一个角色开始对话。</p>
+                <p>把酒馆的角色卡（PNG / JSON）或世界书拖进窗口就能导入，然后在左侧选一个角色开始对话。</p>
                 <div className="welcome-steps">
                     <div><b>1</b>在「设置 → 模型连接」填写接口地址、密钥和模型</div>
-                    <div><b>2</b>导入角色卡；常用的酒馆预设在「设置 → 预设」里导入和开关</div>
+                    <div><b>2</b>点下面的「导入文件」，或者把角色卡拖进窗口</div>
                     <div><b>3</b>选择角色开始聊天；按 <kbd>Ctrl</kbd>+<kbd>K</kbd> 可以快速找到任何角色、对话和功能</div>
                 </div>
                 <div className="row-center">
@@ -533,10 +533,6 @@ export function ChatView() {
                 <button className="chat-ident" title="查看和编辑角色卡" onClick={() => toggleInspector('character')}>
                     <Avatar src={character?.avatar} name={character?.name ?? '?'} size={28} />
                     <span className="chat-title-name">{character?.name}</span>
-                </button>
-                <button className="chat-chip" title="当前预设，点击管理" onClick={() => setState({ settingsOpen: true, settingsSection: 'preset' })}>
-                    <Icon name="sliders" size={13} />
-                    <span>{context?.preset.name ?? '预设'}</span>
                 </button>
                 <span className="grow" />
                 <span className="chat-count">{chat.messages.length} 条消息</span>

@@ -1,14 +1,16 @@
 // The desktop app: runs Hearth's server inside Electron and shows the page in Hearth's own window.
-// No console window, no Node.js to install; updates come from GitHub Releases (updates.ts).
+// No console window, no Node.js to install; updates come from GitHub Releases (updates.ts) and are
+// installed by restarting on its own while nobody is using Hearth (restart.ts).
 // Closing the window keeps Hearth running in the notification area; it quits from the tray menu.
 
-import { app, BrowserWindow, dialog, Menu, nativeImage, nativeTheme, net, screen, session, shell, Tray, type MenuItemConstructorOptions } from 'electron';
+import { app, BrowserWindow, dialog, Menu, nativeImage, nativeTheme, net, powerMonitor, screen, session, shell, Tray } from 'electron';
 import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { format } from 'node:util';
 
 import { createHearth, listen, type Hearth } from '../server/app.ts';
 import { copyData, findOldData } from './migrate.ts';
+import { userAway } from './restart.ts';
 import { AppUpdates } from './updates.ts';
 
 const APP_ID = 'io.github.xinc2333.hearth';
@@ -86,7 +88,12 @@ interface WindowState {
     port?: number;
     /** The "Hearth is still running" notice was shown (the first time the window was closed). */
     trayHint?: boolean;
+    /** Written right before restarting for an update, so the new version comes back the same way. */
+    afterUpdate?: { at: number; shown: boolean; focused: boolean };
 }
+
+/** How the window comes back after restarting for an update; null for an ordinary start. */
+type Resume = { shown: boolean; focused: boolean } | null;
 
 const stateFile = path.join(userDir, 'window.json');
 
@@ -183,6 +190,8 @@ let hearth: Hearth | null = null;
 let baseUrl = '';
 /** Set once Hearth really quits; until then closing the window only hides it. */
 let quitting = false;
+/** When the window last went to the background (null while it is focused; a new window is not focused yet). */
+let blurredAt: number | null = Date.now();
 
 function resource(name: string): string {
     return app.isPackaged ? path.join(process.resourcesPath, name) : path.join(app.getAppPath(), 'resources', name);
@@ -219,37 +228,59 @@ function notify(title: string, content: string) {
 }
 
 /** The icon in the notification area: click to open; right-click for the menu. */
-function createTray(updates: AppUpdates) {
+function createTray() {
     tray = new Tray(resource(process.platform === 'win32' ? 'icon.ico' : 'icon.png'));
     tray.setToolTip('Hearth');
-    const buildMenu = () => {
-        const status = updates.updateStatus();
-        const items: MenuItemConstructorOptions[] = [{ label: '打开 Hearth', click: showWindow }];
-        if (status.state === 'ready') items.push({ label: `重启并更新到 ${status.version}`, click: () => updates.installUpdate() });
-        items.push({ type: 'separator' }, { label: '退出 Hearth', click: () => void requestQuit() });
-        tray?.setContextMenu(Menu.buildFromTemplate(items));
-    };
-    buildMenu();
+    tray.setContextMenu(Menu.buildFromTemplate([
+        { label: '打开 Hearth', click: showWindow },
+        { type: 'separator' },
+        { label: '退出 Hearth', click: () => void requestQuit() },
+    ]));
     tray.on('click', showWindow);
     tray.on('double-click', showWindow);
-    let shown = '';
-    updates.onChange = status => {
-        // Download progress changes often; the menu only cares about the state and the version.
-        const key = `${status.state}:${status.version ?? ''}`;
-        if (key === shown) return;
-        shown = key;
-        buildMenu();
-        if (status.state === 'ready' && !win?.isVisible()) {
-            notify(`Hearth ${status.version} 已经下载好`, '右键点右下角的 Hearth 图标，选「重启并更新」；也可以等退出 Hearth 时自动安装。');
-        }
-    };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Restarting for an update (the rules are in restart.ts).
+// ---------------------------------------------------------------------------------------------
+
+/** Whether the page has something typed and not saved yet (it answers through window.hearthUnsaved). */
+async function unsavedOnPage(): Promise<boolean> {
+    const page = win?.webContents;
+    if (!page || !baseUrl || !isLocal(page.getURL())) return false;
+    const answer = page.executeJavaScript('Boolean(window.hearthUnsaved && window.hearthUnsaved())', true).then(Boolean, () => false);
+    // A page that does not answer is stuck; restarting does not lose more than it already has.
+    const timeout = new Promise<boolean>(resolve => setTimeout(() => resolve(false), 2000));
+    return Promise.race([answer, timeout]);
+}
+
+async function canRestart(): Promise<boolean> {
+    if (!hearth || !win || hearth.runtime.busy()) return false;
+    const focused = win.isFocused();
+    const away = userAway({
+        shown: win.isVisible() && !win.isMinimized(),
+        focused,
+        backgroundMs: focused || blurredAt === null ? 0 : Date.now() - blurredAt,
+        idleMs: powerMonitor.getSystemIdleTime() * 1000,
+    });
+    return away && !await unsavedOnPage();
+}
+
+/** Restarting after an update brings the window back as it was: hidden stays hidden, in the background stays there. */
+function takeResume(state: WindowState): Resume {
+    const saved = state.afterUpdate;
+    if (!saved) return null;
+    delete state.afterUpdate;
+    saveState(state);
+    // Only the start the installer makes (with --updated), and only shortly after the restart.
+    return process.argv.includes('--updated') && Date.now() - saved.at < 10 * 60_000 ? { shown: saved.shown, focused: saved.focused } : null;
 }
 
 function isLocal(url: string): boolean {
     return Boolean(baseUrl) && (url === baseUrl || url.startsWith(`${baseUrl}/`));
 }
 
-function createWindow(state: WindowState) {
+function createWindow(state: WindowState, resume: Resume) {
     const window = new BrowserWindow({
         width: state.width,
         height: state.height,
@@ -262,8 +293,16 @@ function createWindow(state: WindowState) {
         backgroundColor: nativeTheme.shouldUseDarkColors ? '#181716' : '#fbfaf8',
         webPreferences: { contextIsolation: true, sandbox: true, spellcheck: false },
     });
-    if (state.maximized) window.maximize();
-    window.once('ready-to-show', () => window.show());
+    // maximize() also shows the window, so a window that stays hidden is maximized when it is opened.
+    if (state.maximized && resume && !resume.shown) window.once('show', () => window.maximize());
+    else if (state.maximized) window.maximize();
+    window.once('ready-to-show', () => {
+        if (!resume || (resume.shown && resume.focused)) window.show();
+        else if (resume.shown) window.showInactive();
+        // Hidden before the update: stays in the notification area.
+    });
+    window.on('blur', () => { blurredAt = Date.now(); });
+    window.on('focus', () => { blurredAt = null; });
     void window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(SPLASH)}`);
 
     // Links to other sites open in the browser; Hearth's own pages may open in a new window.
@@ -374,9 +413,14 @@ if (!app.requestSingleInstanceLock()) {
             await useChromiumNetwork();
             await prepareData();
             const state = loadState();
-            win = createWindow(state);
+            win = createWindow(state, takeResume(state));
             const updates = new AppUpdates(log, app.isPackaged);
-            createTray(updates);
+            updates.canRestart = canRestart;
+            updates.beforeInstall = () => {
+                state.afterUpdate = { at: Date.now(), shown: Boolean(win?.isVisible() && !win.isMinimized()), focused: Boolean(win?.isFocused()) };
+                saveState(state);
+            };
+            createTray();
             baseUrl = await startServer(state, updates);
             saveState(state);
             await win?.loadURL(baseUrl);

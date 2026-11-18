@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { api, releaseUrl, type VersionInfo } from './api.ts';
+import { releaseUrl, type VersionInfo } from './api.ts';
 import { Boundary } from './components/Boundary.tsx';
 import { ChatView } from './components/ChatView.tsx';
 import { CommandPalette } from './components/CommandPalette.tsx';
@@ -9,7 +9,7 @@ import { Inspector } from './components/Inspector.tsx';
 import { applyReading } from './components/Reading.tsx';
 import { SettingsDialog } from './components/Settings.tsx';
 import { importFiles, Sidebar } from './components/Sidebar.tsx';
-import { getState, openChat, refresh, reportError, savePref, setState, toggleInspector, toggleSidebar, useAppState, useReading } from './state.ts';
+import { getState, openChat, refresh, reportError, savePref, setState, toast, toggleInspector, toggleSidebar, useAppState, useReading } from './state.ts';
 
 function Toasts() {
     const toasts = useAppState(s => s.toasts);
@@ -49,11 +49,14 @@ export function App() {
     const [dragging, setDragging] = useState(false);
     const [outdated, setOutdated] = useState(false);
     const update = useAppState(s => s.version?.update);
-    const [later, setLater] = useState('');
+    const version = useAppState(s => s.version?.version);
+    const waiting = update?.state === 'ready' || update?.state === 'installing';
 
     // The page always loads the newest files, but the background service keeps running the code it
     // started with. Tell the user when that service is older than what is installed. The desktop app
-    // also reports its own update here (downloaded in the background).
+    // also reports its own update here: downloaded in the background, then installed by restarting
+    // on its own while nobody is using Hearth. Once it is downloaded, follow closely so the notice
+    // before the restart shows in time.
     useEffect(() => {
         const check = () => void fetch('/api/version')
             .then(r => (r.ok ? r.json() : null))
@@ -63,13 +66,24 @@ export function App() {
             })
             .catch(() => {});
         check();
-        const timer = setInterval(check, 60_000);
+        const timer = setInterval(check, waiting ? 2_000 : 60_000);
         window.addEventListener('focus', check);
         return () => {
             clearInterval(timer);
             window.removeEventListener('focus', check);
         };
-    }, []);
+    }, [waiting]);
+
+    // After an update, say once that Hearth was updated.
+    useEffect(() => {
+        if (!version) return;
+        let seen: string | null = null;
+        try {
+            seen = localStorage.getItem('hearth.version');
+            localStorage.setItem('hearth.version', version);
+        } catch { /* ignore */ }
+        if (seen && seen !== version) toast(`Hearth 已更新到 ${version}`, 'success', { label: '更新了什么', run: () => window.open(releaseUrl(version), '_blank', 'noreferrer') });
+    }, [version]);
 
     useEffect(() => {
         void refresh().then(boot => {
@@ -155,21 +169,14 @@ export function App() {
                     <ConfirmDialog />
                 </>
             ) : <div className="boot">正在启动…</div>}
-            {dragging && <div className="drop-overlay"><div>松开即可导入角色卡、世界书或预设</div></div>}
+            {dragging && <div className="drop-overlay"><div>松开即可导入角色卡或世界书</div></div>}
             {outdated && (
                 <div className="update-banner" role="alert">
                     Hearth 已经更新，但后台还在运行旧版本。请关闭黑色的命令行窗口，再重新双击 Start.bat。
                 </div>
             )}
-            {update?.state === 'ready' && update.version && later !== update.version && (
-                <div className="update-banner with-actions" role="status">
-                    <span>Hearth {update.version} 已经下载好，退出 Hearth 时会自动安装。</span>
-                    <span className="update-banner-actions">
-                        <button type="button" className="solid" onClick={() => void api.installAppUpdate().catch(reportError)}>现在重启更新</button>
-                        <a href={releaseUrl(update.version)} target="_blank" rel="noreferrer">更新了什么</a>
-                        <button type="button" onClick={() => setLater(update.version!)}>稍后</button>
-                    </span>
-                </div>
+            {update?.state === 'installing' && (
+                <div className="update-banner" role="status">正在重启 Hearth，完成更新到 {update.version}…</div>
             )}
             <Toasts />
         </div>

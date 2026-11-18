@@ -42,7 +42,8 @@ export interface Bootstrap {
 
 /** Hearth's own update (desktop app only). */
 export interface AppUpdateStatus {
-    state: 'idle' | 'checking' | 'latest' | 'downloading' | 'ready' | 'error';
+    /** `installing`: Hearth is about to restart to install `version`. */
+    state: 'idle' | 'checking' | 'latest' | 'downloading' | 'ready' | 'installing' | 'error';
     version?: string;
     percent?: number;
     transferred?: number;

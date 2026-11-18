@@ -1,4 +1,5 @@
-// The desktop app's pieces that run without Electron: importing old data, and the shared server.
+// The desktop app's pieces that run without Electron: importing old data, restarting for an update,
+// and the shared server.
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -7,6 +8,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 
 import { copyData, findOldData } from '../src/desktop/migrate.ts';
+import { AutoRestart, BACKGROUND_MS, IDLE_MS, userAway } from '../src/desktop/restart.ts';
 import { createHearth, listen, type AppUpdateStatus } from '../src/server/app.ts';
 
 function oldHearth(dir: string) {
@@ -96,4 +98,50 @@ test('desktop: the server reports the app update and only the desktop app may in
     assert.equal((await call(plainPort, 'POST', '/api/app-update/install')).status, 409);
     // Without a shutdown handler (the desktop app), another Hearth cannot take over the port.
     assert.equal((await call(desktopPort, 'POST', '/api/shutdown')).status, 409);
+});
+
+test('desktop: the update restart waits until the user is away', () => {
+    const here = { shown: true, focused: true, backgroundMs: 0, idleMs: 0 };
+    assert.equal(userAway(here), false);
+    // Hidden in the notification area, or minimized.
+    assert.equal(userAway({ ...here, shown: false, focused: false }), true);
+    // In the background: only after a while (a quick look at another window does not count).
+    assert.equal(userAway({ ...here, focused: false, backgroundMs: 5_000, idleMs: 5_000 }), false);
+    assert.equal(userAway({ ...here, focused: false, backgroundMs: BACKGROUND_MS }), true);
+    // In front, but nobody has touched the computer for a while.
+    assert.equal(userAway({ ...here, idleMs: IDLE_MS - 1000 }), false);
+    assert.equal(userAway({ ...here, idleMs: IDLE_MS }), true);
+});
+
+test('desktop: the update restart announces itself, and waits again when the user comes back', async () => {
+    const answers: boolean[] = [];
+    const log: string[] = [];
+    const restart = new AutoRestart({
+        canRestart: async () => answers.shift() ?? false,
+        announce: soon => log.push(soon ? 'notice' : 'called off'),
+        restart: () => log.push('restart'),
+    }, 60_000, 0);
+
+    answers.push(false);
+    assert.equal(await restart.check(), false);
+    assert.deepEqual(log, []);
+
+    // Away, then back during the notice.
+    answers.push(true, false);
+    assert.equal(await restart.check(), false);
+    assert.deepEqual(log, ['notice', 'called off']);
+
+    // A failing check counts as "not now".
+    let calls = 0;
+    const failing = new AutoRestart({ canRestart: async () => { throw new Error('page gone'); }, announce: () => calls++, restart: () => calls++ }, 60_000, 0);
+    assert.equal(await failing.check(), false);
+    assert.equal(calls, 0);
+
+    answers.push(true, true);
+    assert.equal(await restart.check(), true);
+    assert.deepEqual(log, ['notice', 'called off', 'notice', 'restart']);
+    // Once only.
+    answers.push(true, true);
+    assert.equal(await restart.check(), false);
+    assert.equal(log.filter(x => x === 'restart').length, 1);
 });

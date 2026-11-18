@@ -4,6 +4,7 @@ import { api, type Summary } from '../api.ts';
 import { Icon } from '../icons.tsx';
 import { confirmAction, deleteChat, getState, newChat, openChat, refresh, reportError, setState, toast, toggleSidebar, useAppState } from '../state.ts';
 import { Avatar, IconButton, timeAgo } from './common.tsx';
+import { setGlobalPreset } from './PresetManager.tsx';
 
 const KIND_LABEL: Record<string, string> = { character: '角色卡', lorebook: '世界书', preset: '预设', persona: '用户角色', chat: '对话' };
 
@@ -11,7 +12,10 @@ export async function importFiles(files: FileList | File[]) {
     for (const file of Array.from(files)) {
         try {
             const { created } = await api.importFile(file);
-            toast(`已导入 ${created.map(c => `${KIND_LABEL[c.kind]}「${c.name}」`).join('、')}`, 'success');
+            // Presets are managed in Settings only; one dropped on the window is taken in like there.
+            const preset = created.find(c => c.kind === 'preset');
+            if (preset) await setGlobalPreset(preset.id);
+            toast(`已导入 ${created.map(c => `${KIND_LABEL[c.kind]}「${c.name}」`).join('、')}${preset ? '，并设为当前预设' : ''}`, 'success');
         } catch (error) {
             toast(`${file.name}：${(error as Error).message}`, 'error');
         }
@@ -19,7 +23,7 @@ export async function importFiles(files: FileList | File[]) {
     await refresh();
 }
 
-/** Opens the system file picker for cards, lorebooks and presets. */
+/** Opens the system file picker for cards and lorebooks (a preset is taken too). */
 export function pickImportFiles() {
     const input = document.createElement('input');
     input.type = 'file';
@@ -83,7 +87,7 @@ export function Sidebar() {
                     <span className="brand-mark" aria-hidden="true" />
                     <span className="brand-name">Hearth</span>
                     <span className="grow" />
-                    <IconButton icon="upload" label="导入角色卡、世界书或预设（也可以把文件拖进窗口）" onClick={pickImportFiles} />
+                    <IconButton icon="upload" label="导入角色卡或世界书（也可以把文件拖进窗口）" onClick={pickImportFiles} />
                     <IconButton icon="sidebar" label="收起侧栏（Ctrl+B）" onClick={toggleSidebar} />
                 </div>
 

@@ -40,7 +40,7 @@ function EntryEditor({ entry, onSave }: { entry: PromptEntry; onSave: (ops: Op[]
         return <div className="entry-detail muted small">这是内置位置，内容由角色卡、世界书或聊天记录自动填入，只能开关。</div>;
     }
     return (
-        <div className="entry-detail">
+        <div className="entry-detail" data-unsaved={ops.length ? '' : undefined}>
             <LongText label={entry.name || '条目内容'} minRows={4} value={content} onChange={setContent} />
             <div className="inline-fields">
                 <label>角色 <select value={role} onChange={e => setRole(e.target.value as Role)}>
@@ -63,11 +63,8 @@ function EntryEditor({ entry, onSave }: { entry: PromptEntry; onSave: (ops: Op[]
     );
 }
 
-/**
- * Global preset management: import, choose the active preset, toggle and edit entries.
- * `compact` is the inspector variant (always edits the active preset).
- */
-export function PresetManager({ compact }: { compact?: boolean }) {
+/** Global preset management (Settings → 预设, the only place presets are managed): import, choose the active preset, toggle and edit entries. */
+export function PresetManager() {
     const boot = useAppState(s => s.boot);
     const presets = boot?.resources.preset ?? [];
     const activeId = boot?.settings.presetId ?? presets[0]?.id;
@@ -76,11 +73,8 @@ export function PresetManager({ compact }: { compact?: boolean }) {
     const [openId, setOpenId] = useState<string | null>(null);
     const [filter, setFilter] = useState('');
     const fileRef = useRef<HTMLInputElement>(null);
-    const viewId = compact ? activeId : selectedId ?? activeId;
+    const viewId = selectedId ?? activeId;
 
-    useEffect(() => {
-        if (compact) setSelectedId(activeId);
-    }, [compact, activeId]);
     useEffect(() => {
         setOpenId(null);
         if (viewId) void api.get<Preset>('preset', viewId).then(setPreset).catch(reportError);
@@ -165,17 +159,14 @@ export function PresetManager({ compact }: { compact?: boolean }) {
                 e.target.value = '';
             }} />
             <div className="preset-bar">
-                <select className="grow" value={viewId ?? ''} onChange={e => {
-                    if (compact) void setGlobalPreset(e.target.value).catch(reportError);
-                    else setSelectedId(e.target.value);
-                }}>
+                <select className="grow" value={viewId ?? ''} onChange={e => setSelectedId(e.target.value)}>
                     {presets.map(p => <option key={p.id} value={p.id}>{p.name}{p.id === activeId ? '（当前）' : ''}</option>)}
                 </select>
                 <Button icon="upload" onClick={() => fileRef.current?.click()}>导入预设</Button>
             </div>
             <p className="muted small">预设对所有角色和对话统一生效。支持酒馆导出的 Chat Completion 预设（.json）。</p>
 
-            {!compact && preset && preset.id !== activeId && (
+            {preset && preset.id !== activeId && (
                 <div className="notice">
                     <span>正在查看「{preset.name}」，它不是当前使用的预设。</span>
                     <Button variant="primary" onClick={() => void setGlobalPreset(preset.id).then(() => toast(`已切换到「${preset.name}」`, 'success')).catch(reportError)}>设为当前预设</Button>
@@ -185,7 +176,7 @@ export function PresetManager({ compact }: { compact?: boolean }) {
             {!preset && <Empty title="还没有预设">点「导入预设」选择酒馆导出的预设文件。</Empty>}
             {preset && (
                 <>
-                    <div className={`grid-fields${compact ? "" : " four"}`}>
+                    <div className="grid-fields four">
                         <label>温度<input type="number" step={0.05} defaultValue={preset.sampling.temperature} key={`t${preset.id}${preset.updatedAt}`} onBlur={e => num(['sampling', 'temperature'], e.target.value)} /></label>
                         <label>Top P<input type="number" step={0.01} defaultValue={preset.sampling.topP} key={`p${preset.id}${preset.updatedAt}`} onBlur={e => num(['sampling', 'topP'], e.target.value)} /></label>
                         <label>上下文长度<input type="number" defaultValue={preset.context.maxContext} key={`c${preset.id}${preset.updatedAt}`} onBlur={e => num(['context', 'maxContext'], e.target.value)} /></label>
@@ -195,7 +186,6 @@ export function PresetManager({ compact }: { compact?: boolean }) {
                         <Toggle checked={preset.context.stream} onChange={v => void apply([{ op: 'set', path: ['context', 'stream'], value: v }], v ? '开启流式输出' : '关闭流式输出').catch(reportError)} />
                         <span>流式输出（边生成边显示）</span>
                     </label>
-                    {preset.scripts.length > 0 && <div className="warn">这个预设带有 {preset.scripts.length} 个酒馆助手脚本（{preset.scripts.map(s => s.name).join('、')}），目前只保存不运行。</div>}
 
                     <div className="entries-head">
                         <span className="section-title">条目 <span className="muted">已启用 {enabledCount} / {rows.length}</span></span>
@@ -235,11 +225,9 @@ export function PresetManager({ compact }: { compact?: boolean }) {
                         })}
                     </div>
 
-                    {!compact && (
-                        <div className="danger-zone">
-                            <Button variant="danger" icon="trash" onClick={() => void remove()}>删除这个预设</Button>
-                        </div>
-                    )}
+                    <div className="danger-zone">
+                        <Button variant="danger" icon="trash" onClick={() => void remove()}>删除这个预设</Button>
+                    </div>
                 </>
             )}
         </div>

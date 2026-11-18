@@ -10,7 +10,6 @@ import { api, type PromptPartView, type PromptSnapshot } from '../api.ts';
 import { Icon } from '../icons.tsx';
 import { change, confirmAction, loadPref, openChat, refresh, reportError, savePref, setState, toast, toggleInspector, useAppState, type InspectorTab } from '../state.ts';
 import { sourceLabel } from '../labels.ts';
-import { PresetManager } from './PresetManager.tsx';
 import { TabletopTab } from './Tabletop.tsx';
 import { Button, Empty, Field, IconButton, LongText, Segmented, Toggle, timeAgo } from './common.tsx';
 
@@ -199,9 +198,9 @@ function CharacterTab({ characterId }: { characterId: string }) {
     };
 
     return (
-        <div className="tab-body">
+        <div className="tab-body" data-unsaved={ops.length ? '' : undefined}>
             <div className="tab-toolbar sticky-bar">
-                <span className="muted">常驻约 {total.toLocaleString()} tokens{character.scripts.length ? ` · 含 ${character.scripts.length} 个卡片脚本（暂未运行）` : ''}</span>
+                <span className="muted">常驻约 {total.toLocaleString()} tokens</span>
                 <span className="grow" />
                 {ops.length > 0 && <Button variant="ghost" onClick={() => setDraft(structuredClone(character))}>还原</Button>}
                 <Button variant="primary" icon="check" disabled={!ops.length || saving} onClick={() => void save()}>{ops.length ? `保存 ${ops.length} 处修改` : '已保存'}</Button>
@@ -277,7 +276,7 @@ function EntryEditor({ entry, onSave, onDelete, onClose }: { entry: LoreEntry; o
     const locked = protectedReason(d, true);
     const splitKeys = (v: string) => v.split(/[,，]/).map(x => x.trim()).filter(Boolean);
     return (
-        <div className="entry-editor">
+        <div className="entry-editor" data-unsaved={ops.length ? '' : undefined}>
             <div className="tab-toolbar">
                 <IconButton icon="left" label="返回列表" onClick={onClose} />
                 <span className="grow" />
@@ -407,18 +406,6 @@ function LoreTab({ characterId }: { characterId: string }) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Preset
-// ---------------------------------------------------------------------------------------------
-
-function PresetTab() {
-    return (
-        <div className="tab-body">
-            <PresetManager compact />
-        </div>
-    );
-}
-
-// ---------------------------------------------------------------------------------------------
 // History
 // ---------------------------------------------------------------------------------------------
 
@@ -457,7 +444,7 @@ function HistoryTab({ chatId }: { chatId: string }) {
 
 // ---------------------------------------------------------------------------------------------
 
-const TABS: [InspectorTab, string][] = [['prompt', '提示词'], ['state', '变量'], ['tabletop', '跑团'], ['character', '角色卡'], ['lore', '世界书'], ['preset', '预设'], ['history', '历史']];
+const TABS: [InspectorTab, string][] = [['prompt', '提示词'], ['state', '变量'], ['tabletop', '跑团'], ['character', '角色卡'], ['lore', '世界书'], ['history', '历史']];
 const DEFAULT_WIDTH = 420;
 
 /** Drag the panel's left edge to resize it (double-click resets); wide is better for editing long text. */
@@ -521,7 +508,6 @@ export function Inspector() {
             {tab === 'tabletop' && <TabletopTab chat={chat} userName={context?.userName ?? ''} presetId={context?.preset.id} />}
             {tab === 'character' && <CharacterTab key={chat.characterId} characterId={chat.characterId} />}
             {tab === 'lore' && <LoreTab key={chat.characterId} characterId={chat.characterId} />}
-            {tab === 'preset' && <PresetTab />}
             {tab === 'history' && <HistoryTab chatId={chatId} />}
         </aside>
     );

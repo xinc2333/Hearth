@@ -16,7 +16,8 @@ import { Store } from './store.ts';
 
 /** The app's own update state, as the desktop app reports it to the page. */
 export interface AppUpdateStatus {
-    state: 'idle' | 'checking' | 'latest' | 'downloading' | 'ready' | 'error';
+    /** `installing`: Hearth is about to restart to install `version`. */
+    state: 'idle' | 'checking' | 'latest' | 'downloading' | 'ready' | 'installing' | 'error';
     /** The new version (downloading or ready). */
     version?: string;
     /** Download progress, 0–100. */
@@ -125,7 +126,8 @@ export async function createHearth(options: HearthOptions): Promise<Hearth> {
         return desktop.updateStatus();
     });
     router.post('/api/app-update/install', () => {
-        if (desktop?.updateStatus().state !== 'ready') throw Object.assign(new Error('新版本还没有下载好'), { status: 409 });
+        const state = desktop?.updateStatus().state;
+        if (!desktop || (state !== 'ready' && state !== 'installing')) throw Object.assign(new Error('新版本还没有下载好'), { status: 409 });
         desktop.installUpdate();
         return { ok: true };
     });

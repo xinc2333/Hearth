@@ -3,10 +3,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api.ts';
 import { Icon } from '../icons.tsx';
 import {
-    getState, newChat, openChat, refresh, reportError, setState, toast, toggleInspector, toggleSidebar, useAppState, type InspectorTab,
+    getState, newChat, openChat, refresh, reportError, setState, toggleInspector, toggleSidebar, useAppState, type InspectorTab,
 } from '../state.ts';
 import { Avatar, timeAgo } from './common.tsx';
-import { setGlobalPreset } from './PresetManager.tsx';
 import { chatPreview, openCharacter, pickImportFiles } from './Sidebar.tsx';
 
 interface Command {
@@ -27,7 +26,6 @@ const PANELS: [InspectorTab, string, string][] = [
     ['state', '变量', 'braces'],
     ['character', '角色卡', 'user'],
     ['lore', '世界书', 'book'],
-    ['preset', '预设条目', 'sliders'],
     ['history', '修改历史', 'history'],
 ];
 
@@ -72,15 +70,8 @@ export function CommandPalette() {
                 run: () => void openChat(chat.id).catch(reportError),
             });
         }
-        for (const p of boot.resources.preset) {
-            if (p.id === boot.settings.presetId) continue;
-            out.push({
-                id: `preset-${p.id}`, group: '预设', label: `切换到预设「${p.name}」`, icon: 'sliders',
-                run: () => void setGlobalPreset(p.id).then(() => toast(`已切换到「${p.name}」`, 'success')).catch(reportError),
-            });
-        }
         out.push(
-            { id: 'import', group: '功能', label: '导入角色卡、世界书或预设', keywords: 'import 文件', icon: 'upload', run: pickImportFiles },
+            { id: 'import', group: '功能', label: '导入角色卡或世界书', keywords: 'import 文件', icon: 'upload', run: pickImportFiles },
             { id: 'sidebar', group: '功能', label: '显示或收起侧栏', icon: 'sidebar', shortcut: 'Ctrl B', run: toggleSidebar },
             { id: 'set-conn', group: '功能', label: '设置：模型连接', keywords: 'api 密钥 接口', icon: 'settings', run: settings('connection') },
             { id: 'set-preset', group: '功能', label: '设置：预设', keywords: '导入预设', icon: 'settings', run: settings('preset') },
