@@ -163,7 +163,7 @@ export function App() {
             )}
             {update?.state === 'ready' && update.version && later !== update.version && (
                 <div className="update-banner with-actions" role="status">
-                    <span>Hearth {update.version} 已经下载好，关闭 Hearth 时会自动安装。</span>
+                    <span>Hearth {update.version} 已经下载好，退出 Hearth 时会自动安装。</span>
                     <span className="update-banner-actions">
                         <button type="button" className="solid" onClick={() => void api.installAppUpdate().catch(reportError)}>现在重启更新</button>
                         <a href={releaseUrl(update.version)} target="_blank" rel="noreferrer">更新了什么</a>

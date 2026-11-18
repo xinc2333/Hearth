@@ -198,7 +198,8 @@ export default {
 - **端口**：默认 8730，被别的程序占用时换一个空闲端口，并记在 `%APPDATA%\Hearth\window.json` 里（和窗口大小、位置放在一起）。端口不变，界面存在浏览器里的设置（主题、上次打开的对话）也就不变。
 - **网络**：主进程里的 `fetch` 换成 Electron 的 `net.fetch`，走 Chromium 的网络栈，所以系统代理和 PAC 脚本都生效，和浏览器一样。发给 Hearth 自己的请求仍用 Node 的 `fetch`。设置了 `HTTPS_PROXY` / `HTTP_PROXY` 时，用它代替系统代理。
 - **数据目录**：`%APPDATA%\Hearth\data`。第一次启动时（数据目录还不存在），用系统对话框询问是否从解压版导入：找到旧数据后整个复制过来（`src/desktop/migrate.ts`），旧文件不动。
-- **退出**：关闭窗口时如果还有回复在生成，先询问。退出前写完所有待保存的修改。
+- **托盘**：点窗口的 × 只是隐藏窗口，Hearth 留在通知区域继续运行（第一次会弹通知说明）。单击托盘图标打开窗口，右键菜单里「退出 Hearth」才真正退出；Windows 关机、注销时也会正常退出。
+- **退出**：从托盘退出时如果还有回复在生成，先询问。退出前写完所有待保存的修改。
 - **只开一个**：再次启动时，已经打开的 Hearth 切到前台，新进程直接退出。另一个 Hearth（例如 `Start.bat`）请求 `/api/shutdown` 接管端口时，桌面版会拒绝。
 - **运行记录**：没有命令行窗口，`console` 的输出写进 `%APPDATA%\Hearth\logs\hearth.log`，超过 2MB 时换新文件。
 
@@ -208,7 +209,7 @@ export default {
 
 1. 启动 15 秒后检查一次，之后每 6 小时一次：读取最新 Release 的 `latest.yml`，版本更高就在后台下载安装包。有上一版的 `.blockmap` 时只下载有变化的部分。
 2. 下载好后，`/api/version` 的 `update` 变成 `ready`，界面顶部出现提示条。
-3. 点「现在重启更新」（`POST /api/app-update/install`）：Hearth 退出，安装包静默安装，然后启动新版本。不点的话，下次关闭 Hearth 时静默安装，下次打开就是新版本。
+3. 点「现在重启更新」（`POST /api/app-update/install`）：Hearth 退出，安装包静默安装，然后启动新版本。不点的话，下次退出 Hearth 时静默安装，下次打开就是新版本。窗口隐藏在通知区域时，下载好会弹一条通知，托盘菜单里也会多出「重启并更新到 X.Y.Z」。
 
 安装包没有签名，所以不校验更新包的签名，只校验 `latest.yml` 里的 SHA-512。
 
@@ -216,6 +217,8 @@ export default {
 
 ### 安装包
 
+- 页面顺序：欢迎 → 安装位置 → 安装 → 完成。欢迎页和完成页左侧的图是 `resources/installerSidebar.bmp`（由 `installer-sidebar.svg` 渲染，164×314）。
+- 完成页有「运行 Hearth」和「创建桌面快捷方式」两个复选框（`resources/installer.nsh` 的 `customFinishPage`）。快捷方式在安装时就建好，不勾选就删掉；更新时保留用户当时的选择，卸载时删除。
 - 只为当前用户安装（`resources/installer.nsh` 跳过「为所有用户安装」那一页），默认装到 `%LOCALAPPDATA%\Programs\Hearth`，可以换位置。不需要管理员权限，自动更新时也不会弹出权限请求。
 - 应用文件不打成 asar 包，因为内置插件要用 `import()` 从各自的文件夹加载。
 - 卸载时保留数据目录。

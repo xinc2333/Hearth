@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="164" height="314" viewBox="0 0 164 314">
+  <!-- NSIS welcome/finish page image (164x314). Rendered to installerSidebar.bmp. -->
+  <defs>
+    <linearGradient id="clay" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E08A6D"/>
+      <stop offset="1" stop-color="#C25A38"/>
+    </linearGradient>
+  </defs>
+  <rect width="164" height="314" fill="url(#clay)"/>
+  <g transform="translate(2 47.5) scale(0.625)">
+    <path d="M70 196V126a58 58 0 0 1 116 0v70" fill="none" stroke="#FAF9F5" stroke-width="20" stroke-linecap="round"/>
+    <rect x="48" y="190" width="160" height="20" rx="10" fill="#FAF9F5"/>
+    <path d="M128 96c15 21 32 33 32 58a32 32 0 0 1-64 0c0-13 6-21 14-28 1 8 5 14 11 16 0-17 3-30 7-46z" fill="#FAF9F5"/>
+  </g>
+  <text x="82" y="222" text-anchor="middle" font-family="Noto Sans, DejaVu Sans, sans-serif" font-size="26" font-weight="600" letter-spacing="0.5" fill="#FAF9F5">Hearth</text>
+</svg>

@@ -322,7 +322,7 @@ function appUpdateText(u: AppUpdateStatus | null | undefined): string {
         case 'checking': return '正在检查更新…';
         case 'latest': return '已是最新版';
         case 'downloading': return `正在下载 ${u.version ?? '新版本'}（${u.percent ?? 0}%）`;
-        case 'ready': return `${u.version} 已经下载好，关闭 Hearth 时会自动安装`;
+        case 'ready': return `${u.version} 已经下载好，退出 Hearth 时会自动安装`;
         case 'error': return `检查更新失败：${u.error ?? '未知原因'}`;
         default: return '';
     }

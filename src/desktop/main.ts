@@ -1,7 +1,8 @@
 // The desktop app: runs Hearth's server inside Electron and shows the page in Hearth's own window.
 // No console window, no Node.js to install; updates come from GitHub Releases (updates.ts).
+// Closing the window keeps Hearth running in the notification area; it quits from the tray menu.
 
-import { app, BrowserWindow, dialog, Menu, nativeTheme, net, screen, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, Menu, nativeImage, nativeTheme, net, screen, session, shell, Tray, type MenuItemConstructorOptions } from 'electron';
 import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { format } from 'node:util';
@@ -80,6 +81,8 @@ interface WindowState {
     y?: number;
     maximized?: boolean;
     port?: number;
+    /** The "Hearth is still running" notice was shown (the first time the window was closed). */
+    trayHint?: boolean;
 }
 
 const stateFile = path.join(userDir, 'window.json');
@@ -172,8 +175,72 @@ background:#fbfaf8;color:#8a8580}@media(prefers-color-scheme:dark){html,body{bac
 <p>Hearth 正在启动…</p>`;
 
 let win: BrowserWindow | null = null;
+let tray: Tray | null = null;
 let hearth: Hearth | null = null;
 let baseUrl = '';
+/** Set once Hearth really quits; until then closing the window only hides it. */
+let quitting = false;
+
+function resource(name: string): string {
+    return app.isPackaged ? path.join(process.resourcesPath, name) : path.join(app.getAppPath(), 'resources', name);
+}
+
+function showWindow() {
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+}
+
+/** Quits from the tray menu, after asking when a reply is still being written. */
+async function requestQuit() {
+    if (hearth?.runtime.running()) {
+        const { response } = await dialog.showMessageBox({
+            type: 'warning',
+            title: 'Hearth',
+            message: '还有回复正在生成',
+            detail: '现在退出的话，这条回复会停在当前位置。',
+            buttons: ['退出', '继续等待'],
+            defaultId: 1,
+            cancelId: 1,
+            noLink: true,
+        });
+        if (response !== 0) return;
+    }
+    quitting = true;
+    app.quit();
+}
+
+function notify(title: string, content: string) {
+    tray?.displayBalloon({ title, content, iconType: 'custom', icon: nativeImage.createFromPath(resource('icon.png')), noSound: true });
+}
+
+/** The icon in the notification area: click to open; right-click for the menu. */
+function createTray(updates: AppUpdates) {
+    tray = new Tray(resource(process.platform === 'win32' ? 'icon.ico' : 'icon.png'));
+    tray.setToolTip('Hearth');
+    const buildMenu = () => {
+        const status = updates.updateStatus();
+        const items: MenuItemConstructorOptions[] = [{ label: '打开 Hearth', click: showWindow }];
+        if (status.state === 'ready') items.push({ label: `重启并更新到 ${status.version}`, click: () => updates.installUpdate() });
+        items.push({ type: 'separator' }, { label: '退出 Hearth', click: () => void requestQuit() });
+        tray?.setContextMenu(Menu.buildFromTemplate(items));
+    };
+    buildMenu();
+    tray.on('click', showWindow);
+    tray.on('double-click', showWindow);
+    let shown = '';
+    updates.onChange = status => {
+        // Download progress changes often; the menu only cares about the state and the version.
+        const key = `${status.state}:${status.version ?? ''}`;
+        if (key === shown) return;
+        shown = key;
+        buildMenu();
+        if (status.state === 'ready' && !win?.isVisible()) {
+            notify(`Hearth ${status.version} 已经下载好`, '右键点右下角的 Hearth 图标，选「重启并更新」；也可以等退出 Hearth 时自动安装。');
+        }
+    };
+}
 
 function isLocal(url: string): boolean {
     return Boolean(baseUrl) && (url === baseUrl || url.startsWith(`${baseUrl}/`));
@@ -223,25 +290,23 @@ function createWindow(state: WindowState) {
         event.preventDefault();
     });
 
-    let confirmed = false;
+    // × hides the window; Hearth keeps running (replies keep generating) in the notification area.
     window.on('close', event => {
-        saveState({ ...window.getNormalBounds(), maximized: window.isMaximized(), port: state.port });
-        if (confirmed || !hearth || !hearth.runtime.running()) return;
+        Object.assign(state, window.getNormalBounds(), { maximized: window.isMaximized() });
+        saveState(state);
+        if (quitting || !tray) return;
         event.preventDefault();
-        void dialog.showMessageBox(window, {
-            type: 'warning',
-            title: 'Hearth',
-            message: '还有回复正在生成',
-            detail: '现在关闭的话，这条回复会停在当前位置。',
-            buttons: ['关闭', '继续等待'],
-            defaultId: 1,
-            cancelId: 1,
-            noLink: true,
-        }).then(({ response }) => {
-            if (response !== 0) return;
-            confirmed = true;
-            window.close();
-        });
+        window.hide();
+        if (!state.trayHint) {
+            state.trayHint = true;
+            saveState(state);
+            notify('Hearth 还在运行', '点右下角的 Hearth 图标（没看到的话先点任务栏上的 ^），或者再打开一次 Hearth，就能回到窗口。要退出，右键点图标，选「退出 Hearth」。');
+        }
+    });
+    // Windows is shutting down or signing out: let the window close.
+    window.on('session-end', () => {
+        quitting = true;
+        app.quit();
     });
     window.on('closed', () => {
         if (win === window) win = null;
@@ -279,18 +344,15 @@ if (!app.requestSingleInstanceLock()) {
     app.setAppUserModelId(APP_ID);
     Menu.setApplicationMenu(null);
 
-    app.on('second-instance', () => {
-        if (!win) return;
-        if (win.isMinimized()) win.restore();
-        win.show();
-        win.focus();
-    });
+    app.on('second-instance', showWindow);
 
     app.on('window-all-closed', () => app.quit());
 
-    // Write every pending save before the process ends (closing, or restarting for an update).
+    // Write every pending save before the process ends (quitting, or restarting for an update).
     let stopped = false;
     app.on('before-quit', event => {
+        // From the tray menu, an update restart or the system: from now on the window may close.
+        quitting = true;
         if (stopped || !hearth) return;
         event.preventDefault();
         const running = hearth;
@@ -311,8 +373,9 @@ if (!app.requestSingleInstanceLock()) {
             const state = loadState();
             win = createWindow(state);
             const updates = new AppUpdates(log, app.isPackaged);
+            createTray(updates);
             baseUrl = await startServer(state, updates);
-            saveState({ ...state, port: state.port });
+            saveState(state);
             await win?.loadURL(baseUrl);
             updates.start();
         } catch (error) {

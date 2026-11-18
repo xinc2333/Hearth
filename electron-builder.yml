@@ -16,6 +16,12 @@ files:
 # Plain files instead of an archive: built-in plugins are loaded with import() from their folders.
 asar: false
 npmRebuild: false
+# The tray icon and its notifications (resources/ itself is not part of the app).
+extraResources:
+  - from: resources/icon.ico
+    to: icon.ico
+  - from: resources/icon.png
+    to: icon.png
 electronLanguages:
   - zh-CN
   - en-US
@@ -31,7 +37,8 @@ nsis:
   perMachine: false
   allowElevation: false
   allowToChangeInstallationDirectory: true
-  createDesktopShortcut: always
+  # Created while installing; the finish page lets the user untick it (resources/installer.nsh).
+  createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: Hearth
   uninstallDisplayName: Hearth

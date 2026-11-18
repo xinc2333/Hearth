@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="8 8 240 240">
+  <!-- Hearth: a fireplace with its fire. Clay #D97757, ivory #FAF9F5. -->
+  <defs>
+    <linearGradient id="clay" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E08A6D"/>
+      <stop offset="1" stop-color="#C8603D"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="60" fill="url(#clay)"/>
+  <path d="M70 196V126a58 58 0 0 1 116 0v70" fill="none" stroke="#FAF9F5" stroke-width="20" stroke-linecap="round"/>
+  <rect x="48" y="190" width="160" height="20" rx="10" fill="#FAF9F5"/>
+  <path d="M128 96c15 21 32 33 32 58a32 32 0 0 1-64 0c0-13 6-21 14-28 1 8 5 14 11 16 0-17 3-30 7-46z" fill="#FAF9F5"/>
+</svg>

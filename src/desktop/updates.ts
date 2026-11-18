@@ -39,8 +39,16 @@ export class AppUpdates implements DesktopShell {
         this.enabled = packaged || Boolean(this.testFeed);
     }
 
+    /** Called whenever the status changes (the tray menu follows it). */
+    onChange: ((status: AppUpdateStatus) => void) | null = null;
+
     updateStatus(): AppUpdateStatus {
         return this.status;
+    }
+
+    private set(status: AppUpdateStatus) {
+        this.status = status;
+        this.onChange?.(status);
     }
 
     /** Hooks up electron-updater and schedules the checks. Call once the app is ready. */
@@ -58,21 +66,21 @@ export class AppUpdates implements DesktopShell {
             if (!this.packaged) updater.forceDevUpdateConfig = true;
         }
         updater.on('update-available', info => {
-            this.status = { state: 'downloading', version: info.version, percent: 0 };
+            this.set({ state: 'downloading', version: info.version, percent: 0 });
         });
         updater.on('download-progress', progress => {
-            this.status = { ...this.status, state: 'downloading', percent: Math.floor(progress.percent) };
+            this.set({ ...this.status, state: 'downloading', percent: Math.floor(progress.percent) });
         });
         updater.on('update-not-available', () => {
-            this.status = { state: 'latest', checkedAt: Date.now() };
+            this.set({ state: 'latest', checkedAt: Date.now() });
         });
         updater.on('update-downloaded', info => {
-            this.status = { state: 'ready', version: info.version, checkedAt: Date.now() };
-            this.log.info(`新版本 ${info.version} 已下载好，关闭 Hearth 时安装`);
+            this.set({ state: 'ready', version: info.version, checkedAt: Date.now() });
+            this.log.info(`新版本 ${info.version} 已下载好，退出 Hearth 时安装`);
         });
         updater.on('error', error => {
             this.log.warn('检查更新失败：', error);
-            if (this.status.state !== 'ready') this.status = { state: 'error', error: friendly(error), checkedAt: Date.now() };
+            if (this.status.state !== 'ready') this.set({ state: 'error', error: friendly(error), checkedAt: Date.now() });
         });
         setTimeout(() => this.checkForUpdates(), FIRST_CHECK_MS).unref();
         setInterval(() => this.checkForUpdates(), EVERY_MS).unref();
@@ -80,14 +88,14 @@ export class AppUpdates implements DesktopShell {
 
     checkForUpdates() {
         if (!this.enabled) {
-            this.status = { state: 'error', error: '从源码运行时不会自动更新', checkedAt: Date.now() };
+            this.set({ state: 'error', error: '从源码运行时不会自动更新', checkedAt: Date.now() });
             return;
         }
         if (!this.started || ['checking', 'downloading', 'ready'].includes(this.status.state)) return;
-        this.status = { state: 'checking' };
+        this.set({ state: 'checking' });
         electronUpdater.autoUpdater.checkForUpdates().catch(error => {
             // The 'error' event usually reports it as well; make sure the state does not stay "checking".
-            if (this.status.state === 'checking') this.status = { state: 'error', error: friendly(error), checkedAt: Date.now() };
+            if (this.status.state === 'checking') this.set({ state: 'error', error: friendly(error), checkedAt: Date.now() });
         });
     }
 
