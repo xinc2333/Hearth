@@ -4,6 +4,8 @@
 
 ## [未发布]
 
+## [0.6.0] - 2026-11-18
+
 ### 新增
 
 - 剧场、聊天和编辑成为 Hearth 自己的回复模式，深度思考和纸条也是。预设声明支持时，输入框旁才出现对应的开关，写法见[预设适配](docs/presets.md)。
@@ -126,7 +128,8 @@
 - 支持 EJS 提示词模板，以及 Meowssiah 等 SPreset 类预设。
 - 连接 OpenAI 兼容接口，流式显示回复和思考过程，支持停止、重新生成、继续写和切换版本。
 
-[未发布]: https://github.com/xinc2333/Hearth/compare/v0.5.1...HEAD
+[未发布]: https://github.com/xinc2333/Hearth/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/xinc2333/Hearth/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/xinc2333/Hearth/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/xinc2333/Hearth/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/xinc2333/Hearth/compare/v0.3.0...v0.4.0
