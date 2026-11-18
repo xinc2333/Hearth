@@ -19,3 +19,6 @@ Thumbs.db
 # Machine-specific launcher settings and backups
 Start.local.bat
 *.bak
+
+# Local writing rules for this project's text (not published)
+docs/style-guide.md
