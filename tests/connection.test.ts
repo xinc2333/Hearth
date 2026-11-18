@@ -11,7 +11,7 @@ import type { Connection } from '../src/core/types.ts';
 import { registerApi } from '../src/server/api.ts';
 import { Router } from '../src/server/http.ts';
 import { PluginHost } from '../src/server/plugins.ts';
-import { streamChat } from '../src/server/providers/openai.ts';
+import { buildBody, listModels, sendChat, streamChat, type ChatRequest } from '../src/server/providers/openai.ts';
 import { Runtime } from '../src/server/runtime.ts';
 import { Store } from '../src/server/store.ts';
 
@@ -127,4 +127,86 @@ test('connection: what Hearth learned stays when the form is saved, resets with 
     await call('/api/connections', { connection: { id, baseUrl: `${endpoint.url}/` } });
     assert.equal(store.settings.connections[0].sendNames, true);
     assert.equal(store.settings.connections[0].models, undefined);
+});
+
+test('connection: Gemini accepts a saved address with a trailing /v1 and omits frequency_penalty', async t => {
+    const base = 'https://generativelanguage.googleapis.com/v1beta/openai';
+    const conn: Connection = { id: 'google', name: 'Gemini', provider: 'openai-compatible', baseUrl: `${base}/v1/`, model: 'models/gemini-test', sendNames: true };
+    const req: ChatRequest = {
+        messages: [{ role: 'user', content: 'Hello' }],
+        preset: defaultPreset(),
+        names: { user: 'User', char: 'Assistant' },
+    };
+    const fetchMock = t.mock.method(globalThis, 'fetch', async (url: string, init: RequestInit) => {
+        assert.equal(new Headers(init.headers).get('Authorization'), 'Bearer test-key');
+        if (url.endsWith('/models')) return Response.json({ data: [{ id: conn.model }] });
+        return Response.json({ choices: [{ message: { content: 'Hello' } }] });
+    });
+    const signal = new AbortController().signal;
+
+    assert.deepEqual(await listModels(conn, 'test-key'), [conn.model]);
+    const reply = [];
+    for await (const ev of streamChat(conn, 'test-key', req, signal)) reply.push(ev);
+    assert.deepEqual(reply[0], { type: 'text', text: 'Hello' });
+
+    const prepared = { ...buildBody(conn, req, true), frequency_penalty: 0.5 };
+    await sendChat({ ...conn, baseUrl: `${base}/chat/completions` }, 'test-key', prepared, signal);
+    await sendChat({ ...conn, baseUrl: 'https://api.openai.com/v1' }, 'test-key', prepared, signal);
+
+    assert.equal(fetchMock.mock.calls[0].arguments[0], `${base}/models`);
+    const [streamed, gemini, openai] = fetchMock.mock.calls.slice(1).map(call => {
+        const [url, init] = call.arguments;
+        assert.ok(typeof init?.body === 'string');
+        return { url, body: JSON.parse(init.body) };
+    });
+    assert.equal(streamed.url, `${base}/chat/completions`);
+    assert.equal(streamed.body.stream, true);
+    assert.equal('frequency_penalty' in streamed.body, false);
+    assert.equal(gemini.url, streamed.url);
+    assert.equal(gemini.body.stream, false);
+    assert.equal('frequency_penalty' in gemini.body, false);
+    assert.equal(openai.body.frequency_penalty, 0.5);
+});
+
+test('connection: Gemini signs preset tool history and replays model signatures unchanged', async t => {
+    const conn: Connection = {
+        id: 'google', name: 'Gemini', provider: 'openai-compatible',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'models/gemini-4-hydrogen', sendNames: true,
+    };
+    const tool = { name: 'context', arguments: '{}' };
+    const synthetic = { id: 'context-1', type: 'function', function: tool };
+    const signed = {
+        id: 'context-2', type: 'function', function: tool,
+        extra_content: { google: { thought_signature: 'signature-from-google' } },
+    };
+    const fetchMock = t.mock.method(globalThis, 'fetch', async (_url: string, _init: RequestInit) =>
+        Response.json({ choices: [{ message: { tool_calls: [signed] } }] }));
+    const req: ChatRequest = {
+        messages: [{ role: 'user', content: 'Hello' }], preset: defaultPreset(), names: { user: 'User', char: 'Assistant' },
+    };
+    const signal = new AbortController().signal;
+    const { toolCalls } = await sendChat(conn, undefined, buildBody(conn, req, false), signal);
+    const body = {
+        ...buildBody(conn, req, true),
+        messages: [...req.messages,
+            { role: 'assistant', tool_calls: [synthetic, ...toolCalls] },
+            { role: 'tool', tool_call_id: synthetic.id, content: '{}' },
+            { role: 'tool', tool_call_id: signed.id, content: '{}' },
+        ],
+        tool_choice: 'required',
+        toolConfig: { functionCallingConfig: { mode: 'ANY' } },
+    };
+
+    for await (const _ of streamChat(conn, undefined, req, signal, body)) { /* read the reply */ }
+    await sendChat({ ...conn, baseUrl: 'https://api.openai.com/v1' }, undefined, body, signal);
+
+    const [gemini, openai] = fetchMock.mock.calls.slice(1).map(call => JSON.parse(String(call.arguments[1]?.body)));
+    assert.deepEqual(gemini.messages[1].tool_calls, [
+        { ...synthetic, extra_content: { google: { thought_signature: 'skip_thought_signature_validator' } } }, signed,
+    ]);
+    assert.deepEqual(gemini.messages.slice(2), body.messages.slice(2));
+    assert.equal(gemini.tool_choice, 'required');
+    assert.equal('toolConfig' in gemini, false);
+    assert.deepEqual(openai.messages, body.messages);
+    assert.deepEqual(openai.toolConfig, body.toolConfig);
 });

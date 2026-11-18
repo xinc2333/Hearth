@@ -16,8 +16,11 @@ export interface ChatRequest {
     extra?: Record<string, unknown>;
 }
 
+const geminiBase = 'https://generativelanguage.googleapis.com/v1beta/openai';
+
 function normalizeBase(url: string) {
-    return url.trim().replace(/\/+$/, '').replace(/\/chat\/completions$/, '');
+    const base = url.trim().replace(/\/+$/, '').replace(/\/chat\/completions$/, '');
+    return base.toLowerCase() === `${geminiBase}/v1` ? geminiBase : base;
 }
 
 /** Reports what Hearth learned about an endpoint while talking to it. */
@@ -54,6 +57,28 @@ function withoutNames(body: Record<string, unknown>, names?: ChatRequest['names'
     return { ...body, messages: stripNames(body.messages as unknown[], names) };
 }
 
+type GeminiToolCall = { extra_content?: { google?: { thought_signature?: string } } };
+
+function geminiToolMessages(messages: unknown) {
+    if (!Array.isArray(messages)) return messages;
+    return messages.map(message => {
+        if (message?.role !== 'assistant' || !Array.isArray(message.tool_calls)) return message;
+        const toolCalls = (message.tool_calls as GeminiToolCall[]).map(call => {
+            const google = call?.extra_content?.google;
+            if (!call || google?.thought_signature) return call;
+            // Presets can construct tool history locally, where no model signature exists.
+            return {
+                ...call,
+                extra_content: {
+                    ...call.extra_content,
+                    google: { ...google, thought_signature: 'skip_thought_signature_validator' },
+                },
+            };
+        });
+        return { ...message, tool_calls: toolCalls };
+    });
+}
+
 /**
  * Posts to /chat/completions. SillyTavern sends example dialogue with OpenAI `name` fields, and
  * so does Hearth; some endpoints reject them. Then the request is sent once more with the names
@@ -61,7 +86,16 @@ function withoutNames(body: Record<string, unknown>, names?: ChatRequest['names'
  * has to know about it.
  */
 async function postChat(conn: Connection, key: string | undefined, body: Record<string, unknown>, signal: AbortSignal, names?: ChatRequest['names'], hooks?: ProviderHooks): Promise<Response> {
-    const send = (b: Record<string, unknown>) => fetch(`${normalizeBase(conn.baseUrl)}/chat/completions`, {
+    const base = normalizeBase(conn.baseUrl);
+    if (base.toLowerCase() === geminiBase) {
+        // Use Chat Completions' tool_choice instead of the native Gemini toolConfig field.
+        const { frequency_penalty: _frequency, toolConfig: _toolConfig, ...compatibleBody } = body;
+        body = compatibleBody;
+        if (/^(?:models\/)?gemini-[34](?:[.-]|$)/i.test(String(body.model ?? ''))) {
+            body.messages = geminiToolMessages(body.messages);
+        }
+    }
+    const send = (b: Record<string, unknown>) => fetch(`${base}/chat/completions`, {
         method: 'POST',
         headers: headers(conn, key),
         body: JSON.stringify(b),
@@ -78,7 +112,7 @@ async function postChat(conn: Connection, key: string | undefined, body: Record<
         return res;
     }
     void res.body?.cancel().catch(() => {});
-    console.log(`接口 ${normalizeBase(conn.baseUrl)} 不接受消息的 name 字段，以后改为把名字写进内容里`);
+    console.log(`接口 ${base} 不接受消息的 name 字段，以后改为把名字写进内容里`);
     hooks?.onNamesRejected?.();
     return retry;
 }
@@ -112,8 +146,9 @@ async function errorText(res: Response): Promise<string> {
     const text = await res.text().catch(() => '');
     try {
         const json = JSON.parse(text);
-        const err = json.error ?? json.detail ?? json;
-        return typeof err === 'string' ? err : err.message ?? JSON.stringify(err).slice(0, 500);
+        const payload = Array.isArray(json) ? json[0] : json;
+        const err = payload?.error ?? payload?.detail ?? payload;
+        return typeof err === 'string' ? err : err?.message ?? JSON.stringify(err ?? json).slice(0, 500);
     } catch {
         return text.slice(0, 500) || res.statusText;
     }

@@ -80,7 +80,7 @@ function ConnectionSection() {
             </div>
             <p className="muted small">支持所有 OpenAI 兼容接口：OpenAI、DeepSeek、OpenRouter、各类中转，以及 Gemini / Claude 的兼容地址。</p>
             <Field label="名称"><input value={form.name ?? ''} placeholder="比如：我的中转" onChange={e => setForm({ ...form, name: e.target.value })} /></Field>
-            <Field label="接口地址" hint={<span>一般以 /v1 结尾</span>}>
+            <Field label="接口地址" hint={<span>Gemini 官方接口以 /v1beta/openai/ 结尾</span>}>
                 <input value={form.baseUrl ?? ''} placeholder="https://api.example.com/v1" onChange={e => setForm({ ...form, baseUrl: e.target.value })} />
             </Field>
             <Field label="API 密钥" hint={current?.hasKey ? <span>已保存，留空则不修改</span> : undefined}>
