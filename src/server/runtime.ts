@@ -11,7 +11,7 @@ import type { Character, Chat, ChatMessage, ChatMode, Connection, Lorebook, Pers
 import { newId } from '../core/util.ts';
 import { applyCardEdits, buildEditPrompt, type EditPrompt } from './card-edit.ts';
 import type { EditTaskContext, PluginHost } from './plugins.ts';
-import { buildBody, sendChat, streamChat } from './providers/openai.ts';
+import { buildBody, sendChat, streamChat, type ProviderHooks } from './providers/openai.ts';
 import { estimateTokens, MESSAGE_OVERHEAD } from '../core/tokens.ts';
 import type { Store } from './store.ts';
 
@@ -102,6 +102,21 @@ export class Runtime {
         const s = this.store.settings;
         const conn = s.connections.find(c => c.id === s.connectionId) ?? s.connections[0];
         return conn ? { conn, key: this.store.getSecret(`conn:${conn.id}`) } : null;
+    }
+
+    /** What requests report back about the endpoint, remembered on the connection. */
+    providerHooks(conn: Connection): ProviderHooks {
+        return {
+            onNamesRejected: () => {
+                const list = this.store.settings.connections;
+                const known = !list.some(c => c.id === conn.id && c.sendNames !== false);
+                // The rest of this turn's requests skip the failing attempt too.
+                conn.sendNames = false;
+                if (known) return;
+                void this.store.saveSettings({ connections: list.map(c => (c.id === conn.id ? { ...c, sendNames: false } : c)) })
+                    .catch(error => console.error('保存连接设置失败：', error));
+            },
+        };
     }
 
     regexScripts(chat: Chat): RegexScript[] {
@@ -238,7 +253,7 @@ export class Runtime {
         req.signal?.addEventListener('abort', () => controller.abort());
         const timer = setTimeout(() => controller.abort(), 120000);
         try {
-            for await (const ev of streamChat(link.conn, link.key, { messages: req.messages, preset, names: { user: 'User', char: 'Assistant' } }, controller.signal)) {
+            for await (const ev of streamChat(link.conn, link.key, { messages: req.messages, preset, names: { user: 'User', char: 'Assistant' } }, controller.signal, undefined, this.providerHooks(link.conn))) {
                 if (ev.type === 'text') text += ev.text;
             }
         } finally {
@@ -480,7 +495,7 @@ export class Runtime {
                     const ctx = {
                         chat: this.store.require<Chat>('chat', chatId), character, preset: input.preset, type, messageId, swipeId, userName: input.userName,
                         warn: (t: string) => { snapshot.warnings.push(t); },
-                        send: (b: Record<string, unknown>) => sendChat(link.conn, link.key, b, job.controller.signal),
+                        send: (b: Record<string, unknown>) => sendChat(link.conn, link.key, b, job.controller.signal, request.names, this.providerHooks(link.conn)),
                         progress: (data: unknown) => emit({ type: 'progress', plugin, data }),
                         trace: (label: string, b: Record<string, unknown>) => {
                             snapshot.stages = [...(snapshot.stages ?? []), { label, parts: sentParts(b.messages), tools: toolNames(b) }];
@@ -507,7 +522,7 @@ export class Runtime {
                     emitPrompt();
                 }
             }
-            const stream = streamChat(link.conn, link.key, request, job.controller.signal, body);
+            const stream = streamChat(link.conn, link.key, request, job.controller.signal, body, this.providerHooks(link.conn));
             let lastFlush = Date.now();
             for await (const ev of stream) {
                 if (ev.type === 'text') {

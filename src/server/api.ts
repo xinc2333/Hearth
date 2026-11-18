@@ -263,9 +263,11 @@ export function registerApi(router: Router, store: Store, runtime: Runtime, plug
     router.post('/api/connections', async req => {
         const body = await req.json<{ connection: Partial<Connection>; key?: string | null; activate?: boolean }>();
         const list = [...store.settings.connections];
-        const incoming = body.connection;
+        // What Hearth learns about the endpoint is not the page's to set.
+        const { sendNames: _names, models: _models, modelsAt: _at, hasKey: _key, ...incoming } = body.connection;
         const id = incoming.id || newId('conn');
         const existing = list.find(c => c.id === id);
+        const baseUrl = (incoming.baseUrl ?? existing?.baseUrl ?? '').trim();
         const next: Connection = {
             provider: 'openai-compatible',
             sendNames: true,
@@ -273,10 +275,15 @@ export function registerApi(router: Router, store: Store, runtime: Runtime, plug
             ...incoming,
             id,
             name: incoming.name || existing?.name || incoming.model || '模型连接',
-            baseUrl: (incoming.baseUrl ?? existing?.baseUrl ?? '').trim(),
+            baseUrl,
             model: (incoming.model ?? existing?.model ?? '').trim(),
         } as Connection;
-        delete next.hasKey;
+        if (existing && existing.baseUrl !== baseUrl) {
+            // Another endpoint: learn again.
+            next.sendNames = true;
+            delete next.models;
+            delete next.modelsAt;
+        }
         if (existing) list[list.indexOf(existing)] = next;
         else list.push(next);
         if (body.key !== undefined) await store.setSecret(`conn:${id}`, body.key);
@@ -291,10 +298,31 @@ export function registerApi(router: Router, store: Store, runtime: Runtime, plug
         return publicSettings(store);
     });
 
+    /** Keeps a fetched model list on its connection (only while the address is the same). */
+    const cacheModels = async (id: string | undefined, baseUrl: string, models: string[]) => {
+        const list = store.settings.connections;
+        if (!list.some(c => c.id === id && c.baseUrl === baseUrl)) return;
+        await store.saveSettings({ connections: list.map(c => (c.id === id ? { ...c, models, modelsAt: Date.now() } : c)) });
+    };
+
     router.post('/api/connections/:id/models', async req => {
         const conn = store.settings.connections.find(c => c.id === req.params.id);
         if (!conn) throw Object.assign(new Error('找不到这个连接'), { status: 404 });
-        return { models: await listModels(conn, store.getSecret(`conn:${conn.id}`)) };
+        const models = await listModels(conn, store.getSecret(`conn:${conn.id}`));
+        await cacheModels(conn.id, conn.baseUrl, models);
+        return { models };
+    });
+
+    // The model picker asks with what the form holds, so a connection does not have to be saved first.
+    // Without a key in the request, the saved key of `connectionId` is used.
+    router.post('/api/models', async req => {
+        const body = await req.json<{ connectionId?: string; baseUrl?: string; key?: string }>();
+        const saved = store.settings.connections.find(c => c.id === body.connectionId);
+        const baseUrl = (body.baseUrl ?? saved?.baseUrl ?? '').trim();
+        const key = body.key || (saved ? store.getSecret(`conn:${saved.id}`) : undefined);
+        const models = await listModels({ baseUrl, extraHeaders: saved?.extraHeaders }, key);
+        await cacheModels(saved?.id, baseUrl, models);
+        return { models };
     });
 
     router.post('/api/connections/:id/test', async req => {

@@ -4,6 +4,7 @@ import type { Connection, LoreSettings, Persona } from '../../core/types.ts';
 import { api, RELEASES_URL, type AppUpdateStatus, type PluginView } from '../api.ts';
 import { change, confirmAction, refresh, reportError, setState, toast, useAppState } from '../state.ts';
 import { Button, Field, LongText, Modal, Segmented, Toggle, timeAgo } from './common.tsx';
+import { ModelPicker } from './ModelPicker.tsx';
 import { PresetManager } from './PresetManager.tsx';
 import { ReadingControls } from './Reading.tsx';
 
@@ -16,12 +17,10 @@ function ConnectionSection() {
     const current = connections.find(c => c.id === selected);
     const [form, setForm] = useState<Partial<Connection>>({});
     const [key, setKey] = useState('');
-    const [models, setModels] = useState<string[]>([]);
     const [busy, setBusy] = useState('');
     useEffect(() => {
-        setForm(current ? { ...current } : { name: '', baseUrl: '', model: '', sendNames: true });
+        setForm(current ? { ...current } : { name: '', baseUrl: '', model: '' });
         setKey('');
-        setModels([]);
     }, [selected, current?.id]);
 
     const save = async (activate = false) => {
@@ -40,18 +39,20 @@ function ConnectionSection() {
             setBusy('');
         }
     };
-    const fetchModels = async () => {
-        const id = current?.id ?? await save();
-        if (!id) return;
-        setBusy('models');
+    const loadModels = async () => (await api.listModels({ connectionId: current?.id, baseUrl: form.baseUrl ?? '', key: key || undefined })).models;
+    // Picking a model takes effect at once; a new connection keeps it until it is saved.
+    const pickModel = async (model: string) => {
+        setForm(f => ({ ...f, model }));
+        if (!current) return;
         try {
-            setModels((await api.models(id)).models);
+            await api.saveConnection({ id: current.id, model });
+            await refresh();
+            toast(`模型已换成 ${model}`, 'success');
         } catch (error) {
             reportError(error);
-        } finally {
-            setBusy('');
         }
     };
+    const sameEndpoint = current && current.baseUrl === (form.baseUrl ?? '') && !key;
     const test = async () => {
         const id = await save();
         if (!id) return;
@@ -85,17 +86,10 @@ function ConnectionSection() {
                 <input type="password" value={key} placeholder={current?.hasKey ? '••••••••' : 'sk-…'} onChange={e => setKey(e.target.value)} autoComplete="off" />
             </Field>
             <Field label="模型">
-                <div className="inline-fields">
-                    <input className="grow" list="model-list" value={form.model ?? ''} placeholder="模型名" onChange={e => setForm({ ...form, model: e.target.value })} />
-                    <datalist id="model-list">{models.map(m => <option key={m} value={m} />)}</datalist>
-                    <Button variant="ghost" onClick={() => void fetchModels()} disabled={busy !== ''}>{busy === 'models' ? '获取中…' : '获取模型列表'}</Button>
-                </div>
-                {models.length > 0 && <span className="muted small">已获取 {models.length} 个模型，点输入框可选择</span>}
+                {/* A different address or key means a different list. */}
+                <ModelPicker key={`${selected ?? 'new'}|${form.baseUrl ?? ''}|${key.length}`} value={form.model ?? ''} onPick={m => void pickModel(m)} load={loadModels}
+                    cached={sameEndpoint ? current?.models : undefined} cachedAt={sameEndpoint ? current?.modelsAt : undefined} />
             </Field>
-            <label className="check-row">
-                <Toggle checked={form.sendNames ?? true} onChange={v => setForm({ ...form, sendNames: v })} />
-                <span>发送 name 字段（和酒馆一致；如果接口报错可以关掉，名字会改写进内容里）</span>
-            </label>
             <div className="row-end">
                 {current && <Button variant="danger" onClick={() => void api.deleteConnection(current.id).then(refresh).then(() => setSelected(null)).catch(reportError)}>删除</Button>}
                 <span className="grow" />

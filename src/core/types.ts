@@ -419,8 +419,14 @@ export interface Connection {
     model: string;
     /** Stored separately in secrets; present here only as a mask. */
     hasKey?: boolean;
-    /** Send OpenAI `name` fields (some proxies reject them). */
+    /**
+     * Send OpenAI `name` fields, like SillyTavern. Not a user setting: Hearth turns it off by
+     * itself when the endpoint rejects them, and back on when the address changes.
+     */
     sendNames: boolean;
+    /** The endpoint's model list, kept so the model picker opens instantly. */
+    models?: string[];
+    modelsAt?: number;
     extraHeaders?: Record<string, string>;
     extraBody?: Record<string, unknown>;
 }

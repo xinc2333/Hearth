@@ -109,6 +109,8 @@ export const api = {
         request<Bootstrap['settings']>('POST', '/api/connections', { connection, key, activate }),
     deleteConnection: (id: string) => request<Bootstrap['settings']>('DELETE', `/api/connections/${id}`),
     models: (id: string) => request<{ models: string[] }>('POST', `/api/connections/${id}/models`),
+    /** Lists models with what the form holds; without `key`, the saved key of `connectionId` is used. */
+    listModels: (body: { connectionId?: string; baseUrl: string; key?: string }) => request<{ models: string[] }>('POST', '/api/models', body),
     testConnection: (id: string) => request<{ text: string; ms: number }>('POST', `/api/connections/${id}/test`),
     plugins: () => request<PluginView[]>('GET', '/api/plugins'),
     setPlugin: (id: string, patch: { enabled?: boolean; autoUpdate?: boolean }) => request<PluginView[]>('PUT', `/api/plugins/${id}`, patch),

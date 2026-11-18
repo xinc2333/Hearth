@@ -20,25 +20,74 @@ function normalizeBase(url: string) {
     return url.trim().replace(/\/+$/, '').replace(/\/chat\/completions$/, '');
 }
 
+/** Reports what Hearth learned about an endpoint while talking to it. */
+export interface ProviderHooks {
+    /** The endpoint refused messages with a `name` field; the request went through without them. */
+    onNamesRejected?: () => void;
+}
+
+/** Tool and function results carry `name` as part of their own format; only chat messages count. */
+function namedMessage(m: unknown): m is { role: string; name: string; content?: unknown } {
+    const r = (m as { role?: unknown })?.role;
+    return typeof (m as { name?: unknown })?.name === 'string' && r !== 'tool' && r !== 'function';
+}
+
 /** Prefixes example-dialogue names into content for endpoints that reject `name` (ST xAI converter). */
-function stripNames(messages: ChatRequest['messages'], names: ChatRequest['names']) {
+function stripNames<T>(messages: T[], names?: ChatRequest['names']): T[] {
     return messages.map(m => {
-        if (!m.name) return { role: m.role, content: m.content };
-        let content = m.content;
-        if (m.role === 'system' && m.name === 'example_user' && !content.startsWith(`${names.user}: `)) {
-            content = `${names.user}: ${content}`;
-        } else if (m.role === 'system' && m.name === 'example_assistant' && !content.startsWith(`${names.char}: `)) {
-            content = `${names.char}: ${content}`;
+        if (!namedMessage(m)) return m;
+        const { name, ...rest } = m as { role: string; name: string; content?: unknown };
+        const content = rest.content;
+        if (typeof content === 'string' && rest.role === 'system' && names) {
+            const speaker = name === 'example_user' ? names.user : name === 'example_assistant' ? names.char : '';
+            if (speaker && !content.startsWith(`${speaker}: `)) rest.content = `${speaker}: ${content}`;
         }
-        return { role: m.role, content };
+        return rest as T;
     });
+}
+
+function hasNames(body: Record<string, unknown>): boolean {
+    return Array.isArray(body.messages) && body.messages.some(namedMessage);
+}
+
+function withoutNames(body: Record<string, unknown>, names?: ChatRequest['names']): Record<string, unknown> {
+    return { ...body, messages: stripNames(body.messages as unknown[], names) };
+}
+
+/**
+ * Posts to /chat/completions. SillyTavern sends example dialogue with OpenAI `name` fields, and
+ * so does Hearth; some endpoints reject them. Then the request is sent once more with the names
+ * written into the text, and the connection remembers it (`onNamesRejected`), so the user never
+ * has to know about it.
+ */
+async function postChat(conn: Connection, key: string | undefined, body: Record<string, unknown>, signal: AbortSignal, names?: ChatRequest['names'], hooks?: ProviderHooks): Promise<Response> {
+    const send = (b: Record<string, unknown>) => fetch(`${normalizeBase(conn.baseUrl)}/chat/completions`, {
+        method: 'POST',
+        headers: headers(conn, key),
+        body: JSON.stringify(b),
+        signal,
+    });
+    const named = hasNames(body);
+    if (named && conn.sendNames === false) return send(withoutNames(body, names));
+    const res = await send(body);
+    if (res.ok || !named || (res.status !== 400 && res.status !== 422)) return res;
+    const retry = await send(withoutNames(body, names));
+    if (!retry.ok) {
+        // Something else is wrong: report the original answer.
+        void retry.body?.cancel().catch(() => {});
+        return res;
+    }
+    void res.body?.cancel().catch(() => {});
+    console.log(`接口 ${normalizeBase(conn.baseUrl)} 不接受消息的 name 字段，以后改为把名字写进内容里`);
+    hooks?.onNamesRejected?.();
+    return retry;
 }
 
 export function buildBody(conn: Connection, req: ChatRequest, stream: boolean): Record<string, unknown> {
     const s = req.preset.sampling;
     const body: Record<string, unknown> = {
         model: conn.model,
-        messages: conn.sendNames ? req.messages : stripNames(req.messages, req.names),
+        messages: conn.sendNames !== false ? req.messages : stripNames(req.messages, req.names),
         stream,
         temperature: s.temperature,
         top_p: s.topP,
@@ -51,7 +100,7 @@ export function buildBody(conn: Connection, req: ChatRequest, stream: boolean): 
     return { ...body, ...(req.extra ?? {}), ...(conn.extraBody ?? {}) };
 }
 
-function headers(conn: Connection, key: string | undefined): Record<string, string> {
+function headers(conn: Pick<Connection, 'extraHeaders'>, key: string | undefined): Record<string, string> {
     return {
         'Content-Type': 'application/json',
         ...(key ? { Authorization: `Bearer ${key}` } : {}),
@@ -71,14 +120,9 @@ async function errorText(res: Response): Promise<string> {
 }
 
 /** `prepared`: the final request body (after plugins' request hooks); built from `req` when absent. */
-export async function* streamChat(conn: Connection, key: string | undefined, req: ChatRequest, signal: AbortSignal, prepared?: Record<string, unknown>): AsyncGenerator<StreamEvent> {
+export async function* streamChat(conn: Connection, key: string | undefined, req: ChatRequest, signal: AbortSignal, prepared?: Record<string, unknown>, hooks?: ProviderHooks): AsyncGenerator<StreamEvent> {
     const stream = prepared ? prepared.stream !== false : req.preset.context.stream;
-    const res = await fetch(`${normalizeBase(conn.baseUrl)}/chat/completions`, {
-        method: 'POST',
-        headers: headers(conn, key),
-        body: JSON.stringify(prepared ?? buildBody(conn, req, stream)),
-        signal,
-    });
+    const res = await postChat(conn, key, prepared ?? buildBody(conn, req, stream), signal, req.names, hooks);
     if (!res.ok) {
         throw new Error(`接口返回 ${res.status}：${await errorText(res)}`);
     }
@@ -155,14 +199,9 @@ export interface SendResult {
 }
 
 /** One non-streaming request with a prepared body; tool calls come back as structured data. */
-export async function sendChat(conn: Connection, key: string | undefined, body: Record<string, unknown>, signal: AbortSignal): Promise<SendResult> {
+export async function sendChat(conn: Connection, key: string | undefined, body: Record<string, unknown>, signal: AbortSignal, names?: ChatRequest['names'], hooks?: ProviderHooks): Promise<SendResult> {
     const { stream_options: _drop, ...rest } = body;
-    const res = await fetch(`${normalizeBase(conn.baseUrl)}/chat/completions`, {
-        method: 'POST',
-        headers: headers(conn, key),
-        body: JSON.stringify({ ...rest, stream: false }),
-        signal,
-    });
+    const res = await postChat(conn, key, { ...rest, stream: false }, signal, names, hooks);
     if (!res.ok) {
         throw new Error(`接口返回 ${res.status}：${await errorText(res)}`);
     }
@@ -177,12 +216,17 @@ export async function sendChat(conn: Connection, key: string | undefined, body: 
     };
 }
 
-export async function listModels(conn: Connection, key: string | undefined): Promise<string[]> {
-    const res = await fetch(`${normalizeBase(conn.baseUrl)}/models`, { headers: headers(conn, key) });
+export async function listModels(conn: Pick<Connection, 'baseUrl' | 'extraHeaders'>, key: string | undefined): Promise<string[]> {
+    if (!conn.baseUrl.trim()) throw Object.assign(new Error('先填写接口地址'), { status: 400 });
+    const res = await fetch(`${normalizeBase(conn.baseUrl)}/models`, { headers: headers(conn, key), signal: AbortSignal.timeout(30_000) }).catch(error => {
+        console.warn('获取模型列表失败：', error instanceof Error ? error.message : error);
+        throw Object.assign(new Error('连不上这个地址，检查一下接口地址、网络或代理'), { status: 400 });
+    });
     if (!res.ok) {
-        throw new Error(`获取模型列表失败（${res.status}）：${await errorText(res)}`);
+        const reason = res.status === 401 || res.status === 403 ? 'API 密钥不对，或者没有权限' : res.status === 404 ? '这个地址没有模型列表，检查一下接口地址（一般以 /v1 结尾）' : await errorText(res);
+        throw Object.assign(new Error(`${reason}（${res.status}）`), { status: 400 });
     }
-    const json = await res.json() as { data?: { id: string }[]; models?: { name?: string; id?: string }[] };
-    const list = json.data?.map(m => m.id) ?? json.models?.map(m => m.id ?? m.name ?? '') ?? [];
-    return list.filter(Boolean).sort();
+    const json = await res.json().catch(() => null) as { data?: { id: string }[]; models?: { name?: string; id?: string }[] } | null;
+    const list = json?.data?.map(m => m.id) ?? json?.models?.map(m => m.id ?? m.name ?? '') ?? [];
+    return [...new Set(list.filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }

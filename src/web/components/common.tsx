@@ -75,6 +75,8 @@ export function Modal({ title, onClose, children, size = 'default', actions }: {
         modalStack.push(token);
         const onKey = (e: KeyboardEvent) => {
             if (e.key !== 'Escape' || modalStack[modalStack.length - 1] !== token) return;
+            // A dropdown inside the dialog closes itself first.
+            if ((e.target as Element | null)?.closest?.('[data-own-escape]')) return;
             e.stopPropagation();
             close.current();
         };
