@@ -4,6 +4,10 @@
 
 ## [未发布]
 
+## [0.6.1] - 2026-11-18
+
+从 0.6.0 更新到这一版时，还会照旧提示「现在重启更新」。之后的更新会在你没有使用 Hearth 时自动完成。
+
 ### 变更
 
 - 新版本下载好后，Hearth 会在你没有使用的时候自动重启，完成更新，不用再点「现在重启更新」。正在生成回复或者有没保存的修改时，会等到之后再重启。
@@ -139,7 +143,8 @@
 - 支持 EJS 提示词模板，以及 Meowssiah 等 SPreset 类预设。
 - 连接 OpenAI 兼容接口，流式显示回复和思考过程，支持停止、重新生成、继续写和切换版本。
 
-[未发布]: https://github.com/xinc2333/Hearth/compare/v0.6.0...HEAD
+[未发布]: https://github.com/xinc2333/Hearth/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/xinc2333/Hearth/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/xinc2333/Hearth/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/xinc2333/Hearth/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/xinc2333/Hearth/compare/v0.4.0...v0.5.0
