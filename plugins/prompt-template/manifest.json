@@ -1,8 +1,8 @@
 {
   "id": "prompt-template",
   "name": "提示词模板",
-  "description": "运行预设、角色卡和世界书里的 EJS 模板（<% %>），例如按剧情阶段载入不同章节。模板在沙箱中运行，访问不到文件和网络。",
-  "version": "1.0.0",
+  "description": "运行预设、角色卡和世界书里的 EJS 模板，例如按剧情阶段载入不同章节。模板在隔离环境中运行，访问不到文件和网络。",
+  "version": "1.0.1",
   "hearth": ">=0.3.0",
   "main": "server.mjs",
   "files": ["server.mjs"],

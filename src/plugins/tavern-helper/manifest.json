@@ -1,8 +1,8 @@
 {
   "id": "tavern-helper",
   "name": "酒馆助手",
-  "description": "支持角色卡和预设里依赖酒馆助手的内容：消息里的前端界面（状态栏等）、MVU 变量，以及 SPreset 类预设（如 Meowssiah）的回复工具和控制标记。",
-  "version": "1.0.0",
+  "description": "显示消息里的状态栏等界面，处理 MVU 变量，并适配 SPreset 类预设（如 Meowssiah）。",
+  "version": "1.0.1",
   "hearth": ">=0.3.0",
   "main": "server.mjs",
   "files": ["server.mjs"],
