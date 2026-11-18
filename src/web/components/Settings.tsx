@@ -311,11 +311,26 @@ function PluginsSection() {
     );
 }
 
+const mb = (bytes: number) => (bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
+
+function downloadText(u: AppUpdateStatus): string {
+    const parts = [`${u.percent ?? 0}%`];
+    if (u.total) parts.push(`共 ${mb(u.total)}`);
+    if (u.bytesPerSecond) {
+        parts.push(`${mb(u.bytesPerSecond)}/秒`);
+        if (u.total && u.transferred !== undefined) {
+            const left = (u.total - u.transferred) / u.bytesPerSecond;
+            parts.push(left >= 90 ? `还要约 ${Math.round(left / 60)} 分钟` : `还要约 ${Math.max(1, Math.round(left))} 秒`);
+        }
+    }
+    return `正在下载 ${u.version ?? '新版本'}（${parts.join('，')}）`;
+}
+
 function appUpdateText(u: AppUpdateStatus | null | undefined): string {
     switch (u?.state) {
         case 'checking': return '正在检查更新…';
         case 'latest': return '已是最新版';
-        case 'downloading': return `正在下载 ${u.version ?? '新版本'}（${u.percent ?? 0}%）`;
+        case 'downloading': return downloadText(u);
         case 'ready': return `${u.version} 已经下载好，退出 Hearth 时会自动安装`;
         case 'error': return `检查更新失败：${u.error ?? '未知原因'}`;
         default: return '';

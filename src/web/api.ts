@@ -45,6 +45,9 @@ export interface AppUpdateStatus {
     state: 'idle' | 'checking' | 'latest' | 'downloading' | 'ready' | 'error';
     version?: string;
     percent?: number;
+    transferred?: number;
+    total?: number;
+    bytesPerSecond?: number;
     error?: string;
     checkedAt?: number;
 }

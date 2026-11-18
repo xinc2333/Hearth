@@ -21,6 +21,10 @@ export interface AppUpdateStatus {
     version?: string;
     /** Download progress, 0–100. */
     percent?: number;
+    /** Bytes downloaded so far and in all (only the changed parts, when the update is differential). */
+    transferred?: number;
+    total?: number;
+    bytesPerSecond?: number;
     error?: string;
     checkedAt?: number;
 }

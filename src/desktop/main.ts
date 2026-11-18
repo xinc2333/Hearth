@@ -56,7 +56,10 @@ process.on('unhandledRejection', error => console.error('未处理的错误：',
 async function useChromiumNetwork() {
     const proxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy;
     if (proxy) {
-        await session.defaultSession.setProxy({ proxyRules: proxy.replace(/\/+$/, ''), proxyBypassRules: '<local>' });
+        const config = { proxyRules: proxy.replace(/\/+$/, ''), proxyBypassRules: '<local>' };
+        await session.defaultSession.setProxy(config);
+        // electron-updater downloads through a session of its own; updates take the same way.
+        await session.fromPartition('electron-updater', { cache: false }).setProxy(config);
         console.log(`使用代理：${proxy}`);
     }
     const nodeFetch = globalThis.fetch;

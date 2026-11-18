@@ -28,6 +28,7 @@ export class AppUpdates implements DesktopShell {
     private status: AppUpdateStatus = { state: 'idle' };
     private started = false;
     private readonly testFeed = process.env.HEARTH_UPDATE_URL;
+    private downloadStarted: number | null = null;
     private readonly log: Logger;
     private readonly packaged: boolean;
     private readonly enabled: boolean;
@@ -69,12 +70,25 @@ export class AppUpdates implements DesktopShell {
             this.set({ state: 'downloading', version: info.version, percent: 0 });
         });
         updater.on('download-progress', progress => {
-            this.set({ ...this.status, state: 'downloading', percent: Math.floor(progress.percent) });
+            this.downloadStarted ??= Date.now();
+            this.set({
+                ...this.status,
+                state: 'downloading',
+                percent: Math.floor(progress.percent),
+                transferred: progress.transferred,
+                total: progress.total,
+                bytesPerSecond: progress.bytesPerSecond,
+            });
         });
         updater.on('update-not-available', () => {
             this.set({ state: 'latest', checkedAt: Date.now() });
         });
         updater.on('update-downloaded', info => {
+            const { total, transferred } = this.status;
+            const seconds = this.downloadStarted ? (Date.now() - this.downloadStarted) / 1000 : 0;
+            const size = total ?? transferred;
+            if (size && seconds) this.log.info(`下载更新 ${info.version}：${(size / 1048576).toFixed(1)} MB，用时 ${Math.round(seconds)} 秒，平均 ${(size / 1048576 / seconds).toFixed(2)} MB/s`);
+            this.downloadStarted = null;
             this.set({ state: 'ready', version: info.version, checkedAt: Date.now() });
             this.log.info(`新版本 ${info.version} 已下载好，退出 Hearth 时安装`);
         });
