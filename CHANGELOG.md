@@ -6,6 +6,8 @@
 
 ## [未发布]
 
+## [0.5.1] - 2026-11-18
+
 ### 变更
 
 - 自动更新：「设置 → 阅读与外观 → 版本」里显示下载大小、速度和剩余时间；运行记录里会写下每次更新的大小和平均速度。
@@ -113,7 +115,8 @@
 - 对接 OpenAI 兼容接口的流式对话：显示思考过程，支持中途停止、重新生成、续写和多版本切换。
 - Windows 启动脚本：如果后台还在运行旧版本，会自动替换为新版本；可选的 `Start.local.bat` 用来写本机专属设置（例如代理）。
 
-[未发布]: https://github.com/xinc2333/Hearth/compare/v0.5.0...HEAD
+[未发布]: https://github.com/xinc2333/Hearth/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/xinc2333/Hearth/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/xinc2333/Hearth/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/xinc2333/Hearth/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/xinc2333/Hearth/compare/v0.2.0...v0.3.0
