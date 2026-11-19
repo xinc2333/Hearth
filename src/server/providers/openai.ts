@@ -62,6 +62,26 @@ function withoutNames(body: Record<string, unknown>, names?: ChatRequest['names'
     return { ...body, messages: stripNames(body.messages as unknown[], names) };
 }
 
+const messageText = (content: unknown): string => (typeof content === 'string'
+    ? content
+    : Array.isArray(content) ? content.map(p => (typeof p?.text === 'string' ? p.text : '')).filter(Boolean).join('\n') : '');
+
+/**
+ * Gemini's OpenAI-compatible endpoint keeps only the last system message of a request and drops
+ * the others, wherever they are. As 酒馆 does for Google, the leading system messages are sent as
+ * one, and a system message later in the conversation as a user message with the same text.
+ */
+export function geminiSystemMessages(messages: unknown): unknown {
+    if (!Array.isArray(messages)) return messages;
+    let lead = 0;
+    while (lead < messages.length && messages[lead]?.role === 'system') lead++;
+    const head = messages.slice(0, lead).map(m => messageText(m.content)).filter(s => s.trim());
+    return [
+        ...(head.length ? [{ role: 'system', content: head.join('\n\n') }] : []),
+        ...messages.slice(lead).map(m => (m?.role === 'system' ? { ...m, role: 'user' } : m)),
+    ];
+}
+
 type GeminiToolCall = { extra_content?: { google?: { thought_signature?: string } } };
 
 function geminiToolMessages(messages: unknown) {
@@ -96,6 +116,8 @@ async function postChat(conn: Connection, key: string | undefined, body: Record<
         // Use Chat Completions' tool_choice instead of the native Gemini toolConfig field.
         const { frequency_penalty: _frequency, toolConfig: _toolConfig, ...compatibleBody } = body;
         body = compatibleBody;
+        // Example dialogue keeps its speakers in the text once system messages are merged.
+        if (Array.isArray(body.messages)) body.messages = geminiSystemMessages(stripNames(body.messages, names));
         if (/^(?:models\/)?gemini-[34](?:[.-]|$)/i.test(String(body.model ?? ''))) {
             body.messages = geminiToolMessages(body.messages);
         }

@@ -216,3 +216,32 @@ test('connection: Gemini signs preset tool history and replays model signatures 
     assert.deepEqual(openai.messages, body.messages);
     assert.deepEqual(openai.toolConfig, body.toolConfig);
 });
+
+test('connection: Gemini receives every system message (it keeps only the last one it is sent)', async t => {
+    const conn: Connection = { id: 'g', name: 'Gemini', provider: 'openai-compatible', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/', model: 'models/gemini-3.8-flash', sendNames: true };
+    const fetchMock = t.mock.method(globalThis, 'fetch', async () => Response.json({ choices: [{ message: { content: 'ok' } }] }));
+    const body = {
+        model: conn.model,
+        messages: [
+            { role: 'system', content: '说明' },
+            { role: 'system', content: '卡片全文' },
+            { role: 'system', name: 'example_user', content: '你好' },
+            { role: 'user', content: '开始' },
+            { role: 'assistant', content: '好的' },
+            { role: 'system', content: '深度注入' },
+            { role: 'user', content: '继续' },
+        ],
+    };
+    await sendChat(conn, 'k', body, new AbortController().signal, { user: '小明', char: '小红' });
+    const sent = JSON.parse(String(fetchMock.mock.calls[0].arguments[1]?.body)).messages;
+    assert.deepEqual(sent, [
+        { role: 'system', content: '说明\n\n卡片全文\n\n小明: 你好' },
+        { role: 'user', content: '开始' },
+        { role: 'assistant', content: '好的' },
+        { role: 'user', content: '深度注入' },
+        { role: 'user', content: '继续' },
+    ]);
+    // Other endpoints get the messages as they are.
+    await sendChat({ ...conn, baseUrl: 'https://api.openai.com/v1' }, 'k', body, new AbortController().signal);
+    assert.equal(JSON.parse(String(fetchMock.mock.calls[1].arguments[1]?.body)).messages.length, 7);
+});
