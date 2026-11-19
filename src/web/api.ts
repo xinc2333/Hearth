@@ -18,6 +18,8 @@ export interface Summary {
     description?: string;
     lorebookIds?: string[];
     branch?: { chatId: string; index: number };
+    /** A lorebook a character's card interface created (it may use it like its own). */
+    createdFor?: string;
 }
 
 export interface PluginView {

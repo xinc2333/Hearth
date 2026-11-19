@@ -35,7 +35,7 @@ function summary(store: Store, res: AnyResource) {
             return { ...base, characterId: res.characterId, messages: res.messages.length, preview, branch: res.branch };
         }
         case 'lorebook':
-            return { ...base, entries: res.entries.length };
+            return { ...base, entries: res.entries.length, createdFor: (res.extra?.hearth as { createdFor?: string } | undefined)?.createdFor };
         case 'preset':
             return { ...base, prompts: res.prompts.length, scripts: res.scripts.length };
         case 'persona':

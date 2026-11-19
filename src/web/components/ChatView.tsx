@@ -5,8 +5,9 @@ import { api, type ChatContext } from '../api.ts';
 import { Icon } from '../icons.tsx';
 import { extractCardEdit, parseCardEdits } from '../../core/card-edit.ts';
 import { normalizeModelOutput } from '../../core/output.ts';
-import { stateAt } from '../../core/state.ts';
-import { countChars, displayText, frameDocument, renderSegments, type FrameVars } from '../render.ts';
+import { cardStorage, frameSnapshot, handleFrameCall, type FrameScope } from '../card-host.ts';
+import { frameDocument } from '../card-frame.ts';
+import { countChars, displayText, renderSegments } from '../render.ts';
 import {
     branchChat, changeChat, getState, openChat, setControl, reportError, runGeneration, setState, stopGeneration, toast, toggleInspector, toggleSidebar,
     useAppState, useReading, type Streaming,
@@ -22,58 +23,73 @@ const PAGE = 30;
 /** Space kept above a message that is scrolled to the top of the view. */
 const TOP_GAP = 20;
 
-/** Card UIs talk to the app through slash commands (TavernHelper triggerSlash): /setinput, /send, /trigger. */
-function runCardCommand(command: string) {
-    const chatId = getState().activeChatId;
-    if (!chatId) return;
-    for (const part of command.split(/\|(?=\s*\/)/)) {
-        const m = part.trim().match(/^\/(\w+)\s*([\s\S]*)$/);
-        if (!m) continue;
-        const [, name, arg] = m;
-        if (name === 'setinput') window.dispatchEvent(new CustomEvent('hearth:setinput', { detail: arg }));
-        else if (name === 'send') void runGeneration(chatId, 'normal', arg);
-        else if (name === 'trigger') void runGeneration(chatId, 'normal');
-    }
-}
-
 // Heights the card panels settled at, so a panel shown again (chat reopened, earlier messages
 // loaded) starts at its real size instead of jumping there.
 const frameHeights = new Map<string, number>();
 
-function SandboxFrame({ html, vars }: { html: string; vars: FrameVars }) {
+/** A card's HTML interface in a message, with the 酒馆助手 globals (card-frame.ts, card-host.ts). */
+function SandboxFrame({ html, scope }: { html: string; scope: FrameScope }) {
     const id = useMemo(() => Math.random().toString(36).slice(2), []);
     const ref = useRef<HTMLIFrameElement>(null);
+    const port = useRef<MessagePort | null>(null);
     const [height, setHeight] = useState(() => frameHeights.get(html) ?? 120);
-    const doc = useMemo(() => frameDocument(html, id, window.location.origin), [html, id]);
-    const varsJson = JSON.stringify(vars);
-    const post = () => ref.current?.contentWindow?.postMessage({ hearthVars: JSON.parse(varsJson) }, '*');
+    const chat = useAppState(s => s.chats[scope.chatId]);
+    const context = useAppState(s => s.contexts[scope.chatId]);
+    const boot = useAppState(s => s.boot);
+    const characterId = chat?.characterId ?? '';
+    const doc = useMemo(() => frameDocument(html, { id, storage: cardStorage(characterId) }, window.location.origin), [html, id, characterId]);
+    const snapshot = useMemo(() => (chat ? frameSnapshot(chat, scope.index, context, boot) : null), [chat, scope.index, context, boot]);
+    const latest = useRef(snapshot);
+    latest.current = snapshot;
     useEffect(() => {
         const onMessage = (e: MessageEvent) => {
-            if (e.data?.hearthFrame !== id) return;
+            if (e.data?.hearthFrame !== id || e.source !== ref.current?.contentWindow) return;
             if (typeof e.data.h === 'number') {
                 const h = Math.min(Math.max(e.data.h, 24), 2400);
                 frameHeights.set(html, h);
                 setHeight(h);
             }
-            if (e.data.ready) post();
-            if (typeof e.data.slash === 'string') runCardCommand(e.data.slash);
+            if (e.data.ready && e.ports[0]) {
+                port.current?.close();
+                const p = port.current = e.ports[0];
+                p.onmessage = async (ev: MessageEvent) => {
+                    const { seq, method, args } = ev.data ?? {};
+                    if (typeof method !== 'string') return;
+                    try {
+                        const result = await handleFrameCall(scope, method, Array.isArray(args) ? args : []);
+                        if (!seq) return;
+                        // The frame reads its own write right after the call resolves.
+                        const s = getState();
+                        const next = s.chats[scope.chatId];
+                        if (next) p.postMessage({ snapshot: frameSnapshot(next, scope.index, s.contexts[scope.chatId], s.boot), self: true });
+                        p.postMessage({ seq, result });
+                    } catch (error) {
+                        if (seq) p.postMessage({ seq, error: (error as Error).message || String(error) });
+                        else reportError(error);
+                    }
+                };
+                if (latest.current) p.postMessage({ snapshot: latest.current });
+            }
         };
         window.addEventListener('message', onMessage);
         return () => window.removeEventListener('message', onMessage);
-    }, [id, varsJson, html]);
-    // Variables changed (new swipe, edited state): push them so the panel refreshes in place.
-    useEffect(post, [varsJson]);
-    return <iframe ref={ref} className="card-frame" title="角色卡界面" sandbox="allow-scripts allow-popups" scrolling="no" srcDoc={doc} style={{ height }} />;
+    }, [id, html, scope]);
+    // The chat changed (new reply, another frame wrote variables…): send the new snapshot.
+    useEffect(() => {
+        if (snapshot) port.current?.postMessage({ snapshot });
+    }, [snapshot]);
+    useEffect(() => () => port.current?.close(), []);
+    return <iframe ref={ref} className="card-frame" aria-label="角色卡界面" sandbox="allow-scripts allow-popups" scrolling="no" srcDoc={doc} style={{ height }} />;
 }
 
-const Rendered = memo(function Rendered({ text, vars }: { text: string; vars: FrameVars }) {
+const Rendered = memo(function Rendered({ text, scope }: { text: string; scope: FrameScope }) {
     // Message HTML (status bars and other card interfaces) belongs to the 酒馆助手 plugin.
     const frames = useAppState(s => s.boot?.plugins.some(p => p.id === 'tavern-helper' && p.enabled && !p.error) ?? false);
     const segments = useMemo(() => renderSegments(text, frames), [text, frames]);
     return (
         <>
             {segments.map((s, i) => s.type === 'frame'
-                ? <SandboxFrame key={i} html={s.html} vars={vars} />
+                ? <SandboxFrame key={i} html={s.html} scope={scope} />
                 : <div key={i} className="prose" dangerouslySetInnerHTML={{ __html: s.html }} />)}
         </>
     );
@@ -109,9 +125,8 @@ async function switchSwipe(chat: Chat, message: ChatMessage, next: number) {
     await changeChat(chat.id, [{ op: 'set', path: ['messages', `@${message.id}`, 'activeSwipe'], value: next }]).catch(reportError);
 }
 
-const MessageView = memo(function MessageView({ chat, message, index, isLast, context, live, busy, avatar, globalVars }: {
+const MessageView = memo(function MessageView({ chat, message, index, isLast, context, live, busy, avatar }: {
     chat: Chat; message: ChatMessage; index: number; isLast: boolean; context?: ChatContext; live: Streaming | null; busy: boolean; avatar?: string;
-    globalVars?: Record<string, unknown>;
 }) {
     const [editing, setEditing] = useState<string | null>(null);
     const swipe = message.swipes[message.activeSwipe] ?? message.swipes[0];
@@ -128,15 +143,7 @@ const MessageView = memo(function MessageView({ chat, message, index, isLast, co
     }), [raw, regex, context?.userName, context?.charName, isUser, isEdit, depth]);
     const writingEdits = isEdit && live && raw.includes('<card_edit>') ? parseCardEdits(extractCardEdit(raw).block ?? '').length : -1;
     const chars = useMemo(() => (live ? 0 : countChars(text)), [text, live]);
-    const vars = useMemo<FrameVars>(() => ({
-        message: stateAt(chat.messages, index) ?? {},
-        chat: chat.variables ?? {},
-        global: globalVars ?? {},
-        messageId: index,
-        lastMessageId: chat.messages.length - 1,
-        user: context?.userName ?? '',
-        char: context?.charName ?? '',
-    }), [chat.messages, chat.variables, index, globalVars, context?.userName, context?.charName]);
+    const scope = useMemo<FrameScope>(() => ({ chatId: chat.id, index }), [chat.id, index]);
 
     const saveEdit = async () => {
         if (editing === null) return;
@@ -193,7 +200,7 @@ const MessageView = memo(function MessageView({ chat, message, index, isLast, co
                 ) : live && !raw ? (
                     !reasoning && <div className="typing" aria-label="正在等待回复"><span /><span /><span /></div>
                 ) : (
-                    <Rendered text={text} vars={vars} />
+                    <Rendered text={text} scope={scope} />
                 )}
             </div>
             {writingEdits >= 0 && !live?.finalizing && <div className="msg-note"><span className="pulse" /> 正在写修改{writingEdits ? `（${writingEdits} 处）` : ''}…</div>}
@@ -524,7 +531,6 @@ export function ChatView() {
     if (!activeChatId || !chat) return <Welcome />;
 
     const start = Math.max(0, chat.messages.length - limit);
-    const globalVars = boot?.settings.globalVariables;
 
     return (
         <main className="chat-view">
@@ -572,7 +578,7 @@ export function ChatView() {
                         return (
                             <MessageView key={m.id} chat={chat} message={m} index={index} isLast={index === chat.messages.length - 1} context={context}
                                 live={live && live.messageId === m.id && live.swipeId === swipe?.id ? live : null} busy={Boolean(streaming)}
-                                avatar={character?.avatar} globalVars={globalVars} />
+                                avatar={character?.avatar} />
                         );
                     })}
                 </div>
