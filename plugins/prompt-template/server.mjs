@@ -127,9 +127,9 @@ const getchar = async () => __call('getchar');
 const getChara = getchar;
 const console = { log() {}, warn() {}, error() {}, info() {}, debug() {} };
 `;
-async function renderEjs(template, env, depth = 0) {
+function hostFor(env) {
   const merged = () => ({ ...env.vars.global, ...env.vars.chat, ...env.vars.message });
-  const host = (name, args) => {
+  return (name, args) => {
     switch (name) {
       case "variables":
         return merged();
@@ -164,23 +164,49 @@ async function renderEjs(template, env, depth = 0) {
         return void 0;
     }
   };
-  const code = `${PRELUDE}
-(async () => { let __out = ''; const __append = v => { __out += v === undefined || v === null ? '' : String(v); }; const print = (...a) => a.forEach(__append);
+}
+var templateFunction = (template) => `async () => { let __out = ''; const __append = v => { __out += v === undefined || v === null ? '' : String(v); }; const print = (...a) => a.forEach(__append);
 ${compileEjs(template)}
-return __out; })()`;
-  const output = String(await env.run(code, host) ?? "");
+return __out; }`;
+async function renderEjs(template, env, depth = 0) {
+  const code = `${PRELUDE}
+(${templateFunction(template)})()`;
+  const output = String(await env.run(code, hostFor(env)) ?? "");
   if (depth < 3 && output.includes("<%")) {
     return renderEjs(output, env, depth + 1);
   }
   return output;
 }
+async function renderEjsMany(templates, env) {
+  const code = `${PRELUDE}
+(async () => { const outs = []; for (const f of [${templates.map(templateFunction).join(",\n")}]) { try { outs.push(await f()); } catch (e) { outs.push(null); } } return outs; })()`;
+  try {
+    const outs = await env.run(code, hostFor(env), 5e3);
+    if (Array.isArray(outs) && outs.length === templates.length) return outs.map((o) => o === null ? null : String(o));
+  } catch {
+  }
+  return Promise.all(templates.map((t) => renderEjs(t, env).catch(() => null)));
+}
+function preprocessingTemplate(entry) {
+  if (!entry.enabled || !entry.content.includes("<%")) return null;
+  const lines = entry.content.split("\n");
+  const decorators = [];
+  let marked = /\[preprocessing\]/i.test(entry.title);
+  let i = 0;
+  for (; i < lines.length && lines[i].startsWith("@@") && !lines[i].startsWith("@@@"); i++) {
+    if (lines[i].trim() === "@@preprocessing") marked = true;
+    else decorators.push(lines[i]);
+  }
+  return marked ? { template: lines.slice(i).join("\n"), decorators } : null;
+}
 var ejsPlugin = {
   setup(api) {
-    api.onAfterAssemble(async (result, ctx) => {
-      if (!result.parts.some((p) => p.content.includes("<%"))) return;
-      const input = ctx.input;
+    const envs = /* @__PURE__ */ new WeakMap();
+    const envFor = (input) => {
+      let env = envs.get(input);
+      if (env) return env;
       const macroCtx = api.macros.context({ user: input.userName, char: input.character.name, seed: input.chatId });
-      const env = {
+      env = {
         vars: {
           global: structuredClone(input.variables.global),
           chat: structuredClone(input.variables.chat),
@@ -196,6 +222,30 @@ var ejsPlugin = {
         macros: (text) => api.macros.evaluate(text, macroCtx),
         run: api.sandbox.run
       };
+      envs.set(input, env);
+      return env;
+    };
+    api.onBeforeAssemble(async (ctx) => {
+      const input = ctx.input;
+      const targets = [];
+      for (const { book } of input.lore.sources) {
+        for (const entry of book.entries) {
+          const t = preprocessingTemplate(entry);
+          if (t) targets.push({ book, entry, ...t });
+        }
+      }
+      if (!targets.length) return;
+      const outs = await renderEjsMany(targets.map((t) => t.template), envFor(input));
+      const rendered = /* @__PURE__ */ new Map();
+      targets.forEach((t, i) => {
+        const out = outs[i];
+        if (out !== null) rendered.set(t.entry, [...t.decorators, out].join("\n"));
+      });
+      input.lore.sources = input.lore.sources.map((source) => source.book.entries.some((e) => rendered.has(e)) ? { ...source, book: { ...source.book, entries: source.book.entries.map((e) => rendered.has(e) ? { ...e, content: rendered.get(e) } : e) } } : source);
+    });
+    api.onAfterAssemble(async (result, ctx) => {
+      if (!result.parts.some((p) => p.content.includes("<%"))) return;
+      const env = envFor(ctx.input);
       let failed = false;
       for (const part of result.parts) {
         if (!part.content.includes("<%")) continue;

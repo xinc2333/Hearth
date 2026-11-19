@@ -1,9 +1,10 @@
 // EJS prompt templates, compatible with the common ST-Prompt-Template API (getvar / setvar /
 // incvar / decvar / getwi / getchar / print / variables / _). Templates run in the QuickJS sandbox.
 
+import type { AssembleInput } from '../../core/assemble.ts';
 import { getPath, setPath, stateAt } from '../../core/state.ts';
 import { estimateTokens, MESSAGE_OVERHEAD } from '../../core/tokens.ts';
-import type { Lorebook } from '../../core/types.ts';
+import type { LoreEntry, Lorebook } from '../../core/types.ts';
 import type { HearthPlugin, PluginApi } from '../../server/plugins.ts';
 import type { HostCall } from '../../server/sandbox.ts';
 
@@ -78,9 +79,9 @@ export interface EjsEnv {
     run: PluginApi['sandbox']['run'];
 }
 
-export async function renderEjs(template: string, env: EjsEnv, depth = 0): Promise<string> {
+function hostFor(env: EjsEnv): HostCall {
     const merged = () => ({ ...env.vars.global, ...env.vars.chat, ...env.vars.message });
-    const host: HostCall = (name, args) => {
+    return (name, args) => {
         switch (name) {
             case 'variables':
                 return merged();
@@ -115,8 +116,15 @@ export async function renderEjs(template: string, env: EjsEnv, depth = 0): Promi
                 return undefined;
         }
     };
-    const code = `${PRELUDE}\n(async () => { let __out = ''; const __append = v => { __out += v === undefined || v === null ? '' : String(v); }; const print = (...a) => a.forEach(__append);\n${compileEjs(template)}\nreturn __out; })()`;
-    const output = String(await env.run(code, host) ?? '');
+}
+
+/** One template as an async function body that returns its output. */
+const templateFunction = (template: string) =>
+    `async () => { let __out = ''; const __append = v => { __out += v === undefined || v === null ? '' : String(v); }; const print = (...a) => a.forEach(__append);\n${compileEjs(template)}\nreturn __out; }`;
+
+export async function renderEjs(template: string, env: EjsEnv, depth = 0): Promise<string> {
+    const code = `${PRELUDE}\n(${templateFunction(template)})()`;
+    const output = String(await env.run(code, hostFor(env)) ?? '');
     // Included entries may contain templates of their own.
     if (depth < 3 && output.includes('<%')) {
         return renderEjs(output, env, depth + 1);
@@ -124,13 +132,46 @@ export async function renderEjs(template: string, env: EjsEnv, depth = 0): Promi
     return output;
 }
 
+/**
+ * Renders several templates in one sandbox run, sharing variables like one generation does; a template
+ * that throws gives null. Falls back to one run per template when the batch itself cannot run.
+ */
+export async function renderEjsMany(templates: string[], env: EjsEnv): Promise<(string | null)[]> {
+    const code = `${PRELUDE}\n(async () => { const outs = []; for (const f of [${templates.map(templateFunction).join(',\n')}]) { try { outs.push(await f()); } catch (e) { outs.push(null); } } return outs; })()`;
+    try {
+        const outs = await env.run(code, hostFor(env), 5000);
+        if (Array.isArray(outs) && outs.length === templates.length) return outs.map(o => (o === null ? null : String(o)));
+    } catch { /* a syntax error in one template stops the batch */ }
+    return Promise.all(templates.map(t => renderEjs(t, env).catch(() => null)));
+}
+
+/**
+ * ST-Prompt-Template runs an entry that starts with the @@preprocessing decorator (or has
+ * [Preprocessing] in its name) before 酒馆 handles the worldbook, so activation and the token budget
+ * see the template's output. Returns the template and the other decorators, or null.
+ */
+export function preprocessingTemplate(entry: LoreEntry): { template: string; decorators: string[] } | null {
+    if (!entry.enabled || !entry.content.includes('<%')) return null;
+    const lines = entry.content.split('\n');
+    const decorators: string[] = [];
+    let marked = /\[preprocessing\]/i.test(entry.title);
+    let i = 0;
+    for (; i < lines.length && lines[i].startsWith('@@') && !lines[i].startsWith('@@@'); i++) {
+        if (lines[i].trim() === '@@preprocessing') marked = true;
+        else decorators.push(lines[i]);
+    }
+    return marked ? { template: lines.slice(i).join('\n'), decorators } : null;
+}
+
 export const ejsPlugin: HearthPlugin = {
     setup(api) {
-        api.onAfterAssemble(async (result, ctx) => {
-            if (!result.parts.some(p => p.content.includes('<%'))) return;
-            const input = ctx.input;
+        // One set of template variables per assembly: what preprocessing sets, the prompt pass sees.
+        const envs = new WeakMap<AssembleInput, EjsEnv>();
+        const envFor = (input: AssembleInput): EjsEnv => {
+            let env = envs.get(input);
+            if (env) return env;
             const macroCtx = api.macros.context({ user: input.userName, char: input.character.name, seed: input.chatId });
-            const env: EjsEnv = {
+            env = {
                 vars: {
                     global: structuredClone(input.variables.global),
                     chat: structuredClone(input.variables.chat),
@@ -146,6 +187,36 @@ export const ejsPlugin: HearthPlugin = {
                 macros: text => api.macros.evaluate(text, macroCtx),
                 run: api.sandbox.run,
             };
+            envs.set(input, env);
+            return env;
+        };
+
+        api.onBeforeAssemble(async ctx => {
+            const input = ctx.input;
+            const targets: { book: Lorebook; entry: LoreEntry; template: string; decorators: string[] }[] = [];
+            for (const { book } of input.lore.sources) {
+                for (const entry of book.entries) {
+                    const t = preprocessingTemplate(entry);
+                    if (t) targets.push({ book, entry, ...t });
+                }
+            }
+            if (!targets.length) return;
+            const outs = await renderEjsMany(targets.map(t => t.template), envFor(input));
+            const rendered = new Map<LoreEntry, string>();
+            targets.forEach((t, i) => {
+                const out = outs[i];
+                // A template that failed stays as it is; the prompt pass tries it again and reports it.
+                if (out !== null) rendered.set(t.entry, [...t.decorators, out].join('\n'));
+            });
+            // The stored books are not touched: this assembly gets copies with the output.
+            input.lore.sources = input.lore.sources.map(source => source.book.entries.some(e => rendered.has(e))
+                ? { ...source, book: { ...source.book, entries: source.book.entries.map(e => (rendered.has(e) ? { ...e, content: rendered.get(e)! } : e)) } }
+                : source);
+        });
+
+        api.onAfterAssemble(async (result, ctx) => {
+            if (!result.parts.some(p => p.content.includes('<%'))) return;
+            const env = envFor(ctx.input);
             let failed = false;
             for (const part of result.parts) {
                 if (!part.content.includes('<%')) continue;
