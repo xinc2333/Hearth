@@ -305,6 +305,15 @@ kbd {
 .prose > :first-child { margin-top: 0; }
 .prose > :last-child { margin-bottom: 0; }
 .prose + .prose, .card-frame + .prose { margin-top: 0.9em; }
+/* A message with a card's own styled markup: its styles are scoped to it (render.ts scopeCss), and
+   nothing in it, not even position: fixed, can cover the rest of the window. */
+.prose.card-html { contain: layout; isolation: isolate; overflow-wrap: anywhere; }
+/* The card's page (its scripts' interface): kept mounted, laid over the panel's 界面 tab. */
+.card-page-slot { flex: 1; min-height: 0; }
+.card-buttons { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.card-page-host { position: fixed; z-index: 41; background: var(--surface); }
+.card-page-host iframe { display: block; width: 100%; height: 100%; border: 0; background: transparent; }
+.empty-tab { padding: 24px 16px; }
 .prose p { margin: 0 0 0.9em; }
 .read-indent .msg-char .prose > p { text-indent: 2em; margin-bottom: 0.4em; }
 .read-justify .msg-char .prose p { text-align: justify; }

@@ -14,6 +14,8 @@
 // itself, so they keep working after a card rewrites its document with document.open/write (which
 // drops every listener on the window). The height reporter re-attaches to the new document as well.
 
+import { importMap, localScripts } from './card-libs.ts';
+
 /** What the window sends the frame: the chat as 酒馆助手 shows it. */
 export interface FrameSnapshot {
     chatId: string;
@@ -43,6 +45,15 @@ export interface FrameInit {
     id: string;
     /** localStorage saved for this character's frames. */
     storage: Record<string, string>;
+    /**
+     * 'message': HTML in a message, sized to its content. 'page': the card's own page (its 酒馆助手
+     * scripts, card-page.ts); what a script puts on 酒馆's page appears here.
+     */
+    mode?: 'message' | 'page';
+    /** The chat when the frame was made: 酒馆助手's frames can read it from their first line. */
+    snapshot?: FrameSnapshot;
+    /** The page's script buttons as the card's scripts declare them (酒馆助手 shows them in 酒馆's toolbar). */
+    buttons?: { name: string; visible: boolean }[];
 }
 
 /** Messages from the frame to the window (on the port; `ready` and `h` on postMessage). */
@@ -55,6 +66,7 @@ export interface FrameCall {
 // Runs inside the frame. It is inserted with toString(), so it must not use anything from outside.
 function frameRuntime(init: FrameInit) {
     const ID = init.id;
+    const PAGE = init.mode === 'page';
     const realParent = window.parent;
     const w = window as any;
     const clone = <T>(v: T): T => (v === undefined || v === null ? v : structuredClone(v));
@@ -71,17 +83,24 @@ function frameRuntime(init: FrameInit) {
     });
     const notify = (method: string, ...args: unknown[]) => port.postMessage({ method, args });
 
-    let S: FrameSnapshot = {
+    let S: FrameSnapshot = init.snapshot ?? {
         chatId: '', characterId: '', messageId: 0, lastMessageId: -1, user: '', char: '',
         vars: { chat: {}, global: {} }, messages: [], books: { all: [], global: [], primary: null, additional: [], chat: null },
     };
     let ready = false;
     let resolveReady: () => void = () => {};
     const readyP = new Promise<void>(r => { resolveReady = r; });
+    if (init.snapshot) resolveReady();
 
     // --- events ------------------------------------------------------------------------------
     const L: Record<string, Function[]> = {};
     const emit = (e: string, ...a: unknown[]) => (L[e] || []).slice().forEach(f => { try { f(...a); } catch (err) { console.error(err); } });
+    // 酒馆 awaits each handler in turn (a handler may inject prompts or call the model first).
+    const emitAsync = async (e: string, ...a: unknown[]) => {
+        for (const f of (L[e] || []).slice()) {
+            try { await f(...a); } catch (err) { console.error(err); }
+        }
+    };
     const mvuEvents = {
         VARIABLE_INITIALIZED: 'mag_variable_initialized', VARIABLE_UPDATE_STARTED: 'mag_variable_update_started',
         SINGLE_VARIABLE_UPDATED: 'mag_variable_updated', VARIABLE_UPDATE_ENDED: 'mag_variable_update_ended',
@@ -92,11 +111,14 @@ function frameRuntime(init: FrameInit) {
         MESSAGE_EDITED: 'message_edited', MESSAGE_DELETED: 'message_deleted', MESSAGE_SWIPED: 'message_swiped', CHAT_CHANGED: 'chat_id_changed',
         GENERATION_STARTED: 'generation_started', GENERATION_ENDED: 'generation_ended', GENERATION_STOPPED: 'generation_stopped',
         CHARACTER_MESSAGE_RENDERED: 'character_message_rendered', USER_MESSAGE_RENDERED: 'user_message_rendered',
-        WORLDINFO_UPDATED: 'worldinfo_updated', SETTINGS_UPDATED: 'settings_updated',
+        WORLDINFO_UPDATED: 'worldinfo_updated', SETTINGS_UPDATED: 'settings_updated', CHAT_CREATED: 'chat_created',
+        GENERATION_AFTER_COMMANDS: 'GENERATION_AFTER_COMMANDS', CHAT_COMPLETION_PROMPT_READY: 'chat_completion_prompt_ready',
+        CHAT_COMPLETION_SETTINGS_READY: 'chat_completion_settings_ready', STREAM_TOKEN_RECEIVED: 'stream_token_received',
     };
     const iframeEvents = { MESSAGE_IFRAME_RENDER_STARTED: 'message_iframe_render_started', MESSAGE_IFRAME_RENDER_ENDED: 'message_iframe_render_ended' };
     const eventOn = (e: string, f: Function) => { (L[e] = L[e] || []).push(f); return { stop: () => eventRemoveListener(e, f) }; };
     const eventRemoveListener = (e: string, f: Function) => { L[e] = (L[e] || []).filter(x => x !== f); };
+    const eventOnce = (e: string, f: Function) => { const wrap = (...a: unknown[]) => { eventRemoveListener(e, wrap); f(...a); }; return eventOn(e, wrap); };
 
     // --- variables ---------------------------------------------------------------------------
     const resolveId = (id: unknown): number => {
@@ -215,22 +237,34 @@ function frameRuntime(init: FrameInit) {
     const charBooks = () => ({ primary: S.books.primary, additional: [...S.books.additional] });
 
     // --- the message box (window.parent's #send_textarea / #send_but) --------------------------
+    // A message frame's window.parent is a stand-in document holding the two; on the card's page,
+    // window.parent is the page itself (what scripts put on 酒馆's page lands here) and the two are
+    // hidden in it.
     const stub = document.implementation.createHTMLDocument('');
     stub.body.innerHTML = '<textarea id="send_textarea"></textarea><div id="send_but"></div><div id="chat"></div>';
     const box = stub.getElementById('send_textarea') as HTMLTextAreaElement;
     const sendButton = stub.getElementById('send_but') as HTMLElement;
+    if (PAGE) {
+        const place = () => {
+            const holder = document.createElement('div');
+            holder.hidden = true;
+            holder.append(box, sendButton);
+            document.body.append(holder);
+        };
+        if (document.body) place(); else document.addEventListener('DOMContentLoaded', place, { once: true });
+    }
     // jQuery's trigger('input') calls oninput directly; a real event reaches the listener. Sending the
     // same text twice is harmless. A click (jQuery or not) always ends in one native click event.
     box.oninput = () => notify('input', box.value);
     box.addEventListener('input', () => notify('input', box.value));
     sendButton.addEventListener('click', () => { const text = box.value; box.value = ''; notify('send', text); });
-    const stubJq = () => (w.jQuery ? (sel: unknown, ctx?: unknown) => w.jQuery(sel, ctx ?? stub) : undefined);
+    const stubJq = () => (w.jQuery ? (PAGE ? w.jQuery : (sel: unknown, ctx?: unknown) => w.jQuery(sel, ctx ?? stub)) : undefined);
     const shared: Record<string | symbol, unknown> = {};
     const facade: any = new Proxy(shared, {
         get(_t, k) {
             switch (k) {
                 case 'postMessage': return (...a: [unknown, string, Transferable[]?]) => realParent.postMessage(...a);
-                case 'document': return stub;
+                case 'document': return PAGE ? document : stub;
                 case '$': case 'jQuery': return stubJq();
                 case 'window': case 'self': case 'parent': case 'frames': return facade;
                 case 'top': return window.top;
@@ -238,14 +272,34 @@ function frameRuntime(init: FrameInit) {
                 case 'innerHeight': return window.innerHeight;
                 case 'length': return 0;
                 case 'closed': return false;
-                default:
+                default: {
                     if (k in shared) return shared[k];
-                    return ['SillyTavern', 'TavernHelper', 'toastr', 'Mvu', '_', 'z', 'YAML', 'Vue'].includes(String(k)) ? w[k] : undefined;
+                    // Anything else of 酒馆's page (addEventListener, matchMedia, location…) is this frame's own.
+                    const v = w[k];
+                    return typeof v === 'function' && !/^[A-Z]/.test(String(k)) ? v.bind(window) : v;
+                }
             }
         },
         set(_t, k, v) { shared[k] = v; return true; },
     });
-    try { Object.defineProperty(window, 'parent', { configurable: true, get: () => facade }); } catch { /* keep the real one */ }
+    // On the card's page, 酒馆's page is the page itself.
+    try { Object.defineProperty(window, 'parent', { configurable: true, get: () => (PAGE ? window : facade) }); } catch { /* keep the real one */ }
+
+    // Scripts a card adds while it runs get the same window.top → window.parent as its own code
+    // (frameDocument): e.g. a status bar whose inline scripts call the card's other script.
+    const fixTop = (v: unknown) => (typeof v === 'string' ? v.replace(/\bwindow\.top\b/g, 'window.parent') : v);
+    try {
+        const text = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'text')!;
+        Object.defineProperty(HTMLScriptElement.prototype, 'text', { ...text, set(v: unknown) { text.set!.call(this, fixTop(v)); } });
+        const content = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent')!;
+        Object.defineProperty(Node.prototype, 'textContent', { ...content, set(v: unknown) { content.set!.call(this, this instanceof HTMLScriptElement ? fixTop(v) : v); } });
+    } catch { /* leave them as they are */ }
+
+    // Card code sees an ordinary browser, as with 酒馆 in one: some cards stop when they find Electron.
+    try {
+        const ua = navigator.userAgent.replace(/\s(?:Electron|hearth|Hearth)\/[^\s]+/g, '');
+        Object.defineProperty(navigator, 'userAgent', { configurable: true, get: () => ua });
+    } catch { /* ignore */ }
 
     // --- storage -----------------------------------------------------------------------------
     const makeStorage = (data: Map<string, string>, persist: boolean) => ({
@@ -265,8 +319,49 @@ function frameRuntime(init: FrameInit) {
     const toast = (type: string) => (message: unknown, title?: unknown) => { notify('toast', type, String(message ?? ''), title ? String(title) : ''); return {}; };
     const toastr = { success: toast('success'), info: toast('info'), warning: toast('warning'), error: toast('error'), clear() {}, remove() {}, options: {} };
 
+    // --- prompts and the model ---------------------------------------------------------------
+    // injectPrompts: sent with the next replies (once: with the next one only), like an extension's prompts.
+    const injected = new Map<string, Record<string, unknown> & { once?: boolean }>();
+    const injectPrompts = (prompts: Record<string, unknown>[], o: { once?: boolean } = {}) => {
+        for (const p of Array.isArray(prompts) ? prompts : []) {
+            if (p && typeof p.id === 'string') injected.set(p.id, { ...JSON.parse(JSON.stringify(p)), once: o.once === true });
+        }
+    };
+    const uninjectPrompts = (ids: string[]) => { for (const id of Array.isArray(ids) ? ids : []) injected.delete(String(id)); };
+    // generate / generateRaw go through the user's model connection; the text comes back.
+    const generateWith = (raw: boolean) => async (config: Record<string, unknown> = {}) => {
+        const result = await call('generate', raw, JSON.parse(JSON.stringify(config ?? {})));
+        return String(result ?? '');
+    };
+
+    // --- script buttons ----------------------------------------------------------------------
+    // Shown at the top of the panel's 界面 tab; a click is the event getButtonEvent(name) names.
+    let buttons: { name: string; visible: boolean }[] = clone(init.buttons ?? []);
+    const showButtons = () => realParent.postMessage({ hearthFrame: ID, buttons: buttons.filter(b => b.visible !== false).map(b => b.name) }, '*');
+    const setButtons = (list: unknown) => {
+        buttons = (Array.isArray(list) ? list : []).filter(b => b && typeof b.name === 'string').map(b => ({ name: String(b.name), visible: b.visible !== false }));
+        showButtons();
+    };
+    const buttonEvent = (name: unknown) => `button:${String(name)}`;
+
     // --- the globals -------------------------------------------------------------------------
     const api: Record<string, unknown> = {
+        injectPrompts, uninjectPrompts,
+        getButtonEvent: buttonEvent,
+        eventOnButton: (name: unknown, f: Function) => eventOn(buttonEvent(name), f),
+        getScriptButtons: () => clone(buttons),
+        replaceScriptButtons: (_a: unknown, b?: unknown) => setButtons(b === undefined ? _a : b),
+        appendInexistentScriptButtons: (_a: unknown, b?: unknown) => {
+            const add = (Array.isArray(b === undefined ? _a : b) ? (b === undefined ? _a : b) : []) as { name: string; visible?: boolean }[];
+            setButtons([...buttons, ...add.filter(x => x && !buttons.some(y => y.name === x.name))]);
+        },
+        updateScriptButtonsWith: async (_a: unknown, f?: Function) => {
+            const fn = (typeof _a === 'function' ? _a : f) as Function;
+            setButtons(await fn(clone(buttons)));
+            return clone(buttons);
+        },
+        generate: generateWith(false), generateRaw: generateWith(true),
+        stopGenerationById: () => false, stopAllGeneration: () => false,
         getVariables, replaceVariables, updateVariablesWith, insertOrAssignVariables, insertVariables, deleteVariable, getAllVariables,
         getChatMessages, setChatMessages, createChatMessages, deleteChatMessages,
         getCurrentMessageId: () => S.messageId, getLastMessageId: () => S.lastMessageId, getMessageId: () => S.messageId,
@@ -282,13 +377,22 @@ function frameRuntime(init: FrameInit) {
             try { const r = f(...a); if (r && typeof r.catch === 'function') r.catch((err: unknown) => console.error(err)); return r; } catch (err) { console.error(err); }
         },
         eventOn, eventRemoveListener,
-        eventOnce: (e: string, f: Function) => { const wrap = (...a: unknown[]) => { eventRemoveListener(e, wrap); f(...a); }; return eventOn(e, wrap); },
+        eventOnce,
         eventMakeFirst: (e: string, f: Function) => { (L[e] = L[e] || []).unshift(f); return { stop: () => eventRemoveListener(e, f) }; },
         eventMakeLast: eventOn,
-        eventEmit: async (e: string, ...a: unknown[]) => emit(e, ...a),
+        eventEmit: async (e: string, ...a: unknown[]) => emitAsync(e, ...a),
         eventClearEvent: (e: string) => { delete L[e]; },
         eventClearAll: () => { for (const k of Object.keys(L)) delete L[k]; },
-        waitGlobalInitialized: async (name?: string) => { await readyP; return name ? w[name] : undefined; },
+        // initializeGlobal shares an object with the card's other scripts; waitGlobalInitialized waits for it.
+        initializeGlobal: (name: unknown, value: unknown) => {
+            w[String(name)] = value;
+            emit(`global:${String(name)}`, value);
+        },
+        waitGlobalInitialized: async (name?: string) => {
+            await readyP;
+            if (!name || w[name] !== undefined) return name ? w[name] : undefined;
+            return new Promise(resolve => { eventOnce(`global:${name}`, resolve); });
+        },
         reloadIframe: () => {},
     };
     api.substituteMacros = api.substitudeMacros;
@@ -331,8 +435,15 @@ function frameRuntime(init: FrameInit) {
                 emit(mvuEvents.VARIABLE_INITIALIZED, getVariables({ type: 'message' }));
                 return;
             }
-            if (S.lastMessageId > before.lastMessageId) {
-                emit(S.messages[S.lastMessageId]?.role === 'user' ? tavernEvents.MESSAGE_SENT : tavernEvents.MESSAGE_RECEIVED, S.lastMessageId);
+            // A user message arriving is news; a reply is announced by the window when it is finished
+            // (its empty placeholder appears first), and so are generation start and end.
+            if (S.lastMessageId > before.lastMessageId && S.messages[S.lastMessageId]?.role === 'user') {
+                emit(tavernEvents.MESSAGE_SENT, S.lastMessageId);
+                emit(tavernEvents.USER_MESSAGE_RENDERED, S.lastMessageId);
+            } else if (S.lastMessageId < before.lastMessageId) {
+                emit(tavernEvents.MESSAGE_DELETED, S.lastMessageId + 1);
+            } else if (S.lastMessageId === before.lastMessageId && S.lastMessageId >= 0 && S.messages[S.lastMessageId]?.swipe_id !== before.messages[S.lastMessageId]?.swipe_id) {
+                emit(tavernEvents.MESSAGE_SWIPED, S.lastMessageId);
             }
             // Changes this frame wrote itself are not announced back to it (MVU does not either).
             const now = JSON.stringify(varsAt(S, S.messageId));
@@ -347,6 +458,29 @@ function frameRuntime(init: FrameInit) {
             }
             return;
         }
+        // The window tells of a generation's steps, or asks before one.
+        if (d?.event) {
+            void emitAsync(String(d.event), ...(Array.isArray(d.args) ? d.args : []));
+            return;
+        }
+        if (d?.ask) {
+            void (async () => {
+                let value: unknown = null;
+                if (d.kind === 'beforeGeneration') {
+                    await emitAsync(tavernEvents.GENERATION_STARTED, d.payload?.type ?? 'normal', {}, false);
+                    await emitAsync(tavernEvents.GENERATION_AFTER_COMMANDS, d.payload?.type ?? 'normal', {}, false);
+                    const injections = [...injected.values()];
+                    for (const [id, p] of injected) if (p.once) injected.delete(id);
+                    value = { injections, answers: (L[tavernEvents.CHAT_COMPLETION_PROMPT_READY] || []).length ? ['chat_completion_prompt_ready'] : [] };
+                } else if (d.kind === 'chat_completion_prompt_ready') {
+                    const data = { chat: Array.isArray(d.payload?.messages) ? d.payload.messages : [], dryRun: false };
+                    await emitAsync(tavernEvents.CHAT_COMPLETION_PROMPT_READY, data);
+                    value = { messages: data.chat };
+                }
+                port.postMessage({ answer: d.ask, value: value === null ? null : JSON.parse(JSON.stringify(value)) });
+            })();
+            return;
+        }
         if (d?.seq) {
             const p = pending.get(d.seq);
             if (!p) return;
@@ -356,6 +490,31 @@ function frameRuntime(init: FrameInit) {
         }
     };
     realParent.postMessage({ hearthFrame: ID, ready: true }, '*', [channel.port2]);
+
+    // The card's page fills its panel and scrolls itself; only message frames follow their content.
+    if (PAGE) {
+        const style = document.createElement('style');
+        style.textContent = 'html,body{margin:0;min-height:100%;background:transparent}';
+        (document.head || document.documentElement).prepend(style);
+        if (buttons.length) setTimeout(showButtons, 0);
+        // Tell the window once the scripts have put something visible on the page.
+        let shown = false;
+        const check = () => {
+            if (shown || !document.body) return;
+            for (const el of Array.from(document.body.children)) {
+                if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE' || (el as HTMLElement).hidden) continue;
+                const r = el.getBoundingClientRect();
+                if (r.width > 8 && r.height > 8) {
+                    shown = true;
+                    realParent.postMessage({ hearthFrame: ID, ui: true }, '*');
+                    return;
+                }
+            }
+        };
+        new MutationObserver(check).observe(document, { subtree: true, childList: true, attributes: true });
+        [500, 2000, 5000].forEach(t => setTimeout(check, t));
+        return;
+    }
 
     // --- height ------------------------------------------------------------------------------
     // The frame is sized to its content: the root never scrolls, and html/body take their natural
@@ -408,10 +567,14 @@ function frameRuntime(init: FrameInit) {
 }
 
 /** Wraps a card-provided HTML document with the 酒馆助手 globals and the libraries it expects. */
-export function frameDocument(html: string, init: FrameInit, origin: string): string {
+export function frameDocument(source: string, init: FrameInit, origin: string): string {
     const libs = ['jquery', 'lodash', 'vue', 'zod', 'yaml'].map(n => `<script src="${origin}/vendor/${n}.min.js"></script>`).join('');
     const runtime = `<script>(${frameRuntime.toString()})(${JSON.stringify(init).replace(/</g, '\\u003c')});</script>`;
-    const head = runtime + libs;
+    // The import map comes first: it must be in place before any module loads.
+    const head = importMap([source], origin) + runtime + libs;
+    // In 酒馆 window.top and window.parent are both 酒馆's page; here they are the stand-in (or the
+    // card's own page). window.top cannot be replaced, so the card's code is pointed at window.parent.
+    const html = localScripts(source, origin).replace(/\bwindow\.top\b/g, 'window.parent');
     if (/<head(?:\s[^>]*)?>/i.test(html)) return html.replace(/<head(?:\s[^>]*)?>/i, m => m + head);
     // Nothing may come before a doctype, or the page renders in quirks mode.
     const doctype = html.match(/^\s*<!doctype[^>]*>/i)?.[0] ?? '';

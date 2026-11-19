@@ -256,6 +256,15 @@ export async function handleFrameCall(scope: FrameScope, method: string, args: u
             await refresh();
             return null;
         }
+        case 'generate': {
+            // A card's own request to the model (generate / generateRaw); it goes through the user's connection.
+            const [raw, config] = args as [boolean, Record<string, unknown>];
+            const { text } = await api.cardGenerate(chat.id, raw === true, config && typeof config === 'object' ? config : {});
+            void api.lastPrompt(chat.id).then(prompt => {
+                if (prompt) setState(s => ({ prompts: { ...s.prompts, [chat.id]: prompt } }));
+            }).catch(() => {});
+            return text;
+        }
         case 'mvuParse': {
             const [text, old] = args as [string, Record<string, unknown>];
             const result = applyMvuCommands((old.stat_data as Record<string, unknown>) ?? {}, parseMvuCommands(text));

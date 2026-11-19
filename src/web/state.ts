@@ -5,10 +5,11 @@ import { useMemo, useSyncExternalStore } from 'react';
 import type { Op } from '../core/ops.ts';
 import type { Chat, ChatMessage, ReadingSettings, ResourceKind } from '../core/types.ts';
 import { api, generate, type Bootstrap, type ChatContext, type PromptSnapshot, type VersionInfo } from './api.ts';
+import { askPage, broadcast } from './card-page.ts';
 
 export type GenerationKind = 'normal' | 'swipe' | 'regenerate' | 'continue';
-export type InspectorTab = 'prompt' | 'state' | 'tabletop' | 'character' | 'lore' | 'history';
-const INSPECTOR_TABS: InspectorTab[] = ['prompt', 'state', 'tabletop', 'character', 'lore', 'history'];
+export type InspectorTab = 'prompt' | 'state' | 'tabletop' | 'character' | 'lore' | 'history' | 'card';
+const INSPECTOR_TABS: InspectorTab[] = ['prompt', 'state', 'tabletop', 'character', 'lore', 'history', 'card'];
 
 export interface Streaming {
     chatId: string;
@@ -49,6 +50,10 @@ export interface AppState {
     prompts: Record<string, PromptSnapshot>;
     streaming: Streaming | null;
     inspector: null | InspectorTab;
+    /** The chat whose card page is open (CardFrames.tsx); the panel shows its 界面 tab. */
+    cardPage: string | null;
+    /** That page's script buttons, shown on the 界面 tab. */
+    cardButtons: string[];
     sidebarOpen: boolean;
     paletteOpen: boolean;
     settingsOpen: boolean;
@@ -76,6 +81,8 @@ export function savePref(key: string, value: unknown) {
 let state: AppState = {
     boot: null,
     activeChatId: null,
+    cardPage: null,
+    cardButtons: [],
     chats: {},
     contexts: {},
     prompts: {},
@@ -270,9 +277,18 @@ export async function runGeneration(chatId: string, type: GenerationKind, text?:
         });
     };
     try {
-        await generate(chatId, { type, text }, event => {
+        // The card's page runs its scripts' handlers first (they may inject prompts or call the model).
+        const story = (getState().chats[chatId]?.mode ?? 'story') !== 'edit';
+        const prep = story ? await askPage(chatId, 'beforeGeneration', { type }) as { injections?: unknown[]; answers?: string[] } | null : null;
+        let jobId = '';
+        await generate(chatId, { type, text, injections: prep?.injections, answers: prep?.answers }, event => {
             switch (event.type) {
+                case 'ask':
+                    // A plugin asks the card's page during the generation (e.g. for its prompt handler).
+                    void askPage(chatId, event.kind, event.payload, 55_000).then(value => api.answer(jobId, event.id, value)).catch(() => {});
+                    break;
                 case 'job':
+                    jobId = event.jobId;
                     pending = { ...pending, jobId: event.jobId, messageId: event.messageId, swipeId: event.swipeId, prefix: event.prefix };
                     // Fetch the chat so the user message and placeholder appear immediately.
                     void api.get<Chat>('chat', chatId).then(chat => {
@@ -300,11 +316,17 @@ export async function runGeneration(chatId: string, type: GenerationKind, text?:
                     pending = { ...pending, progress: { ...pending.progress, [event.plugin]: event.data } };
                     flush();
                     break;
-                case 'done':
+                case 'done': {
                     finish(event.message);
+                    const index = getState().chats[chatId]?.messages.findIndex(m => m.id === event.message.id) ?? -1;
+                    if (index >= 0) {
+                        broadcast(chatId, 'message_received', index, type);
+                        broadcast(chatId, 'character_message_rendered', index, type);
+                    }
                     // The switches may change with the reply (a note delivered, 聊天 back to 剧场).
                     void reloadContext(chatId).catch(() => {});
                     break;
+                }
                 case 'update': {
                     const message = event.message;
                     setState(s => {
@@ -324,6 +346,7 @@ export async function runGeneration(chatId: string, type: GenerationKind, text?:
         reportError(error);
     } finally {
         finish();
+        broadcast(chatId, 'generation_ended', (getState().chats[chatId]?.messages.length ?? 0) - 1);
         const chat = await api.get<Chat>('chat', chatId).catch(() => null);
         // A newer reply may have started while background work kept this stream open.
         if (chat && getState().streaming?.chatId !== chatId) setState(s => ({ chats: { ...s.chats, [chatId]: chat } }));

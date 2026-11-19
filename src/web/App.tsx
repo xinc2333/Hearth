@@ -5,6 +5,7 @@ import { Boundary } from './components/Boundary.tsx';
 import { ChatView } from './components/ChatView.tsx';
 import { CommandPalette } from './components/CommandPalette.tsx';
 import { Button, Modal } from './components/common.tsx';
+import { CardPage } from './components/CardFrames.tsx';
 import { Inspector } from './components/Inspector.tsx';
 import { applyReading } from './components/Reading.tsx';
 import { SettingsDialog } from './components/Settings.tsx';
@@ -164,6 +165,7 @@ export function App() {
                     <Boundary label="侧边栏"><Sidebar /></Boundary>
                     <Boundary label="对话"><ChatView /></Boundary>
                     <Boundary label="检查器"><Inspector /></Boundary>
+                    <Boundary label="角色卡界面"><CardPage /></Boundary>
                     <Boundary label="设置"><SettingsDialog /></Boundary>
                     <CommandPalette />
                     <ConfirmDialog />

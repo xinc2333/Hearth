@@ -5,14 +5,14 @@ import { api, type ChatContext } from '../api.ts';
 import { Icon } from '../icons.tsx';
 import { extractCardEdit, parseCardEdits } from '../../core/card-edit.ts';
 import { normalizeModelOutput } from '../../core/output.ts';
-import { cardStorage, frameSnapshot, handleFrameCall, type FrameScope } from '../card-host.ts';
-import { frameDocument } from '../card-frame.ts';
+import type { FrameScope } from '../card-host.ts';
 import { countChars, displayText, renderSegments } from '../render.ts';
 import {
     branchChat, changeChat, getState, openChat, setControl, reportError, runGeneration, setState, stopGeneration, toast, toggleInspector, toggleSidebar,
     useAppState, useReading, type Streaming,
 } from '../state.ts';
 import { AutoTextarea, Avatar, Button, clockTime, Empty, IconButton, isModalOpen, Segmented } from './common.tsx';
+import { SandboxFrame } from './CardFrames.tsx';
 import { EditResults } from './EditResults.tsx';
 import { CheckBar, hideSettlement, SettleNote, type TabletopProgress } from './Tabletop.tsx';
 import { ReadingControls } from './Reading.tsx';
@@ -23,65 +23,6 @@ const PAGE = 30;
 /** Space kept above a message that is scrolled to the top of the view. */
 const TOP_GAP = 20;
 
-// Heights the card panels settled at, so a panel shown again (chat reopened, earlier messages
-// loaded) starts at its real size instead of jumping there.
-const frameHeights = new Map<string, number>();
-
-/** A card's HTML interface in a message, with the 酒馆助手 globals (card-frame.ts, card-host.ts). */
-function SandboxFrame({ html, scope }: { html: string; scope: FrameScope }) {
-    const id = useMemo(() => Math.random().toString(36).slice(2), []);
-    const ref = useRef<HTMLIFrameElement>(null);
-    const port = useRef<MessagePort | null>(null);
-    const [height, setHeight] = useState(() => frameHeights.get(html) ?? 120);
-    const chat = useAppState(s => s.chats[scope.chatId]);
-    const context = useAppState(s => s.contexts[scope.chatId]);
-    const boot = useAppState(s => s.boot);
-    const characterId = chat?.characterId ?? '';
-    const doc = useMemo(() => frameDocument(html, { id, storage: cardStorage(characterId) }, window.location.origin), [html, id, characterId]);
-    const snapshot = useMemo(() => (chat ? frameSnapshot(chat, scope.index, context, boot) : null), [chat, scope.index, context, boot]);
-    const latest = useRef(snapshot);
-    latest.current = snapshot;
-    useEffect(() => {
-        const onMessage = (e: MessageEvent) => {
-            if (e.data?.hearthFrame !== id || e.source !== ref.current?.contentWindow) return;
-            if (typeof e.data.h === 'number') {
-                const h = Math.min(Math.max(e.data.h, 24), 2400);
-                frameHeights.set(html, h);
-                setHeight(h);
-            }
-            if (e.data.ready && e.ports[0]) {
-                port.current?.close();
-                const p = port.current = e.ports[0];
-                p.onmessage = async (ev: MessageEvent) => {
-                    const { seq, method, args } = ev.data ?? {};
-                    if (typeof method !== 'string') return;
-                    try {
-                        const result = await handleFrameCall(scope, method, Array.isArray(args) ? args : []);
-                        if (!seq) return;
-                        // The frame reads its own write right after the call resolves.
-                        const s = getState();
-                        const next = s.chats[scope.chatId];
-                        if (next) p.postMessage({ snapshot: frameSnapshot(next, scope.index, s.contexts[scope.chatId], s.boot), self: true });
-                        p.postMessage({ seq, result });
-                    } catch (error) {
-                        if (seq) p.postMessage({ seq, error: (error as Error).message || String(error) });
-                        else reportError(error);
-                    }
-                };
-                if (latest.current) p.postMessage({ snapshot: latest.current });
-            }
-        };
-        window.addEventListener('message', onMessage);
-        return () => window.removeEventListener('message', onMessage);
-    }, [id, html, scope]);
-    // The chat changed (new reply, another frame wrote variables…): send the new snapshot.
-    useEffect(() => {
-        if (snapshot) port.current?.postMessage({ snapshot });
-    }, [snapshot]);
-    useEffect(() => () => port.current?.close(), []);
-    return <iframe ref={ref} className="card-frame" aria-label="角色卡界面" sandbox="allow-scripts allow-popups" scrolling="no" srcDoc={doc} style={{ height }} />;
-}
-
 const Rendered = memo(function Rendered({ text, scope }: { text: string; scope: FrameScope }) {
     // Message HTML (status bars and other card interfaces) belongs to the 酒馆助手 plugin.
     const frames = useAppState(s => s.boot?.plugins.some(p => p.id === 'tavern-helper' && p.enabled && !p.error) ?? false);
@@ -90,7 +31,7 @@ const Rendered = memo(function Rendered({ text, scope }: { text: string; scope: 
         <>
             {segments.map((s, i) => s.type === 'frame'
                 ? <SandboxFrame key={i} html={s.html} scope={scope} />
-                : <div key={i} className="prose" dangerouslySetInnerHTML={{ __html: s.html }} />)}
+                : <div key={i} className={s.styled ? 'prose card-html' : 'prose'} dangerouslySetInnerHTML={{ __html: s.html }} />)}
         </>
     );
 });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { protectedReason } from '../../core/card-edit.ts';
 import { newLoreEntry } from '../../core/lore.ts';
@@ -10,6 +10,8 @@ import { api, type PromptPartView, type PromptSnapshot } from '../api.ts';
 import { Icon } from '../icons.tsx';
 import { change, confirmAction, loadPref, openChat, refresh, reportError, savePref, setState, toast, toggleInspector, useAppState, type InspectorTab } from '../state.ts';
 import { sourceLabel } from '../labels.ts';
+import { pageEvent } from '../card-page.ts';
+import { setCardSlot } from './CardFrames.tsx';
 import { TabletopTab } from './Tabletop.tsx';
 import { Button, Empty, Field, IconButton, LongText, Segmented, Toggle, timeAgo } from './common.tsx';
 
@@ -444,7 +446,27 @@ function HistoryTab({ chatId }: { chatId: string }) {
 
 // ---------------------------------------------------------------------------------------------
 
-const TABS: [InspectorTab, string][] = [['prompt', '提示词'], ['state', '变量'], ['tabletop', '跑团'], ['character', '角色卡'], ['lore', '世界书'], ['history', '历史']];
+const TABS: [InspectorTab, string][] = [['card', '界面'], ['prompt', '提示词'], ['state', '变量'], ['tabletop', '跑团'], ['character', '角色卡'], ['lore', '世界书'], ['history', '历史']];
+
+/** The 界面 tab: the card's script buttons, and the card's page (CardFrames.tsx) laid over the area below. */
+function CardTab({ chatId }: { chatId: string }) {
+    const ref = useRef<HTMLDivElement>(null);
+    const buttons = useAppState(s => s.cardButtons);
+    useEffect(() => {
+        setCardSlot(ref.current);
+        return () => setCardSlot(null);
+    }, []);
+    return (
+        <>
+            {buttons.length > 0 && (
+                <div className="card-buttons">
+                    {buttons.map(name => <Button key={name} variant="ghost" onClick={() => pageEvent(chatId, `button:${name}`)}>{name}</Button>)}
+                </div>
+            )}
+            <div ref={ref} className="card-page-slot" />
+        </>
+    );
+}
 const DEFAULT_WIDTH = 420;
 
 /** Drag the panel's left edge to resize it (double-click resets); wide is better for editing long text. */
@@ -488,6 +510,7 @@ export function Inspector() {
     const [preset, setPreset] = useState<Preset | null>(null);
     const { startDrag, reset } = useInspectorWidth();
     const tabletop = useAppState(s => s.boot?.plugins.some(p => p.id === 'tabletop' && p.enabled && !p.error) ?? false);
+    const cardPage = useAppState(s => Boolean(s.activeChatId && s.cardPage === s.activeChatId));
     useEffect(() => {
         if (context?.preset.id) void api.get<Preset>('preset', context.preset.id).then(setPreset).catch(() => setPreset(null));
     }, [context?.preset.id]);
@@ -497,12 +520,13 @@ export function Inspector() {
             <div className="inspector-resize" title="拖动调整宽度，双击恢复" onPointerDown={startDrag} onDoubleClick={reset} />
             <header className="inspector-head">
                 <div className="tabs" role="tablist">
-                    {TABS.filter(([id]) => id !== 'tabletop' || tabletop).map(([id, label]) => (
+                    {TABS.filter(([id]) => (id !== 'tabletop' || tabletop) && (id !== 'card' || cardPage)).map(([id, label]) => (
                         <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? 'active' : ''} onClick={() => tab !== id && toggleInspector(id)}>{label}</button>
                     ))}
                 </div>
                 <IconButton icon="x" label="关闭面板（Ctrl+I）" onClick={() => setState({ inspector: null })} />
             </header>
+            {tab === 'card' && (cardPage ? <CardTab chatId={chatId} /> : <div className="empty-tab muted small">这张角色卡没有自己的界面。</div>)}
             {tab === 'prompt' && <PromptTab chatId={chatId} preset={preset} />}
             {tab === 'state' && <StateTab chat={chat} />}
             {tab === 'tabletop' && <TabletopTab chat={chat} userName={context?.userName ?? ''} presetId={context?.preset.id} />}

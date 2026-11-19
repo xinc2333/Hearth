@@ -11,7 +11,8 @@ import type { RegexPlacement, RegexScript } from '../core/types.ts';
 
 const marked = new Marked({ gfm: true, breaks: true });
 
-export type Segment = { type: 'html'; html: string } | { type: 'frame'; html: string };
+/** `styled`: the HTML has markup the card styled itself; its message box contains it (styles.css .card-html). */
+export type Segment = { type: 'html'; html: string; styled?: boolean } | { type: 'frame'; html: string };
 
 export function displayText(text: string, opts: { regex: RegexScript[]; user: string; char: string; placement: RegexPlacement; depth: number }): string {
     if (!opts.regex.length) return text;
@@ -43,6 +44,38 @@ function cjkEmphasis(markdown: string): string {
 // paragraph); straight quotes must close, they are too easily something else.
 const QUOTED = /“[^”\n]*(?:”|$)|「[^」\n]*(?:」|$)|『[^』\n]*(?:』|$)|"[^"\n]+"/g;
 const BLOCKS = 'p, li, td, th, h1, h2, h3, h4, h5, h6, blockquote, summary, div';
+/** Markup a card wrote itself (regex 美化 panels): Hearth's typesetting leaves it as it is. */
+const CARD_MARKUP = '[class], [style]';
+
+/**
+ * A card's <style>, limited to its message: rules go inside `@scope` (whose root is the message),
+ * while @keyframes, @font-face and @import stay outside, where they work. Comments are dropped.
+ */
+export function scopeCss(css: string): string {
+    const src = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    const outside: string[] = [];
+    let inside = '';
+    let i = 0;
+    while (i < src.length) {
+        const at = src.slice(i).match(/^\s*@(-webkit-)?(keyframes|font-face|import|property)\b/i);
+        // A top-level block: up to its matching brace (or the semicolon of an @import).
+        let depth = 0, j = i, end = -1;
+        for (; j < src.length; j++) {
+            const ch = src[j];
+            if (ch === '{') depth++;
+            else if (ch === '}') { depth--; if (depth <= 0) { end = j + 1; break; } }
+            else if (ch === ';' && depth === 0 && at?.[2]?.toLowerCase() === 'import') { end = j + 1; break; }
+        }
+        if (end < 0) end = src.length;
+        const block = src.slice(i, end);
+        if (at) outside.push(block.trim());
+        else inside += block;
+        i = end;
+    }
+    const imports = outside.filter(b => /^@import/i.test(b));
+    const rest = outside.filter(b => !/^@import/i.test(b));
+    return [...imports, ...rest, inside.trim() ? `@scope {\n${inside.trim()}\n}` : ''].filter(Boolean).join('\n');
+}
 
 /** Wraps quoted dialogue in spans. Quotes are matched per paragraph, so they may contain bold or italics. */
 function markQuotes(root: DocumentFragment) {
@@ -51,7 +84,7 @@ function markQuotes(root: DocumentFragment) {
     while (walker.nextNode()) {
         const node = walker.currentNode as Text;
         const parent = node.parentElement;
-        if (parent?.closest('code, pre, a')) continue;
+        if (parent?.closest('code, pre, a') || parent?.closest(CARD_MARKUP)) continue;
         const block = parent?.closest(BLOCKS) ?? node;
         const list = groups.get(block);
         if (list) list.push(node);
@@ -91,8 +124,13 @@ function typeset(html: string): string {
 
     // Models separate paragraphs with single newlines, which markdown renders as <br> inside one
     // <p>. Split them so every paragraph gets the same spacing and indent.
+    // A card's own <style> works for its whole message: moved to the top and scoped to the message.
+    const styles = Array.from(root.querySelectorAll('style'));
+    for (const style of styles) style.textContent = scopeCss(style.textContent ?? '');
+    root.prepend(...styles);
+
     for (const p of Array.from(root.querySelectorAll('p'))) {
-        if (!p.querySelector(':scope > br')) continue;
+        if (!p.querySelector(':scope > br') || p.closest(CARD_MARKUP)) continue;
         const parts: HTMLParagraphElement[] = [];
         let current = document.createElement('p');
         for (const node of Array.from(p.childNodes)) {
@@ -108,10 +146,12 @@ function typeset(html: string): string {
     }
     // Hand-typed indents (full-width spaces) would double up with the reading indent.
     for (const p of Array.from(root.querySelectorAll('p'))) {
+        if (p.closest(CARD_MARKUP)) continue;
         const first = p.firstChild;
         if (first?.nodeType === Node.TEXT_NODE) first.textContent = (first.textContent ?? '').replace(/^[\s\u3000]+/, '');
     }
     for (const table of Array.from(root.querySelectorAll('table'))) {
+        if (table.closest(CARD_MARKUP)) continue;
         const wrap = document.createElement('div');
         wrap.className = 'table-wrap';
         table.replaceWith(wrap);
@@ -122,12 +162,52 @@ function typeset(html: string): string {
     return tpl.innerHTML;
 }
 
+const BLOCK_TAGS = 'div|details|section|article|aside|header|footer|nav|figure|table|center|style|svg|ul|ol|dl|blockquote';
+const BLOCK_OPEN = new RegExp(`^[ \\t]*<(${BLOCK_TAGS})\\b[^>]*>`, 'gim');
+
+/**
+ * HTML blocks a card writes (regex 美化 panels) are kept whole, up to their matching closing tag,
+ * like 酒馆's markdown renderer does. Markdown would end them at the first blank line and turn the
+ * indented lines after it into code. Returns the text with placeholders and the blocks.
+ */
+export function protectHtmlBlocks(markdown: string): { text: string; blocks: string[] } {
+    const blocks: string[] = [];
+    let text = '';
+    let last = 0;
+    BLOCK_OPEN.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = BLOCK_OPEN.exec(markdown))) {
+        const tag = m[1].toLowerCase();
+        const tags = new RegExp(`<(/?)${tag}\\b[^>]*?(/?)>`, 'gi');
+        tags.lastIndex = m.index;
+        let depth = 0;
+        let end = -1;
+        let t: RegExpExecArray | null;
+        while ((t = tags.exec(markdown))) {
+            if (t[2]) continue;
+            depth += t[1] ? -1 : 1;
+            if (depth === 0) { end = t.index + t[0].length; break; }
+        }
+        if (end < 0) continue;
+        text += `${markdown.slice(last, m.index)}\n\n<!--hearth-block-${blocks.length}-->\n\n`;
+        blocks.push(markdown.slice(m.index, end));
+        last = end;
+        BLOCK_OPEN.lastIndex = end;
+    }
+    return { text: text + markdown.slice(last), blocks };
+}
+
 function toHtml(markdown: string): string {
-    const raw = marked.parse(cjkEmphasis(markdown), { async: false }) as string;
+    const { text, blocks } = protectHtmlBlocks(markdown);
+    const raw = (marked.parse(cjkEmphasis(text), { async: false }) as string)
+        .replace(/<!--hearth-block-(\d+)-->/g, (_m, i: string) => blocks[Number(i)] ?? '');
+    // Cards style their panels (酒馆 shows <style> and style attributes in messages too); scripts,
+    // frames and forms stay out. FORCE_BODY keeps a leading <style>.
     const clean = DOMPurify.sanitize(raw, {
-        ADD_TAGS: ['details', 'summary'],
-        FORBID_TAGS: ['style', 'script', 'iframe', 'form', 'input', 'button'],
-        FORBID_ATTR: ['style'],
+        ADD_TAGS: ['details', 'summary', 'style'],
+        FORBID_TAGS: ['script', 'iframe', 'frame', 'form', 'object', 'embed', 'link', 'meta', 'base'],
+        FORBID_ATTR: ['autofocus'],
+        FORCE_BODY: true,
     });
     return typeset(clean);
 }
@@ -144,11 +224,16 @@ export function renderSegments(text: string, frames = true): Segment[] {
     for (const m of text.matchAll(FENCE)) {
         if (!frames || !isDocument(m[1])) continue;
         const before = text.slice(last, m.index);
-        if (before.trim()) segments.push({ type: 'html', html: toHtml(before) });
+        if (before.trim()) segments.push(htmlSegment(before));
         segments.push({ type: 'frame', html: m[1] });
         last = (m.index ?? 0) + m[0].length;
     }
     const rest = text.slice(last);
-    if (rest.trim() || !segments.length) segments.push({ type: 'html', html: toHtml(rest) });
+    if (rest.trim() || !segments.length) segments.push(htmlSegment(rest));
     return segments;
+}
+
+function htmlSegment(markdown: string): Segment {
+    const html = toHtml(markdown);
+    return { type: 'html', html, styled: /<style[\s>]|\sstyle="|\sclass="(?!quote"|table-wrap"|language-)/.test(html) };
 }

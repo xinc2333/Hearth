@@ -38,6 +38,8 @@ export interface PluginView {
 
 export interface Bootstrap {
     settings: Settings & { connections: (Connection & { hasKey: boolean })[] };
+    /** Where card interfaces run (Hearth's second port); null when it could not start. */
+    cardOrigin: string | null;
     resources: Record<ResourceKind, Summary[]>;
     plugins: PluginView[];
 }
@@ -111,6 +113,8 @@ export const api = {
     preview: (chatId: string, text?: string) => request<PromptSnapshot>('POST', `/api/chats/${chatId}/preview`, { text }),
     lastPrompt: (chatId: string) => request<PromptSnapshot | null>('GET', `/api/chats/${chatId}/last-prompt`),
     abort: (jobId: string) => request('POST', `/api/jobs/${jobId}/abort`),
+    answer: (jobId: string, askId: string, value: unknown) => request('POST', `/api/jobs/${jobId}/answers/${askId}`, { value }),
+    cardGenerate: (chatId: string, raw: boolean, config: Record<string, unknown>) => request<{ text: string }>('POST', `/api/chats/${chatId}/card-generate`, { raw, config }),
     saveSettings: (patch: Partial<Record<keyof Settings, unknown>>) => request<Bootstrap['settings']>('PUT', '/api/settings', patch),
     saveConnection: (connection: Partial<Connection>, key?: string | null, activate?: boolean) =>
         request<Bootstrap['settings']>('POST', '/api/connections', { connection, key, activate }),
@@ -177,13 +181,15 @@ export type GenerateEvent =
     | { type: 'reasoning'; text: string }
     | { type: 'finalizing' }
     | { type: 'progress'; plugin: string; data: unknown }
+    | { type: 'ask'; id: string; kind: string; payload: unknown }
     | { type: 'done'; message: import('../core/types.ts').ChatMessage }
     /** Background work after the reply (e.g. 跑团's settlement) changed the message. */
     | { type: 'update'; message: import('../core/types.ts').ChatMessage }
     | { type: 'error'; error: string; message?: import('../core/types.ts').ChatMessage };
 
 /** Starts a generation and calls `onEvent` for each server-sent event. */
-export async function generate(chatId: string, body: { type: string; text?: string }, onEvent: (e: GenerateEvent) => void): Promise<void> {
+/** `injections` and `answers`: what the chat's card page adds to this generation (card-page.ts). */
+export async function generate(chatId: string, body: { type: string; text?: string; injections?: unknown[]; answers?: string[] }, onEvent: (e: GenerateEvent) => void): Promise<void> {
     const res = await fetch(`/api/chats/${chatId}/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
