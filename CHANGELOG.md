@@ -4,6 +4,8 @@
 
 ## [未发布]
 
+## [0.8.0] - 2026-11-19
+
 ### 新增
 
 - 角色卡自带的界面可以使用了：状态栏侧边栏、小手机、资源库等显示在面板新增的「界面」页。卡第一次显示出界面时，面板会自动打开到这一页。
@@ -13,6 +15,7 @@
 
 ### 变更
 
+- 角色卡的脚本和在酒馆里一样一直运行，不再只在每次回复之后运行一遍。
 - 角色卡的界面和脚本运行在 Hearth 另开的一个本机端口上，和 Hearth 的窗口、接口隔开。卡自己的嵌套窗口、模块和存储都能正常使用。
 - 角色卡从网上加载的常用库（Vue、vue-router、pinia 等）改用 Hearth 自带的副本，没有网络或网络慢时也能显示。
 - 消息里带样式的美化面板（装备、技能、骰子等）按卡的样式显示，样式只作用于这一条消息。
@@ -195,7 +198,8 @@
 - 支持 EJS 提示词模板，以及 Meowssiah 等 SPreset 类预设。
 - 连接 OpenAI 兼容接口，流式显示回复和思考过程，支持停止、重新生成、继续写和切换版本。
 
-[未发布]: https://github.com/xinc2333/Hearth/compare/v0.7.1...HEAD
+[未发布]: https://github.com/xinc2333/Hearth/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/xinc2333/Hearth/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/xinc2333/Hearth/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/xinc2333/Hearth/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/xinc2333/Hearth/compare/v0.6.0...v0.6.1
