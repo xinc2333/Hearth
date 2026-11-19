@@ -45,6 +45,8 @@ docs/         使用说明和设计文档
 
 部分测试需要第三方文件，见 [tests/fixtures/README.md](tests/fixtures/README.md)。缺少这些文件时，对应的测试会自动跳过。
 
+角色卡界面用到的 Vue、zod 和 YAML 由 `node scripts/build-vendor.mjs` 从 `node_modules` 生成到 `src/web/public/vendor/` 和 `src/plugins/tavern-helper/vendor/`，生成的文件要提交。只在升级这几个库时运行。
+
 ## 提交信息
 
 遵循 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/v1.0.0/)，用中文书写：
