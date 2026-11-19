@@ -6,21 +6,30 @@
 
 import type { CardScript, Character } from '../../core/types.ts';
 import type { PluginApi } from '../../server/plugins.ts';
+import lodashSource from './vendor/lodash.json' with { type: 'json' };
 import zodSource from './vendor/zod.json' with { type: 'json' };
 
-/** `import { registerMvuSchema } from '…/mvu_zod.js'` and the like: provided by Hearth. */
-const SCHEMA_IMPORT = /^\s*import\s*\{[^}]*\bregisterMvuSchema\b[^}]*\}\s*from\s*['"][^'"]*['"];?[ \t]*$/m;
-const ANY_IMPORT = /^\s*import\s[^;]*?from\s*['"][^'"]+['"]|^\s*import\s*['"][^'"]+['"]|\bimport\s*\(/m;
+/**
+ * The schema util's import (`import { registerMvuSchema } from '…/mvu_zod.js'`, or
+ * `import * as r from '…/mvu_zod.js'`, possibly sharing a line with code): provided by Hearth.
+ */
+const SCHEMA_IMPORT = /\bimport\s*(\{[^}]*\}|\*\s*as\s+([A-Za-z_$][\w$]*))\s*from\s*['"][^'"]*mvu_zod[^'"]*['"]\s*;?/g;
+const ANY_IMPORT = /(?:^|[;\s}])import\s*(?:[\w$*{][^;'"]*?from\s*)?['"][^'"]+['"]|\bimport\s*\(/;
 
 export function isSchemaScript(script: CardScript): boolean {
-    return script.enabled && /\bregisterMvuSchema\s*\(/.test(script.content);
+    return script.enabled && /\bregisterMvuSchema\s*\)?\s*\(/.test(script.content);
 }
 
 /** The card's schema script, ready to run (null when it has none, or needs other remote code). */
 export function schemaScript(character: Character): string | null {
     const script = character.scripts.find(isSchemaScript);
     if (!script) return null;
-    const code = script.content.replace(SCHEMA_IMPORT, '');
+    const code = script.content
+        .replace(SCHEMA_IMPORT, (_m, _names: string, namespace?: string) => (namespace ? `const ${namespace} = { registerMvuSchema };` : ''))
+        // The script runs as a plain function body: its exports are just declarations.
+        .replace(/(^|[;\s}])export\s+default\s+/g, '$1')
+        .replace(/(^|[;\s}])export\s+(?=(?:const|let|var|function|class|async)\b)/g, '$1')
+        .replace(/(^|[;\s}])export\s*\{[^}]*\}\s*;?/g, '$1');
     return ANY_IMPORT.test(code) ? null : code;
 }
 
@@ -32,10 +41,15 @@ export interface SchemaResult {
 
 /** Parses `stat` with the card's schema. */
 export async function parseWithSchema(api: Pick<PluginApi, 'sandbox'>, code: string, stat: Record<string, unknown>): Promise<SchemaResult> {
+    // The script may also use lodash and register MVU event handlers at load; those do nothing here.
     const program = [
         zodSource as string,
+        lodashSource as string,
         'var registerMvuSchema = s => { globalThis.__schema = s; };',
         'var console = { log() {}, info() {}, warn() {}, error() {}, debug() {} };',
+        'var eventOn = () => ({ stop() {} }), eventOnce = eventOn, eventMakeFirst = eventOn, eventMakeLast = eventOn, eventRemoveListener = () => {};',
+        "var tavern_events = new Proxy({}, { get: (_t, k) => String(k) }), Mvu = { events: tavern_events }, waitGlobalInitialized = async () => {};",
+        'var toastr = { success() {}, info() {}, warning() {}, error() {} }, $ = f => (typeof f === "function" ? f() : undefined);',
         `(() => {\n${code}\n})();`,
         `(() => {
             let schema = globalThis.__schema;

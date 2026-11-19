@@ -18,14 +18,15 @@ function books(api: PluginApi, character: Character): Lorebook[] {
 }
 
 /** Initial variables: every [initvar] entry (enabled or not), parsed as YAML/JSON and merged. */
-export function initialVariables(list: Lorebook[]): Record<string, unknown> | null {
+/** `expand`: macros in the entries ({{user}}, {{char}}…), replaced before parsing, as the names in keys and values are meant. */
+export function initialVariables(list: Lorebook[], expand: (text: string) => string = t => t): Record<string, unknown> | null {
     let found = false;
     const result: Record<string, unknown> = {};
     for (const book of list) {
         for (const entry of book.entries) {
             if (!/\[initvar\]/i.test(entry.title)) continue;
             try {
-                const parsed = YAML.parse(entry.content.replace(/^\s*---\s*\n/, ''));
+                const parsed = YAML.parse(expand(entry.content).replace(/^\s*---\s*\n/, ''));
                 if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
                     deepMerge(result, parsed as Record<string, unknown>);
                     found = true;
@@ -67,6 +68,12 @@ function usesPlaceholder(character: Character): boolean {
     return character.regex.some(r => r.find.includes('StatusPlaceHolderImpl'));
 }
 
+/** Macro expansion for [initvar] entries, with the user's and the character's names. */
+function expander(api: PluginApi, character: Character): (text: string) => string {
+    const ctx = api.macros.context({ user: api.store.settings.userName || 'User', char: character.name });
+    return text => api.macros.evaluate(text, ctx);
+}
+
 /** The card's variable schema applied to `stat` (MVU parses every update with it); unchanged without one. */
 async function withSchema(api: PluginApi, character: Character, stat: Record<string, unknown>): Promise<Record<string, unknown>> {
     const code = schemaScript(character);
@@ -83,7 +90,7 @@ export function setupMvu(api: PluginApi) {
         api.onChatCreate(async ({ chat, character }) => {
             const list = books(api, character);
             if (!isMvuCard(character, list)) return;
-            const init = await withSchema(api, character, initialVariables(list) ?? {});
+            const init = await withSchema(api, character, initialVariables(list, expander(api, character)) ?? {});
             for (const message of chat.messages) {
                 for (const swipe of message.swipes) {
                     const commands = parseMvuCommands(swipe.content);
@@ -98,7 +105,7 @@ export function setupMvu(api: PluginApi) {
             if (!isMvuCard(character, list)) return;
             const index = chat.messages.findIndex(m => m.id === message.id);
             const previous = stateAt(chat.messages, index - 1)?.stat_data as Record<string, unknown> | undefined;
-            const base = previous ?? initialVariables(list) ?? {};
+            const base = previous ?? initialVariables(list, expander(api, character)) ?? {};
             let body = text.replace(PLACEHOLDER, '').trimEnd();
             let commands = parseMvuCommands(body);
             let source = 'reply';
