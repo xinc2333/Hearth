@@ -129,7 +129,7 @@ test('connection: what Hearth learned stays when the form is saved, resets with 
     assert.equal(store.settings.connections[0].models, undefined);
 });
 
-test('connection: Gemini accepts a saved address with a trailing /v1 and omits frequency_penalty', async t => {
+test('connection: Gemini accepts its address in any common form and omits frequency_penalty', async t => {
     const base = 'https://generativelanguage.googleapis.com/v1beta/openai';
     const conn: Connection = { id: 'google', name: 'Gemini', provider: 'openai-compatible', baseUrl: `${base}/v1/`, model: 'models/gemini-test', sendNames: true };
     const req: ChatRequest = {
@@ -149,12 +149,18 @@ test('connection: Gemini accepts a saved address with a trailing /v1 and omits f
     for await (const ev of streamChat(conn, 'test-key', req, signal)) reply.push(ev);
     assert.deepEqual(reply[0], { type: 'text', text: 'Hello' });
 
+    // The bare host or the native API path works too.
+    assert.deepEqual(await listModels({ ...conn, baseUrl: 'https://generativelanguage.googleapis.com' }, 'test-key'), [conn.model]);
+    assert.deepEqual(await listModels({ ...conn, baseUrl: 'https://generativelanguage.googleapis.com/v1beta/' }, 'test-key'), [conn.model]);
+
     const prepared = { ...buildBody(conn, req, true), frequency_penalty: 0.5 };
     await sendChat({ ...conn, baseUrl: `${base}/chat/completions` }, 'test-key', prepared, signal);
     await sendChat({ ...conn, baseUrl: 'https://api.openai.com/v1' }, 'test-key', prepared, signal);
 
     assert.equal(fetchMock.mock.calls[0].arguments[0], `${base}/models`);
-    const [streamed, gemini, openai] = fetchMock.mock.calls.slice(1).map(call => {
+    assert.equal(fetchMock.mock.calls[2].arguments[0], `${base}/models`);
+    assert.equal(fetchMock.mock.calls[3].arguments[0], `${base}/models`);
+    const [streamed, gemini, openai] = [1, 4, 5].map(i => fetchMock.mock.calls[i]).map(call => {
         const [url, init] = call.arguments;
         assert.ok(typeof init?.body === 'string');
         return { url, body: JSON.parse(init.body) };

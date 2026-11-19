@@ -20,7 +20,12 @@ const geminiBase = 'https://generativelanguage.googleapis.com/v1beta/openai';
 
 function normalizeBase(url: string) {
     const base = url.trim().replace(/\/+$/, '').replace(/\/chat\/completions$/, '');
-    return base.toLowerCase() === `${geminiBase}/v1` ? geminiBase : base;
+    // Google's own endpoint, whatever was pasted (the host, /v1beta, /v1beta/openai/v1…): Hearth
+    // talks to its OpenAI-compatible address.
+    try {
+        if (new URL(base).hostname.toLowerCase() === 'generativelanguage.googleapis.com') return geminiBase;
+    } catch { /* not a URL yet */ }
+    return base;
 }
 
 /** Reports what Hearth learned about an endpoint while talking to it. */
