@@ -112,6 +112,11 @@ export interface RequestContext {
     trace?: (label: string, body: Record<string, unknown>) => void;
     /** Aborted when the user stops the generation. */
     signal?: AbortSignal;
+    /**
+     * Asks the window to handle `kind` (e.g. a card interface's handler for the final prompt) and
+     * waits for its answer. Resolves to null at once when the window did not offer to handle it.
+     */
+    askWindow?: (kind: string, payload: unknown) => Promise<unknown>;
 }
 
 /** Context for a 编辑-mode task. */

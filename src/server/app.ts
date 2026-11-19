@@ -3,6 +3,7 @@
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -51,6 +52,8 @@ export interface Hearth {
     version: string;
     build: string;
     server: Server;
+    /** Serves card interfaces on their own origin (started with `server`, on the next port when free). */
+    cardServer: Server;
     store: Store;
     runtime: Runtime;
     plugins: PluginHost;
@@ -111,7 +114,31 @@ export async function createHearth(options: HearthOptions): Promise<Hearth> {
     updater.schedule(id => store.settings.plugins?.[id]?.autoUpdate !== false);
 
     const router = new Router();
-    registerApi(router, store, runtime, plugins, updater);
+    // Card interfaces run on their own origin: a second port that serves only the frame page and
+    // the libraries. A card's code there has a whole page to itself (nested frames, modules,
+    // storage) but is not Hearth's origin: it cannot reach Hearth's window, and the API answers only
+    // Hearth's own port.
+    const cardServer = createServer((req, res) => {
+        const url = new URL(req.url ?? '/', 'http://localhost');
+        if (req.method === 'GET' && url.pathname === '/frame') {
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' }).end(FRAME_PAGE);
+            return;
+        }
+        if (req.method === 'GET' && url.pathname.startsWith('/vendor/')) {
+            const file = path.join(webDir, path.normalize(url.pathname).replace(/^(\.\.[/\\])+/, ''));
+            if (file.startsWith(path.join(webDir, 'vendor')) && serveFile(res, file)) return;
+        }
+        res.writeHead(404).end();
+    });
+    let cardOrigin: string | null = null;
+    let cardReady: Promise<void> = Promise.resolve();
+    const ownPort = () => (server.address() as AddressInfo | null)?.port ?? 0;
+    const ownOrigin = (origin: string) => {
+        const m = origin.match(/^https?:\/\/(?:127\.0\.0\.1|localhost)(?::(\d+))?$/);
+        const port = m ? Number(m[1] ?? 80) : -1;
+        return port === ownPort() || port === 5173;
+    };
+    registerApi(router, store, runtime, plugins, updater, { cardOrigin: async () => { await cardReady; return cardOrigin; } });
     router.get('/api/version', () => ({
         app: 'hearth',
         version,
@@ -142,9 +169,10 @@ export async function createHearth(options: HearthOptions): Promise<Hearth> {
     });
 
     const server = createServer(async (req, res) => {
-        // Only same-machine pages may call the API.
+        // Only Hearth's own page may call the API: the same port (or the Vite dev server). Card
+        // interfaces run on another port (cardServer below), so they are refused here too.
         const origin = req.headers.origin;
-        if (origin && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
+        if (origin && !ownOrigin(origin)) {
             res.writeHead(403).end();
             return;
         }
@@ -164,10 +192,19 @@ export async function createHearth(options: HearthOptions): Promise<Hearth> {
         }
     });
 
+    server.on('listening', () => {
+        cardReady = listen(cardServer, ownPort() + 1, '127.0.0.1')
+            .catch(() => listen(cardServer, 0, '127.0.0.1'))
+            .then(port => { cardOrigin = `http://127.0.0.1:${port}`; })
+            .catch(error => console.warn('角色卡界面的服务没有启动：', (error as Error).message));
+    });
+    server.on('close', () => cardServer.close());
+
     return {
         version,
         build,
         server,
+        cardServer,
         store,
         runtime,
         plugins,
@@ -177,6 +214,21 @@ export async function createHearth(options: HearthOptions): Promise<Hearth> {
         },
     };
 }
+
+/**
+ * The card origin's only page. Hearth writes the card's document into it (card-frame.ts) once the
+ * frame says it is there.
+ */
+const FRAME_PAGE = `<!doctype html><html><head><meta charset="utf-8"></head><body><script>
+addEventListener('message', function boot(e) {
+    if (e.source !== parent || !e.data || typeof e.data.hearthDoc !== 'string') return;
+    removeEventListener('message', boot);
+    document.open();
+    document.write(e.data.hearthDoc);
+    document.close();
+});
+parent.postMessage({ hearthBoot: location.hash.slice(1) }, '*');
+</script></body></html>`;
 
 /** Listens on `port`; resolves with the port in use, or rejects (EADDRINUSE and other errors). */
 export function listen(server: Server, port: number, host: string): Promise<number> {

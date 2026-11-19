@@ -51,10 +51,11 @@ function publicSettings(store: Store) {
     };
 }
 
-export function registerApi(router: Router, store: Store, runtime: Runtime, plugins: PluginHost, updater?: PluginUpdater) {
+export function registerApi(router: Router, store: Store, runtime: Runtime, plugins: PluginHost, updater?: PluginUpdater, app?: { cardOrigin: () => Promise<string | null> }) {
     const pluginList = () => plugins.list().map(p => ({ ...p, update: updater?.status.get(p.id) ?? null }));
-    router.get('/api/bootstrap', () => ({
+    router.get('/api/bootstrap', async () => ({
         settings: publicSettings(store),
+        cardOrigin: (await app?.cardOrigin()) ?? null,
         resources: Object.fromEntries(KINDS.map(k => [k, store.list(k).map(r => summary(store, r)).sort((a, b) => b.updatedAt - a.updatedAt)])),
         plugins: pluginList(),
     }));
@@ -199,10 +200,14 @@ export function registerApi(router: Router, store: Store, runtime: Runtime, plug
     });
 
     router.post('/api/chats/:id/generate', async (req, res) => {
-        const body = await req.json<{ type?: string; text?: string }>();
+        const body = await req.json<{ type?: string; text?: string; injections?: unknown[]; answers?: unknown[] }>();
         const type = (['normal', 'swipe', 'regenerate', 'continue'].includes(body.type ?? '') ? body.type : 'normal') as 'normal';
         const stream: { send: ((data: unknown) => void) | null } = { send: null };
-        await runtime.generate(req.params.id, { type, text: body.text }, event => {
+        const window = {
+            injections: Array.isArray(body.injections) ? body.injections as never[] : undefined,
+            answers: Array.isArray(body.answers) ? body.answers.map(String) : undefined,
+        };
+        await runtime.generate(req.params.id, { type, text: body.text, ...window }, event => {
             // Open the stream lazily so validation errors still return as JSON.
             stream.send ??= startSse(res);
             stream.send(event);
@@ -218,6 +223,17 @@ export function registerApi(router: Router, store: Store, runtime: Runtime, plug
     router.get('/api/chats/:id/last-prompt', req => runtime.lastPrompt(req.params.id) ?? null);
 
     router.post('/api/jobs/:id/abort', req => ({ ok: runtime.abort(req.params.id) }));
+
+    router.post('/api/jobs/:id/answers/:ask', async req => {
+        const body = await req.json<{ value?: unknown }>();
+        return { ok: runtime.answer(req.params.id, req.params.ask, body.value ?? null) };
+    });
+
+    // A card interface's own request to the model (酒馆助手 generate / generateRaw).
+    router.post('/api/chats/:id/card-generate', async req => {
+        const body = await req.json<{ raw?: boolean; config?: Record<string, unknown> }>();
+        return { text: await runtime.cardGenerate(req.params.id, body.raw === true, body.config ?? {}) };
+    });
 
     // Plugins --------------------------------------------------------------------------------
     router.get('/api/plugins', () => pluginList());

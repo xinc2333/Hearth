@@ -8,7 +8,7 @@ import { createMacroContext, evaluateMacros } from '../core/macros.ts';
 import type { Op } from '../core/ops.ts';
 import { applyRegex } from '../core/regex.ts';
 import { mergeFeatures, MODE_LABEL, presetFeatures, replyOptions, type ReplyFeatures } from '../core/reply.ts';
-import type { Character, Chat, ChatMessage, ChatMode, Connection, Lorebook, Persona, Preset, RegexScript, Swipe } from '../core/types.ts';
+import type { Character, Chat, ChatMessage, ChatMode, Connection, Lorebook, Persona, Preset, RegexScript, Role, Swipe } from '../core/types.ts';
 import { newId } from '../core/util.ts';
 import { applyCardEdits, buildEditPrompt, type EditPrompt } from './card-edit.ts';
 import type { ChatControl, EditTaskContext, PluginHost, ReceiveResult } from './plugins.ts';
@@ -26,13 +26,59 @@ export type GenerateEvent =
     | { type: 'done'; message: ChatMessage }
     /** A plugin's background work after the reply (e.g. 跑团's settlement) changed the message. */
     | { type: 'update'; message: ChatMessage }
-    | { type: 'error'; error: string; message?: ChatMessage };
+    | { type: 'error'; error: string; message?: ChatMessage }
+    /** A plugin asks the window something during the generation (askWindow); answered at /api/jobs/:id/answers/:ask. */
+    | { type: 'ask'; id: string; kind: string; payload: unknown };
+
+/** 酒馆助手 generateRaw's built-in prompt names, as trace sources of the assembled prompt. */
+const RAW_SOURCES: Record<string, string> = {
+    world_info_before: 'worldInfoBefore',
+    world_info_after: 'worldInfoAfter',
+    char_description: 'charDescription',
+    char_personality: 'charPersonality',
+    scenario: 'scenario',
+    persona_description: 'personaDescription',
+    dialogue_examples: 'dialogueExamples',
+};
+const DEFAULT_RAW_ORDER = ['world_info_before', 'persona_description', 'char_description', 'char_personality', 'scenario', 'world_info_after', 'dialogue_examples', 'chat_history', 'user_input'];
+
+/** An injected prompt from the window: Hearth's shape, or 酒馆助手's (id, content, position, depth, role, should_scan). */
+function injectionFrom(raw: unknown): Injection | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const r = raw as Record<string, unknown>;
+    const value = String(r.value ?? r.content ?? '');
+    if (!value.trim()) return null;
+    const position = r.position === 'in_prompt' || r.position === 'before_prompt' || r.position === 'none' ? r.position : 'in_chat';
+    const role = r.role === 'user' || r.role === 'assistant' ? r.role : 'system';
+    return {
+        key: String(r.key ?? r.id ?? newId('inject')),
+        value,
+        position,
+        depth: Math.max(0, Number(r.depth) || 0),
+        role,
+        scan: r.scan === true || r.should_scan === true,
+    };
+}
 
 interface Job {
     id: string;
     chatId: string;
     controller: AbortController;
+    /** Questions to the window waiting for an answer (askWindow). */
+    asks: Map<string, (value: unknown) => void>;
 }
+
+/** What the window adds to a generation: a card interface's injected prompts, the questions it answers. */
+export interface WindowParts {
+    injections?: Injection[];
+    /** Kinds of askWindow questions the window answers during this generation. */
+    answers?: string[];
+}
+
+/** How long a generation waits for the window to answer. */
+const ASK_TIMEOUT = 60_000;
+/** A card interface's own requests kept per chat for the prompt trace. */
+const CARD_STAGES = 10;
 
 export interface PromptSnapshot {
     at: number;
@@ -79,6 +125,8 @@ export class Runtime {
     private plugins: PluginHost;
     private jobs = new Map<string, Job>();
     private lastPrompts = new Map<string, PromptSnapshot>();
+    /** A card interface's own requests since the chat's last reply, shown with its prompt trace. */
+    private cardStages = new Map<string, PromptStage[]>();
     /** Background work after a reply, per chat; the chat's next reply waits for it. */
     private followUps = new Map<string, Promise<void>>();
 
@@ -278,7 +326,84 @@ export class Runtime {
     }
 
     lastPrompt(chatId: string): PromptSnapshot | undefined {
-        return this.lastPrompts.get(chatId);
+        const snapshot = this.lastPrompts.get(chatId);
+        const card = this.cardStages.get(chatId) ?? [];
+        if (!card.length) return snapshot;
+        if (snapshot) return { ...snapshot, stages: [...(snapshot.stages ?? []), ...card] };
+        // No reply yet: the trace shows the card's own requests alone.
+        const { maxContext, maxTokens } = this.preset().context;
+        return {
+            at: Date.now(), type: 'normal', model: this.connection()?.conn.model ?? '', parts: [], warnings: [],
+            tokens: { total: 0, budget: maxContext - maxTokens, maxContext, maxTokens }, lore: [], tools: [], stages: card,
+        };
+    }
+
+    /** The window answers an askWindow question of a running generation. */
+    answer(jobId: string, askId: string, value: unknown): boolean {
+        const resolve = this.jobs.get(jobId)?.asks.get(askId);
+        resolve?.(value);
+        return Boolean(resolve);
+    }
+
+    /**
+     * A request a card interface sends itself (酒馆助手 generate / generateRaw), with the active
+     * connection. `raw` builds the messages from the card's ordered prompts; otherwise the preset's
+     * prompt is assembled as for a reply, with the card's input and injections. Nothing is saved to
+     * the chat; the request shows in the prompt trace.
+     */
+    async cardGenerate(chatId: string, raw: boolean, config: Record<string, any>): Promise<string> {
+        const link = this.connection();
+        if (!link || !link.conn.baseUrl || !link.conn.model) throw Object.assign(new Error('还没有配置模型连接'), { status: 400 });
+        const chat = this.store.require<Chat>('chat', chatId);
+        const character = this.store.require<Character>('character', chat.characterId);
+        const userInput = typeof config.user_input === 'string' ? config.user_input : '';
+        const story = chat.messages.filter(m => m.mode !== 'edit');
+        const input = this.buildInput(chat, 'normal', userInput && !raw ? [...story, this.userMessage(chat, userInput, 'story')] : story);
+        input.dryRun = true;
+        for (const inject of Array.isArray(config.injects) ? config.injects : []) {
+            const injection = injectionFrom(inject);
+            if (injection) (input.injections ??= []).push(injection);
+        }
+        const assembled = await this.runAssemble(chat, input);
+        let messages: { role: Role; content: string }[];
+        if (raw) {
+            const order = Array.isArray(config.ordered_prompts) && config.ordered_prompts.length ? config.ordered_prompts : DEFAULT_RAW_ORDER;
+            const history = Number.isFinite(Number(config.max_chat_history)) ? Math.max(0, Number(config.max_chat_history)) : Infinity;
+            messages = [];
+            for (const item of order) {
+                if (item && typeof item === 'object') {
+                    const role = (['system', 'user', 'assistant'].includes(item.role) ? item.role : 'system') as Role;
+                    if (item.content) messages.push({ role, content: String(item.content) });
+                } else if (item === 'user_input') {
+                    if (userInput) messages.push({ role: 'user', content: userInput });
+                } else if (item === 'chat_history') {
+                    const chatParts = assembled.parts.filter(p => p.sources.some(s => s.startsWith('chat:')));
+                    for (const p of history === Infinity ? chatParts : chatParts.slice(-history || chatParts.length + 1)) messages.push({ role: p.role, content: p.content });
+                } else if (typeof item === 'string' && RAW_SOURCES[item]) {
+                    for (const p of assembled.parts.filter(p => p.sources.includes(RAW_SOURCES[item]))) messages.push({ role: p.role, content: p.content });
+                }
+            }
+        } else {
+            messages = assembled.messages.map(m => ({ role: m.role, content: m.content }));
+        }
+        const preset = this.preset(chat);
+        const custom = config.custom_api && typeof config.custom_api === 'object' ? config.custom_api : {};
+        // The card's own API settings (address, key, model) are not used: its requests go through the
+        // user's connection. Sampling it asks for applies.
+        const body: Record<string, unknown> = {
+            ...buildBody(link.conn, { messages, preset, names: { user: input.userName, char: character.name } }, false),
+            ...(Number(custom.max_tokens) > 0 ? { max_tokens: Number(custom.max_tokens) } : {}),
+            ...(typeof custom.temperature === 'number' ? { temperature: custom.temperature } : {}),
+        };
+        if (config.json_schema && typeof config.json_schema === 'object') {
+            const s = config.json_schema;
+            body.response_format = { type: 'json_schema', json_schema: { name: String(s.name ?? 'output'), strict: s.strict !== false, schema: s.value ?? s.schema ?? {} } };
+        }
+        const stages = this.cardStages.get(chatId) ?? [];
+        stages.push({ label: raw ? '角色卡界面的请求（自定义提示词）' : '角色卡界面的请求（按预设组装）', parts: sentParts(body.messages), tools: [] });
+        this.cardStages.set(chatId, stages.slice(-CARD_STAGES));
+        const result = await sendChat(link.conn, link.key, body, AbortSignal.timeout(300_000), { user: input.userName, char: character.name }, this.providerHooks(link.conn));
+        return result.text;
     }
 
     /** Non-streaming helper completion for plugins. */
@@ -433,7 +558,7 @@ export class Runtime {
         return [...this.jobs.values()].find(j => j.chatId === chatId)?.id;
     }
 
-    async generate(chatId: string, req: { type: GenerationType; text?: string }, emit: (e: GenerateEvent) => void): Promise<void> {
+    async generate(chatId: string, req: { type: GenerationType; text?: string } & WindowParts, emit: (e: GenerateEvent) => void): Promise<void> {
         if (this.isBusy(chatId)) {
             throw Object.assign(new Error('这个对话正在生成中'), { status: 409 });
         }
@@ -471,6 +596,11 @@ export class Runtime {
         const context = type === 'swipe' || type === 'regenerate' ? chat.messages.slice(0, -1) : chat.messages;
 
         const input = this.buildInput(chat, type, context);
+        // A card interface's injected prompts (酒馆助手 injectPrompts), like an extension's prompts in 酒馆.
+        if (mode === 'story') for (const raw of req.injections ?? []) {
+            const injection = injectionFrom(raw);
+            if (injection) (input.injections ??= []).push(injection);
+        }
         // 编辑 mode sends the card as a document instead of the role-play prompt.
         const edit = mode === 'edit' ? this.editPrompt(chat, context) : null;
         const result: Pick<AssembleResult, 'messages' | 'parts' | 'warnings' | 'tokens' | 'request'> & Partial<AssembleResult> = edit
@@ -480,6 +610,10 @@ export class Runtime {
             at: Date.now(), type, model: link.conn.model,
             parts: result.parts, warnings: [...result.warnings], tokens: result.tokens, lore: result.lore?.activated ?? [], tools: toolNames(result.request),
         };
+        // The card interface's requests made for this turn (before it) belong to its trace.
+        const cardStages = this.cardStages.get(chat.id);
+        if (cardStages?.length) snapshot.stages = [...cardStages];
+        this.cardStages.delete(chat.id);
         this.lastPrompts.set(chat.id, snapshot);
 
         // Target swipe
@@ -521,7 +655,19 @@ export class Runtime {
         }
 
         const sentReply = replyOptions(chat);
-        const job: Job = { id: newId('job'), chatId: chat.id, controller: new AbortController() };
+        const job: Job = { id: newId('job'), chatId: chat.id, controller: new AbortController(), asks: new Map() };
+        const answers = new Set(req.answers ?? []);
+        const askWindow = (kind: string, payload: unknown): Promise<unknown> => {
+            if (!answers.has(kind) || job.controller.signal.aborted) return Promise.resolve(null);
+            const askId = newId('ask');
+            return new Promise(resolve => {
+                const done = (value: unknown) => { clearTimeout(timer); job.asks.delete(askId); resolve(value ?? null); };
+                const timer = setTimeout(() => done(null), ASK_TIMEOUT);
+                job.controller.signal.addEventListener('abort', () => done(null), { once: true });
+                job.asks.set(askId, done);
+                emit({ type: 'ask', id: askId, kind, payload });
+            });
+        };
         this.jobs.set(job.id, job);
         emit({ type: 'job', jobId: job.id, messageId, swipeId, prefix });
         emit({ type: 'prompt', parts: result.parts, warnings: result.warnings, tokens: result.tokens, lore: snapshot.lore, tools: snapshot.tools });
@@ -558,6 +704,7 @@ export class Runtime {
                             emitPrompt();
                         },
                         signal: job.controller.signal,
+                        askWindow,
                     };
                     try {
                         body = (await fn(body, ctx)) ?? body;
