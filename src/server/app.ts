@@ -195,10 +195,17 @@ export async function createHearth(options: HearthOptions): Promise<Hearth> {
     server.on('listening', () => {
         cardReady = listen(cardServer, ownPort() + 1, '127.0.0.1')
             .catch(() => listen(cardServer, 0, '127.0.0.1'))
-            .then(port => { cardOrigin = `http://127.0.0.1:${port}`; })
+            .then(port => {
+                // Hearth closed while this was starting.
+                if (!server.listening) cardServer.close();
+                else cardOrigin = `http://127.0.0.1:${port}`;
+            })
             .catch(error => console.warn('角色卡界面的服务没有启动：', (error as Error).message));
     });
-    server.on('close', () => cardServer.close());
+    server.on('close', () => {
+        cardOrigin = null;
+        if (cardServer.listening) cardServer.close();
+    });
 
     return {
         version,
