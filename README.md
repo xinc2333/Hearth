@@ -8,7 +8,7 @@
 
 - **直接使用酒馆的素材**：导入角色卡、世界书和预设，提示词按酒馆的规则组装。
 - **看得见的提示词**：每次发给模型的完整内容都能查看，每一段都标明来源。
-- **前端卡和变量**：消息里的状态栏等界面正常显示，MVU 变量跟随回复的版本切换。
+- **前端卡和变量**：角色卡的状态栏、开局面板等界面可以正常显示和操作，MVU 变量跟随回复的版本切换。
 - **AI 改卡**：在对话里告诉 AI 想怎么改角色卡或世界书，每一处改动都能对照和撤销。
 - **剧场、聊天和跑团**：在剧场里写故事，切到聊天和 AI 讨论剧情；跑团给行动加上掷骰检定，别人对主角的态度随事件变化。
 - **安装即用**：Windows 安装包，自带运行环境，有新版本时自动更新。
@@ -45,9 +45,9 @@
 
 - 角色卡（V1～V3）、世界书和 Chat Completion 预设
 - 宏和正则脚本
-- 常见的社区格式：消息里的前端界面、MVU 变量、EJS 提示词模板、SPreset 类预设
+- 常见的社区格式：角色卡界面和酒馆助手的常用接口、MVU 变量、EJS 提示词模板、SPreset 类预设
 
-暂不支持：酒馆助手脚本、STscript 斜杠命令、酒馆第三方扩展、Text Completion 和群聊。完整列表见[使用说明](docs/guide.md#兼容情况)。
+暂不支持：依赖酒馆页面的酒馆助手脚本、STscript 斜杠命令、酒馆第三方扩展、Text Completion 和群聊。完整列表见[使用说明](docs/guide.md#兼容情况)。
 
 ## 数据与隐私
 
@@ -73,4 +73,4 @@ Hearth 以 [GNU AGPL-3.0](LICENSE) 或更新版本发布。
 
 - 提示词组装、世界书、宏和正则的行为参照 [SillyTavern](https://github.com/SillyTavern/SillyTavern)（AGPL-3.0）实现。
 - 兼容以下社区项目的格式和约定：[MagVarUpdate](https://github.com/MagicalAstrogy/MagVarUpdate)、[ST-Prompt-Template](https://github.com/zonde306/ST-Prompt-Template)、[JS-Slash-Runner（酒馆助手）](https://github.com/N0VI028/JS-Slash-Runner)，以及 SPreset / Meowssiah 预设。
-- 使用的开源库包括 Electron、React、marked、DOMPurify、yaml、quickjs-emscripten、jQuery 和 lodash，各自遵循其许可证。
+- 使用的开源库包括 Electron、React、marked、DOMPurify、yaml、quickjs-emscripten、jQuery、lodash、Vue 和 zod，各自遵循其许可证。

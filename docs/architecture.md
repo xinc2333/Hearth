@@ -1,6 +1,6 @@
 # 架构说明
 
-本文面向开发者，说明 Hearth 的数据模型、提示词组装、回复模式、插件接口、安全边界、AI 改卡和桌面版，对应 0.6.x 版本。
+本文面向开发者，说明 Hearth 的数据模型、提示词组装、回复模式、插件接口、安全边界、AI 改卡和桌面版，对应 0.7.x 版本。
 
 ## 一轮对话是什么
 
@@ -68,8 +68,8 @@ assemble(角色卡, 用户角色, 预设, 世界书, 聊天记录, 状态) → �
 
 | 插件 | 对应的酒馆扩展 | 做什么 |
 | --- | --- | --- |
-| 提示词模板 | ST-Prompt-Template | 运行提示词里的 EJS 模板 |
-| 酒馆助手 | JS-Slash-Runner | 消息里的前端界面、MVU 变量、SPreset 类预设（运行预设的请求脚本，把回复模式、深度思考和纸条交给它） |
+| 提示词模板 | ST-Prompt-Template | 运行提示词里的 EJS 模板。带 `@@preprocessing` 的世界书条目在扫描世界书之前运行 |
+| 酒馆助手 | JS-Slash-Runner | 角色卡界面和后台脚本、MVU 变量和变量结构、SPreset 类预设（运行预设的请求脚本，把回复模式、深度思考和纸条交给它） |
 | 跑团 | — | 掷骰检定、属性、别人对主角的态度和角色之间的关系（见 [tabletop.md](tabletop.md)） |
 
 关闭插件时，卡片和预设里对应的内容原样保存，只是不再处理。比如关掉酒馆助手，状态栏的 HTML 会显示成代码，预设的控制标记会原样发给模型。
@@ -115,9 +115,9 @@ export default {
 | 接口 | 用途 | 内置插件的例子 |
 | --- | --- | --- |
 | `registerMacro(name, fn)` | 新的宏 | — |
-| `onBeforeAssemble(ctx)` | 往提示词里加内容（`ctx.injections`，对应酒馆的扩展提示词） | — |
+| `onBeforeAssemble(ctx)` | 往提示词里加内容（`ctx.injections`，对应酒馆的扩展提示词），或者换掉这次组装用的世界书（`ctx.input.lore.sources`，换成副本，不改存储） | 运行 `@@preprocessing` 条目 |
 | `onAfterAssemble(result, ctx)` | 调整最终消息，或附加请求字段（`result.request`） | EJS 模板；SPreset 的控制标记和回复工具 |
-| `onAfterReceive(ctx)` | 处理回复，返回新文本和对资源的修改。还可以返回 `background`：回复保存并显示之后在后台运行的工作，结束时它的修改写进对话；这个对话的下一次回复会先等它完成 | SPreset 的工具回复格式化、MVU 变量更新；跑团的结算 |
+| `onAfterReceive(ctx)` | 处理回复，返回新文本和对资源的修改。还可以返回 `background`：回复保存并显示之后在后台运行的工作，结束时它的修改写进对话；这个对话的下一次回复会先等它完成 | SPreset 的工具回复格式化、MVU 变量更新；角色卡的后台脚本、跑团的结算 |
 | `onChatCreate(ctx)` | 新对话创建时初始化 | MVU 初始变量 |
 | `onRequest(body, ctx)` | 请求发出前，查看或替换最终的请求体（对应酒馆的 `CHAT_COMPLETION_SETTINGS_READY`）。改写后的内容会出现在提示词追踪的「实际发送」里 | 运行预设自己的 Stage 1 |
 | `registerControls({ list, change })` | 在输入框旁边放插件自己的开关（`toggle`），排在 Hearth 的回复开关后面 | 检定绝对通过 |
@@ -128,7 +128,7 @@ export default {
 | `complete(req)` | 用当前模型连接发一次请求 | MVU 漏写时补全 |
 | `send(body, signal)` | 用当前模型连接发一个准备好的请求体（不流式，工具调用按原样返回），可以在生成之外使用 | 跑团的结算 |
 | `macros.evaluate / context` | 展开宏（包括其他插件注册的宏） | EJS 里的 `getwi` |
-| `sandbox.run(code, host)` | 在 QuickJS 沙箱里运行卡片或预设的代码 | EJS 模板 |
+| `sandbox.run(code, host)` | 在 QuickJS 沙箱里运行卡片或预设的代码 | EJS 模板、MVU 变量结构、角色卡的后台脚本 |
 | `config()` | 插件自己的设置 | — |
 | `store.get / list / apply` | 读写资源（走修改通道，可以撤销） | — |
 
@@ -141,12 +141,59 @@ export default {
 - **自动更新**：启动 20 秒后检查一次，之后每 6 小时检查一次（每个插件都可以关掉）。发现新版本就下载，等当前回复生成完再替换，不用重启。被替换的版本保留在 `data/plugins/.previous/<id>`。新版本加载失败时，会自动退回原来的版本。
 - **删除**只针对下载的插件。删除内置插件的下载版，会恢复为内置版；内置插件本身不能删除，只能关闭。
 
+### 提示词模板：`@@preprocessing`
+
+和 ST-Prompt-Template 一样，开头一行是 `@@preprocessing`（或者名称里有 `[Preprocessing]`）的世界书条目，在扫描世界书之前先运行，激活和预算看的是运行结果；其余 EJS 在提示词组装完成后运行。两遍共用一套模板变量，预处理时 `setvar` 的值，组装后的模板也能读到。
+
+按剧情阶段载入内容的控制器条目通常有几万字代码、输出只有几行。按源代码计预算时，它们会把别的常驻条目挤出去。
+
+### 酒馆助手：角色卡界面
+
+角色卡放在消息里的 HTML 界面（状态栏、开局面板等）按酒馆助手的约定运行，卡不用改。
+
+- **运行环境**：每个界面一个 `sandbox="allow-scripts allow-popups"` 的 iframe，没有 `allow-same-origin`。Hearth 先放入一段运行时（`src/web/card-frame.ts`），再加载 jQuery、lodash、Vue、zod（全局 `z`）和 YAML。这几个库随 Hearth 发布（由 `scripts/build-vendor.mjs` 生成），不从网上加载。
+- **读是同步的**：窗口把对话做成一份快照发给界面，包括各楼的文字和变量、对话和全局变量、世界书的名称。对话变化时重发。
+- **写是调用**：界面通过自己建立的 MessagePort 发给窗口（`src/web/card-host.ts`），窗口把它变成修改，作者是用户，原因写「角色卡界面」，可以在修改历史里撤销。和现有内容相同的写入直接忽略。
+- 卡用 `document.open/write` 重写整个页面后，端口、全局函数和高度测量仍然有效。
+
+| 酒馆助手接口 | 在 Hearth 里 |
+| --- | --- |
+| `getVariables`、`replaceVariables`、`updateVariablesWith` 等，`Mvu.getMvuData`、`Mvu.replaceMvuData` | `message`：那一楼当前版本的 `state`，没有时取前面最近一楼的；`chat`：对话变量；`global`：全局变量；其他类型只在这个界面里保存 |
+| `getChatMessages`、`setChatMessages`、`createChatMessages`、`deleteChatMessages` | 楼层号是对话里的序号。范围的写法和酒馆助手一致：负数从末尾数，超出范围的截到两端，写不对的返回空 |
+| `getWorldbook`、`replaceWorldbook`、`updateWorldbookWith`、`createWorldbookEntries`、`deleteWorldbookEntries` | 按名称找世界书，先找当前角色绑定的。写回的条目按 `uid` 对应，只写变化了的字段；酒馆助手没有的字段（分组、匹配选项等）保持不变（`src/core/compat/th-worldbook.ts`） |
+| `createWorldbook`、`deleteWorldbook`、`rebindCharWorldbooks` | 新建和删除世界书，修改角色绑定的世界书。新建的世界书记下是哪个角色的界面建的（`extra.hearth.createdFor`） |
+| `triggerSlash` | `/send`（发送并生成回复）、`/setinput`、`/trigger` |
+| `toastr` | 显示为 Hearth 的提示 |
+| `window.parent` 里的 `#send_textarea`、`#send_but` | 一个替身：写进去的文字填进 Hearth 的输入框，点按钮就发送 |
+| `localStorage` | 按角色分开，保存在本机 |
+| 事件 | 收到第一份快照时发 `mag_variable_initialized`；回复或别的界面改了这一楼的变量时发 `mag_variable_update_ended`；有新楼层时发 `message_received` 或 `message_sent`。界面自己写的变化不通知它自己 |
+
+界面只能读写这个角色自己的世界书：绑定在角色或对话上的，以及它的界面新建的。全局世界书只能读，别的世界书对它来说不存在，`getWorldbookNames` 也不会列出。酒馆助手没有这个限制。
+
+界面不能直接调用模型（`generate`、`generateRaw`）。
+
+### 酒馆助手：后台脚本和变量结构
+
+角色卡的酒馆助手脚本在酒馆里常驻在一个隐藏页面，很多只是在绕开酒馆自身的问题。Hearth 在每次剧情回复之后，按 `message_received`、`generation_ended` 两个事件，在 QuickJS 沙箱里运行其中处理剧情的那些（`src/plugins/tavern-helper/scripts.ts`）。定时器按虚拟时钟立即执行，`setChatMessages` 改的楼层文字写回对话。
+
+| 不运行的脚本 | 原因 |
+| --- | --- |
+| 加载远程代码（`import`） | 例如从 CDN 加载 MVU；Hearth 自带 MVU |
+| 操作页面（`document`、`$('…')`、`window.parent`） | 后台没有页面。只用 `$(() => …)` 等待加载的照常运行 |
+| 直接改变量 | 变量由 MVU 和角色卡界面写，按楼层保存 |
+| 变量结构（`registerMvuSchema`） | 单独处理，见下 |
+
+**MVU 变量结构**：用 zod 定义变量结构的卡，在酒馆里每次更新变量后都按结构解析一遍：转换类型、补默认值、限制范围。Hearth 在沙箱里运行这个脚本，用自带的 zod 代替远程引用（`src/plugins/tavern-helper/mvu-schema.ts`）。新对话的初始变量和每次回复更新后的变量都按它解析；解析失败时保留原样，并写进运行记录。
+
+模型在 `<UpdateVariable>` 里漏写了 `<JSONPatch>` 标签、只写了一个补丁数组时，Hearth 照样读取。
+
 ## 5. 卡片代码的安全边界
 
 角色卡和预设里的代码来自网上，Hearth 把它们放进沙箱：
 
 - **EJS 模板**在 QuickJS（WebAssembly）里执行：访问不到文件、网络和系统，并且有时间和内存上限。
-- **消息里的 HTML 界面**（状态栏、前端卡）在 `sandbox` iframe 里运行：拿不到主界面和本地接口，只能通过消息通道读变量、发 `/send` 之类的指令。
+- **消息里的 HTML 界面**（状态栏、开局面板等）在 `sandbox` iframe 里运行：拿不到主界面、本地接口和 Hearth 的数据，只能通过消息通道读对话的快照、请窗口代为修改（见[角色卡界面](#酒馆助手角色卡界面)）。每一处修改都进修改历史。
+- **角色卡的后台脚本和 MVU 变量结构**在 QuickJS 沙箱里运行：后台脚本只能读对话、改楼层文字，变量结构只返回解析后的变量。
 - **预设自带的请求脚本**（SPreset 的 Stage 1，`FinalRequestProcessing`）在 QuickJS 沙箱里运行。它拿到的是一个按酒馆形状搭出来的小环境：上下文、对话元数据、酒馆助手变量接口、localStorage。这些数据都来自当前对话，脚本访问不到网络和页面；它对这些数据的修改会写回对话。脚本运行失败时，这一次改用 Hearth 的内置适配，并在提示词追踪里说明。
 - 预设脚本引用的**远程代码不会下载或执行**。例如 SPreset 本身的运行时会从外部网址加载，它的「日志上传」还会把调试会话发到第三方服务器；Hearth 不加载这个运行时，也不实现日志上传。
 
