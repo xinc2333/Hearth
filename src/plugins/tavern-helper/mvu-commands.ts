@@ -89,10 +89,15 @@ export function parseMvuCommands(text: string): MvuCommand[] {
     }
     const commands: MvuCommand[] = [];
     for (const block of blocks) {
-        const patch = block.match(/<JSONPatch>([\s\S]*?)<\/JSONPatch>/i);
-        if (patch) {
+        // Models sometimes leave out the <JSONPatch> tags around the array; take a bare patch array then.
+        const tagged = block.match(/<JSONPatch>([\s\S]*?)<\/JSONPatch>/i)?.[1];
+        const bare = tagged === undefined && !/_\.\w+\s*\(/.test(block)
+            ? block.replace(/<Analysis>[\s\S]*?<\/Analysis>/gi, '').match(/\[\s*\{[\s\S]*"op"[\s\S]*\}\s*,?\s*\]/)?.[0]
+            : undefined;
+        const patch = tagged ?? bare;
+        if (patch !== undefined) {
             try {
-                const ops = parseLooseJson(patch[1]);
+                const ops = parseLooseJson(patch);
                 for (const op of Array.isArray(ops) ? ops : [ops]) {
                     if (!op || typeof op !== 'object') continue;
                     const o = op as Record<string, unknown>;

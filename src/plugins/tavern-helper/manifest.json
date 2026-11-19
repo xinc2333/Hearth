@@ -1,8 +1,8 @@
 {
   "id": "tavern-helper",
   "name": "酒馆助手",
-  "description": "显示消息里的状态栏等界面，处理 MVU 变量，并适配 SPreset 类预设：运行预设自带的请求脚本，把 Hearth 的回复模式、深度思考和纸条交给它。",
-  "version": "1.1.0",
+  "description": "运行角色卡的状态栏、开局面板等界面和后台脚本，处理 MVU 变量，并适配 SPreset 类预设：运行预设自带的请求脚本，把 Hearth 的回复模式、深度思考和纸条交给它。",
+  "version": "1.2.0",
   "hearth": ">=0.6.0",
   "main": "server.mjs",
   "files": ["server.mjs"],

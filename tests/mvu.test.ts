@@ -36,6 +36,17 @@ _.set('诗.出处', '松尾芭蕉', '泰戈尔');//换一位诗人
     assert.deepEqual(result.errors, []);
 });
 
+test('a patch array without its <JSONPatch> tags is still read', () => {
+    const text = `正文<UpdateVariable><Analysis>位置变了 [不是补丁]</Analysis>
+[
+  { "op": "replace", "path": "/世界/地点", "value": "车厢" },
+]
+</UpdateVariable>`;
+    assert.deepEqual(parseMvuCommands(text).map(c => [c.op, c.path.join('.'), c.value]), [['replace', '世界.地点', '车厢']]);
+    // With the tags, or with legacy commands, nothing else is guessed.
+    assert.equal(parseMvuCommands('<UpdateVariable>_.set(\'a\', 1, 2);\n[{"op":"replace","path":"/b","value":1}]</UpdateVariable>').length, 1);
+});
+
 test('EJS whitespace slurping and output tags behave like ejs', async () => {
     const env = { vars: { global: {}, chat: {}, message: {} }, books: [], character: { name: '', description: '', personality: '', scenario: '' }, macros: (t: string) => t, run: runSandboxed };
     assert.equal(await renderEjs('a\n  <%_ if (true) { _%>\nyes <%= 1 + 1 %>\n<%_ } _%>\nb', env), 'a\nyes 2\nb');

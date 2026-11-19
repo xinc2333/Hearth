@@ -9,6 +9,7 @@ import { deepMerge, stateAt, toYaml } from '../../core/state.ts';
 import type { Character, Lorebook } from '../../core/types.ts';
 import type { PluginApi } from '../../server/plugins.ts';
 import { applyMvuCommands, parseMvuCommands } from './mvu-commands.ts';
+import { parseWithSchema, schemaScript } from './mvu-schema.ts';
 
 const PLACEHOLDER = '<StatusPlaceHolderImpl/>';
 
@@ -66,17 +67,28 @@ function usesPlaceholder(character: Character): boolean {
     return character.regex.some(r => r.find.includes('StatusPlaceHolderImpl'));
 }
 
+/** The card's variable schema applied to `stat` (MVU parses every update with it); unchanged without one. */
+async function withSchema(api: PluginApi, character: Character, stat: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const code = schemaScript(character);
+    if (!code) return stat;
+    const result = await parseWithSchema(api, code, stat);
+    if (result.ok && result.data) return result.data;
+    api.log('变量不符合角色卡的变量结构，保留原样：', result.error);
+    return stat;
+}
+
 /** Native MagVarUpdate: what a card's MVU script does in SillyTavern. */
 export function setupMvu(api: PluginApi) {
     {
-        api.onChatCreate(({ chat, character }) => {
+        api.onChatCreate(async ({ chat, character }) => {
             const list = books(api, character);
             if (!isMvuCard(character, list)) return;
-            const init = initialVariables(list) ?? {};
+            const init = await withSchema(api, character, initialVariables(list) ?? {});
             for (const message of chat.messages) {
                 for (const swipe of message.swipes) {
-                    const result = applyMvuCommands(init, parseMvuCommands(swipe.content));
-                    swipe.state = { stat_data: result.stat_data };
+                    const commands = parseMvuCommands(swipe.content);
+                    const result = applyMvuCommands(init, commands);
+                    swipe.state = { stat_data: commands.length ? await withSchema(api, character, result.stat_data) : result.stat_data };
                 }
             }
         });
@@ -108,6 +120,7 @@ export function setupMvu(api: PluginApi) {
             if (result.errors.length) {
                 api.log('部分变量更新未生效：', result.errors.join('；'));
             }
+            result.stat_data = await withSchema(api, character, result.stat_data);
             const out = usesPlaceholder(character) || text.includes(PLACEHOLDER) ? `${body}\n\n${PLACEHOLDER}` : body;
             return {
                 text: out,
