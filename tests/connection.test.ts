@@ -11,7 +11,7 @@ import type { Connection } from '../src/core/types.ts';
 import { registerApi } from '../src/server/api.ts';
 import { Router } from '../src/server/http.ts';
 import { PluginHost } from '../src/server/plugins.ts';
-import { buildBody, listModels, sendChat, streamChat, type ChatRequest } from '../src/server/providers/openai.ts';
+import { GeminiThoughts, buildBody, listModels, sendChat, streamChat, type ChatRequest } from '../src/server/providers/openai.ts';
 import { Runtime } from '../src/server/runtime.ts';
 import { Store } from '../src/server/store.ts';
 
@@ -244,4 +244,31 @@ test('connection: Gemini receives every system message (it keeps only the last o
     // Other endpoints get the messages as they are.
     await sendChat({ ...conn, baseUrl: 'https://api.openai.com/v1' }, 'k', body, new AbortController().signal);
     assert.equal(JSON.parse(String(fetchMock.mock.calls[1].arguments[1]?.body)).messages.length, 7);
+});
+
+test('connection: Gemini thought summaries become the reasoning, also when tags are split across chunks', async t => {
+    const split = (chunks: string[]) => {
+        const g = new GeminiThoughts();
+        let reasoning = '', text = '';
+        for (const c of [...chunks.map(c => g.push(c)), g.flush()]) { reasoning += c.reasoning; text += c.text; }
+        return { reasoning, text };
+    };
+    assert.deepEqual(split(['<thought>想一想', '</thought>答案']), { reasoning: '想一想', text: '答案' });
+    assert.deepEqual(split(['<tho', 'ught>想', '一想</tho', 'ught>\n答案']), { reasoning: '想一想', text: '答案' });
+    assert.deepEqual(split(['直接回答，<thought> 不是开头']), { reasoning: '', text: '直接回答，<thought> 不是开头' });
+    assert.deepEqual(split(['<']), { reasoning: '', text: '<' });
+
+    // The request asks for thoughts when the preset shows them, and drops the penalties Gemini rejects.
+    const conn: Connection = { id: 'g', name: 'Gemini', provider: 'openai-compatible', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'models/gemini-3.8-flash', sendNames: true };
+    const preset = defaultPreset();
+    preset.sampling.presencePenalty = 0.4;
+    const req: ChatRequest = { messages: [{ role: 'user', content: '你好' }], preset, names: { user: 'U', char: 'C' } };
+    assert.deepEqual(buildBody(conn, req, true).extra_body, { google: { thinking_config: { include_thoughts: true } } });
+    assert.equal(buildBody({ ...conn, baseUrl: 'https://api.b.ai/v1' }, req, true).extra_body, undefined);
+    preset.behavior.showThoughts = false;
+    assert.equal(buildBody(conn, req, true).extra_body, undefined);
+    const fetchMock = t.mock.method(globalThis, 'fetch', async () => Response.json({ choices: [{ message: { content: '<thought>先想</thought>好的' } }] }));
+    const out = await sendChat(conn, 'k', buildBody(conn, req, false), new AbortController().signal);
+    assert.deepEqual([out.reasoning, out.text], ['先想', '好的']);
+    assert.equal('presence_penalty' in JSON.parse(String(fetchMock.mock.calls[0].arguments[1]?.body)), false);
 });

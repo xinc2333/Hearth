@@ -82,6 +82,54 @@ export function geminiSystemMessages(messages: unknown): unknown {
     ];
 }
 
+const isGemini = (conn: Pick<Connection, 'baseUrl'>) => normalizeBase(conn.baseUrl).toLowerCase() === geminiBase;
+
+/**
+ * Gemini's thought summaries (asked for when the preset shows thoughts) arrive at the start of the
+ * content as <thought>…</thought>. This splits them off as reasoning, also when the tags are cut
+ * across stream chunks.
+ */
+export class GeminiThoughts {
+    private state: 'start' | 'thought' | 'text' = 'start';
+    private held = '';
+
+    push(chunk: string): { reasoning: string; text: string } {
+        let rest = this.held + chunk;
+        this.held = '';
+        let reasoning = '';
+        let text = '';
+        if (this.state === 'start') {
+            const lead = rest.trimStart();
+            if (lead.length < 9 && '<thought>'.startsWith(lead)) { this.held = rest; return { reasoning, text }; }
+            if (lead.startsWith('<thought>')) { this.state = 'thought'; rest = lead.slice(9); } else this.state = 'text';
+        }
+        if (this.state === 'thought') {
+            const end = rest.indexOf('</thought>');
+            if (end < 0) {
+                // Keep a possible partial closing tag for the next chunk.
+                const cut = Math.max(0, rest.length - 9);
+                const tail = rest.slice(cut);
+                const keep = [...Array(tail.length).keys()].map(i => tail.slice(i)).find(s => '</thought>'.startsWith(s)) ?? '';
+                reasoning = rest.slice(0, rest.length - keep.length);
+                this.held = keep;
+                return { reasoning, text };
+            }
+            reasoning = rest.slice(0, end);
+            rest = rest.slice(end + 10).replace(/^\s+/, '');
+            this.state = 'text';
+        }
+        text += rest;
+        return { reasoning, text };
+    }
+
+    /** What is still held back when the stream ends. */
+    flush(): { reasoning: string; text: string } {
+        const held = this.held;
+        this.held = '';
+        return this.state === 'thought' ? { reasoning: held, text: '' } : { reasoning: '', text: held };
+    }
+}
+
 type GeminiToolCall = { extra_content?: { google?: { thought_signature?: string } } };
 
 function geminiToolMessages(messages: unknown) {
@@ -113,8 +161,9 @@ function geminiToolMessages(messages: unknown) {
 async function postChat(conn: Connection, key: string | undefined, body: Record<string, unknown>, signal: AbortSignal, names?: ChatRequest['names'], hooks?: ProviderHooks): Promise<Response> {
     const base = normalizeBase(conn.baseUrl);
     if (base.toLowerCase() === geminiBase) {
-        // Use Chat Completions' tool_choice instead of the native Gemini toolConfig field.
-        const { frequency_penalty: _frequency, toolConfig: _toolConfig, ...compatibleBody } = body;
+        // Use Chat Completions' tool_choice instead of the native Gemini toolConfig field. Gemini has
+        // no frequency_penalty, and its current models reject any presence_penalty but 0.
+        const { frequency_penalty: _frequency, presence_penalty: _presence, toolConfig: _toolConfig, ...compatibleBody } = body;
         body = compatibleBody;
         // Example dialogue keeps its speakers in the text once system messages are merged.
         if (Array.isArray(body.messages)) body.messages = geminiSystemMessages(stripNames(body.messages, names));
@@ -158,6 +207,8 @@ export function buildBody(conn: Connection, req: ChatRequest, stream: boolean): 
     };
     if (s.seed >= 0) body.seed = s.seed;
     if (stream) body.stream_options = { include_usage: true };
+    // Gemini thinks by default but sends its thoughts only when asked; the preset's 显示思考 asks.
+    if (isGemini(conn) && req.preset.behavior?.showThoughts !== false) body.extra_body = { google: { thinking_config: { include_thoughts: true } } };
     return { ...body, ...(req.extra ?? {}), ...(conn.extraBody ?? {}) };
 }
 
@@ -193,9 +244,10 @@ export async function* streamChat(conn: Connection, key: string | undefined, req
         const json = await res.json() as Record<string, any>;
         if (json.error) throw new Error(json.error.message ?? JSON.stringify(json.error));
         const choice = json.choices?.[0] ?? {};
-        const reasoning = choice.message?.reasoning_content ?? choice.message?.reasoning;
+        const split = splitThoughts(conn, String(choice.message?.content ?? choice.text ?? ''));
+        const reasoning = choice.message?.reasoning_content ?? choice.message?.reasoning ?? split.reasoning;
         if (reasoning) yield { type: 'reasoning', text: String(reasoning) };
-        yield { type: 'text', text: String(choice.message?.content ?? choice.text ?? '') };
+        yield { type: 'text', text: split.text };
         for (const call of choice.message?.tool_calls ?? []) {
             yield { type: 'text', text: `\n<|tool_call|>${call.function?.name ?? ''}\n${call.function?.arguments ?? ''}` };
         }
@@ -208,6 +260,7 @@ export async function* streamChat(conn: Connection, key: string | undefined, req
     let finish: 'stop' | 'length' = 'stop';
     let usage: unknown;
     const seenCalls = new Set<number>();
+    const thoughts = isGemini(conn) ? new GeminiThoughts() : null;
     while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -219,6 +272,9 @@ export async function* streamChat(conn: Connection, key: string | undefined, req
             if (!line.startsWith('data:')) continue;
             const data = line.slice(5).trim();
             if (data === '[DONE]') {
+                const held = thoughts?.flush();
+                if (held?.reasoning) yield { type: 'reasoning', text: held.reasoning };
+                if (held?.text) yield { type: 'text', text: held.text };
                 yield { type: 'done', finish, usage };
                 return;
             }
@@ -235,7 +291,11 @@ export async function* streamChat(conn: Connection, key: string | undefined, req
             const delta = choice.delta ?? {};
             const reasoning = delta.reasoning_content ?? delta.reasoning;
             if (reasoning) yield { type: 'reasoning', text: String(reasoning) };
-            if (delta.content) yield { type: 'text', text: String(delta.content) };
+            if (delta.content) {
+                const part = thoughts ? thoughts.push(String(delta.content)) : { reasoning: '', text: String(delta.content) };
+                if (part.reasoning) yield { type: 'reasoning', text: part.reasoning };
+                if (part.text) yield { type: 'text', text: part.text };
+            }
             // Tool-call replies (presets that answer through a reply tool) stream as text in the
             // "<|tool_call|>name\n{json}" shape; normalizeModelOutput turns the JSON into tagged text.
             for (const call of delta.tool_calls ?? []) {
@@ -249,7 +309,19 @@ export async function* streamChat(conn: Connection, key: string | undefined, req
             if (choice.finish_reason === 'length') finish = 'length';
         }
     }
+    const held = thoughts?.flush();
+    if (held?.reasoning) yield { type: 'reasoning', text: held.reasoning };
+    if (held?.text) yield { type: 'text', text: held.text };
     yield { type: 'done', finish, usage };
+}
+
+/** A whole reply's Gemini thought summary, split off from its text. */
+function splitThoughts(conn: Pick<Connection, 'baseUrl'>, content: string): { reasoning: string; text: string } {
+    if (!isGemini(conn)) return { reasoning: '', text: content };
+    const t = new GeminiThoughts();
+    const a = t.push(content);
+    const b = t.flush();
+    return { reasoning: a.reasoning + b.reasoning, text: a.text + b.text };
 }
 
 export interface SendResult {
@@ -270,9 +342,10 @@ export async function sendChat(conn: Connection, key: string | undefined, body: 
     const json = await res.json() as Record<string, any>;
     if (json.error) throw new Error(json.error.message ?? JSON.stringify(json.error));
     const message = json.choices?.[0]?.message ?? {};
+    const split = splitThoughts(conn, String(message.content ?? json.choices?.[0]?.text ?? ''));
     return {
-        text: String(message.content ?? json.choices?.[0]?.text ?? ''),
-        reasoning: String(message.reasoning_content ?? message.reasoning ?? ''),
+        text: split.text,
+        reasoning: String(message.reasoning_content ?? message.reasoning ?? split.reasoning),
         toolCalls: Array.isArray(message.tool_calls) ? message.tool_calls : [],
         finish: json.choices?.[0]?.finish_reason === 'length' ? 'length' : 'stop',
     };
