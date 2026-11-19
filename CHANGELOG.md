@@ -4,6 +4,8 @@
 
 ## [未发布]
 
+## [0.7.1] - 2026-11-19
+
 ### 变更
 
 - 使用 Gemini 官方接口、预设开着「显示思考」时，回复上方会显示模型的思考过程。思考摘要由 Google 生成，一般是英文。
@@ -174,7 +176,8 @@
 - 支持 EJS 提示词模板，以及 Meowssiah 等 SPreset 类预设。
 - 连接 OpenAI 兼容接口，流式显示回复和思考过程，支持停止、重新生成、继续写和切换版本。
 
-[未发布]: https://github.com/xinc2333/Hearth/compare/v0.7.0...HEAD
+[未发布]: https://github.com/xinc2333/Hearth/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/xinc2333/Hearth/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/xinc2333/Hearth/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/xinc2333/Hearth/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/xinc2333/Hearth/compare/v0.5.1...v0.6.0
