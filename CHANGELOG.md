@@ -4,6 +4,8 @@
 
 ## [未发布]
 
+## [0.7.0] - 2026-11-19
+
 ### 新增
 
 - 角色卡的开局面板、状态栏里的按钮可以直接使用：选开局、改变量、开关世界书条目都会生效，修改记在修改历史里，可以撤销。
@@ -163,7 +165,8 @@
 - 支持 EJS 提示词模板，以及 Meowssiah 等 SPreset 类预设。
 - 连接 OpenAI 兼容接口，流式显示回复和思考过程，支持停止、重新生成、继续写和切换版本。
 
-[未发布]: https://github.com/xinc2333/Hearth/compare/v0.6.1...HEAD
+[未发布]: https://github.com/xinc2333/Hearth/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/xinc2333/Hearth/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/xinc2333/Hearth/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/xinc2333/Hearth/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/xinc2333/Hearth/compare/v0.5.0...v0.5.1
