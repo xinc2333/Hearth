@@ -9,3 +9,4 @@
 | `Meowssiah-2.1.7.json` | `HEARTH_FIXTURE_MEOWSSIAH` | Meowssiah 预设（2.1.7） |
 | `mvu-card.png` | `HEARTH_FIXTURE_MVU_CARD` | 任意使用 MVU、状态栏和 EJS 章节控制器的角色卡 |
 | `frontend-card.png` | `HEARTH_FIXTURE_FRONTEND_CARD` | 任意带开局界面、MVU 变量结构脚本和 `@@preprocessing` EJS 条目的前端角色卡 |
+| `page-card.png` | `HEARTH_FIXTURE_PAGE_CARD` | 任意界面全在酒馆助手脚本里（挂在酒馆页面上）、变量结构脚本用 `import * as` 引用的角色卡 |

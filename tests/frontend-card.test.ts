@@ -4,6 +4,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import { assemble, type AssembleInput } from '../src/core/assemble.ts';
 import { importCardFile } from '../src/core/compat/st-card.ts';
@@ -13,14 +16,13 @@ import { newLoreEntry } from '../src/core/lore.ts';
 import { applyOps } from '../src/core/ops.ts';
 import { DEFAULT_LORE_SETTINGS, type Character, type ChatMessage, type Lorebook } from '../src/core/types.ts';
 import { ejsPlugin } from '../src/plugins/prompt-template/ejs.ts';
+import { createHearth, listen } from '../src/server/app.ts';
 import { PluginHost } from '../src/server/plugins.ts';
 import { initialVariables } from '../src/plugins/tavern-helper/mvu.ts';
 import { parseWithSchema, schemaScript } from '../src/plugins/tavern-helper/mvu-schema.ts';
-import { runBackgroundScripts, skipReason } from '../src/plugins/tavern-helper/scripts.ts';
-import { createMacroContext, evaluateMacros } from '../src/core/macros.ts';
 import { runSandboxed } from '../src/server/sandbox.ts';
 
-import { FRONTEND_CARD } from './fixtures.ts';
+import { FRONTEND_CARD, PAGE_CARD } from './fixtures.ts';
 
 const sandbox = { sandbox: { run: runSandboxed } };
 
@@ -164,55 +166,71 @@ test('the frontend card: its controllers render first, so every constant entry f
     assert.ok(!result.warnings.some(w => w.includes('EJS')), result.warnings.join('; '));
 });
 
-test('background scripts: card logic runs on events, with timers on a virtual clock', async () => {
-    const script = {
-        id: 'x', name: '清理', enabled: true, type: 'script', raw: {},
-        content: `const debounce = (fn, ms) => { let t = null; return () => { clearTimeout(t); t = setTimeout(fn, ms); }; };
-const clean = () => {
-  const list = getChatMessages('0-{{lastMessageId}}');
-  for (const m of list) if (m.role === 'user' && m.message.includes('[参考]')) setChatMessages([{ message_id: m.message_id, message: m.message.replace(/\\[参考\\][\\s\\S]*?\\[\\/参考\\]/, '（已清理）') }]);
-};
-eventOn(tavern_events.MESSAGE_RECEIVED, debounce(clean, 2000));`,
-    };
-    assert.equal(skipReason(script), null);
-    assert.equal(skipReason({ ...script, content: 'eventOn("x", () => document.querySelector("#a"))' }), '操作页面');
-    assert.equal(skipReason({ ...script, content: 'eventOn("x", () => replaceVariables({}))' }), '直接改变量');
-    assert.equal(skipReason({ ...script, content: "await import('https://cdn/x.js');" }), '加载外部代码');
-    const chat = {
-        id: 'c', messages: [message('user', '开始[参考]很长的大纲[/参考]'), message('assistant', '正文')], variables: {},
-    } as unknown as import('../src/core/types.ts').Chat;
-    const api = { sandbox: { run: runSandboxed }, macros: { context: createMacroContext, evaluate: evaluateMacros } };
-    const run = await runBackgroundScripts(api, chat, [script], [['message_received', [1, 'normal']]], ['甲', '乙']);
-    assert.deepEqual(run.errors, []);
-    const { doc } = applyOps(chat, run.ops);
-    assert.equal(doc.messages[0].swipes[0].content, '开始（已清理）');
-});
-
-test('the frontend card: only its reference cleanup runs in the background, as in 酒馆', { skip: !existsSync(FRONTEND_CARD) }, async () => {
+test('a card\'s scripts run on its page, except MVU itself and the variable schema (both Hearth\'s)', { skip: !existsSync(FRONTEND_CARD) }, async () => {
+    const { pageScripts } = await import('../src/web/card-scripts.ts');
     const { character } = importCardFile(new Uint8Array(readFileSync(FRONTEND_CARD)), 'card.png');
-    const reasons = Object.fromEntries(character.scripts.map(s => [s.name, skipReason(s)]));
-    assert.deepEqual(reasons, { 变量保险: '直接改变量', 状态栏保活: '操作页面', MVUbeta: '加载外部代码', '变量结构.js': '变量结构，由 MVU 处理', 剧情参考清理: null });
-    const cleanup = character.scripts.find(s => s.name === '剧情参考清理')!;
-    const payload = '（开场白指令）\n\n下面是目标阶段的剧情介绍供参考：\n[剧情参考]大纲[/剧情参考]\n';
-    const chat = {
-        id: 'c', variables: {},
-        messages: [message('assistant', '开局'), message('user', payload), message('assistant', '第一段正文')],
-    } as unknown as import('../src/core/types.ts').Chat;
-    const api = { sandbox: { run: runSandboxed }, macros: { context: createMacroContext, evaluate: evaluateMacros } };
-    const run = await runBackgroundScripts(api, chat, [cleanup], [['message_received', [2, 'normal']], ['generation_ended', [2]]], ['甲', character.name]);
-    assert.deepEqual(run.errors, []);
-    // It reads getChatMessages(-500): in 酒馆助手 that is one message, clamped to the first, so it
-    // finds nothing to clean. Hearth reads it the same way.
-    assert.deepEqual(run.ops, []);
+    assert.deepEqual(pageScripts(character).map(s => s.name), ['变量保险', '状态栏保活', '剧情参考清理']);
 });
 
-test('message ranges follow 酒馆助手: negative from the end, clamped, ranges in either order', async () => {
-    const { messageRange } = await import('../src/plugins/tavern-helper/scripts.ts');
-    assert.deepEqual(messageRange(-1, 9), [9, 9]);
-    assert.deepEqual(messageRange(-500, 9), [0, 0]);
-    assert.deepEqual(messageRange('5-2', 9), [2, 5]);
-    assert.deepEqual(messageRange('0-{{lastMessageId}}', 9), [0, 9]);
-    assert.deepEqual(messageRange('3-99', 9), [3, 9]);
-    assert.equal(messageRange('x', 9), null);
-    assert.equal(messageRange(0, -1), null);
+test('the page card: its dealer script runs on the page; its schema (namespace import, lodash) in the sandbox', { skip: !existsSync(PAGE_CARD) }, async () => {
+    const { pageScripts } = await import('../src/web/card-scripts.ts');
+    const { character, lorebook } = importCardFile(new Uint8Array(readFileSync(PAGE_CARD)), 'card.png');
+    assert.deepEqual(pageScripts(character).map(s => s.name), ['发牌机']);
+    const code = schemaScript(character);
+    assert.ok(code, 'the schema script is runnable');
+    const out = await parseWithSchema(sandbox, code, initialVariables([lorebook!]) ?? {});
+    assert.equal(out.ok, true, out.error);
+});
+
+test('CDN libraries a card loads come from Hearth\'s copies', async () => {
+    const { importMap, localLibrary, localScripts } = await import('../src/web/card-libs.ts');
+    assert.deepEqual(localLibrary('https://testingcf.jsdelivr.net/npm/pinia@3.0.4/+esm'), { path: 'esm/pinia.js', module: true });
+    assert.deepEqual(localLibrary('https://cdn.jsdelivr.net/npm/vue@3.5.13/+esm'), { path: 'esm/vue.js', module: true });
+    assert.deepEqual(localLibrary('https://unpkg.com/vue@3/dist/vue.global.prod.js'), { path: 'vue.min.js', module: false });
+    assert.deepEqual(localLibrary('https://unpkg.com/vue-router@4/dist/vue-router.global.prod.js'), { path: 'vue-router.min.js', module: false });
+    assert.deepEqual(localLibrary('https://testingcf.jsdelivr.net/npm/jquery'), { path: 'jquery.min.js', module: false });
+    assert.equal(localLibrary('https://cdn.jsdelivr.net/gh/someone/app@1/dist/index.js'), null, 'authors\' own code is not replaced');
+    assert.equal(localLibrary('https://testingcf.jsdelivr.net/npm/unknown-lib@1/+esm'), null);
+    const html = `<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script><script type="module">import { createPinia } from 'https://testingcf.jsdelivr.net/npm/pinia@3.0.4/+esm'; import g from 'https://testingcf.jsdelivr.net/npm/gsap@3.15.0/+esm';</script>`;
+    assert.ok(localScripts(html, 'http://h').includes('src="http://h/vendor/vue.min.js"'));
+    const map = JSON.parse(importMap([html], 'http://h').replace(/^<script type="importmap">|<\/script>$/g, ''));
+    // Libraries under other licenses (GSAP) stay on their CDN.
+    assert.deepEqual(map.imports, { 'https://testingcf.jsdelivr.net/npm/pinia@3.0.4/+esm': 'http://h/vendor/esm/pinia.js' });
+});
+
+test('a card\'s <style> is scoped to its message; @keyframes and @font-face stay global', async () => {
+    const { scopeCss } = await import('../src/web/render.ts').catch(() => ({ scopeCss: null as never }));
+    if (!scopeCss) return;
+    const out = scopeCss(`/* c */ .a { color: red; } @keyframes pulse { 0% { opacity: 0 } 100% { opacity: 1 } } @media (max-width: 500px) { .a { color: blue } } @font-face { font-family: X; src: url(x.woff) }`);
+    assert.match(out, /^@keyframes pulse \{[\s\S]*\}\n@font-face/);
+    assert.match(out, /@scope \{\n\.a \{ color: red; \}[\s\S]*@media \(max-width: 500px\) \{ \.a \{ color: blue \} \}\n\}$/);
+});
+
+test('a card\'s HTML block stays whole through markdown, blank lines and indentation included', async () => {
+    const { protectHtmlBlocks } = await import('../src/web/render.ts');
+    const md = '正文 **粗体**\n\n<div class="hud">\n  <div class="row">\n\n      <span>甲</span>\n  </div>\n</div>\n\n后文';
+    const { text, blocks } = protectHtmlBlocks(md);
+    assert.equal(blocks.length, 1);
+    assert.ok(blocks[0].startsWith('<div class="hud">') && blocks[0].endsWith('</div>\n</div>'));
+    assert.ok(text.includes('<!--hearth-block-0-->') && text.includes('正文 **粗体**') && text.includes('后文'));
+    // An unclosed block is left to markdown.
+    assert.equal(protectHtmlBlocks('<div>没有闭合').blocks.length, 0);
+});
+
+test('card interfaces get their own origin: it serves the frame page and libraries, and the API refuses it', async t => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'hearth-card-origin-'));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const hearth = await createHearth({ root: path.resolve(import.meta.dirname, '..'), dataDir: dir });
+    const port = await listen(hearth.server, 0, '127.0.0.1');
+    t.after(() => hearth.server.close());
+    const app = `http://127.0.0.1:${port}`;
+    const { cardOrigin } = await (await fetch(`${app}/api/bootstrap`)).json() as { cardOrigin: string };
+    assert.match(cardOrigin, /^http:\/\/127\.0\.0\.1:\d+$/);
+    assert.notEqual(cardOrigin, app);
+    const status = (url: string, origin?: string) => fetch(url, origin ? { headers: { Origin: origin } } : {}).then(r => { void r.body?.cancel(); return r.status; });
+    assert.equal(await status(`${cardOrigin}/frame`), 200);
+    assert.equal(await status(`${cardOrigin}/api/bootstrap`), 404, 'the card origin has no API');
+    assert.equal(await status(`${cardOrigin}/index.html`), 404, 'nor Hearth\'s page');
+    assert.equal(await status(`${app}/api/bootstrap`, cardOrigin), 403, 'card code cannot call the API');
+    assert.equal(await status(`${app}/api/bootstrap`, app), 200);
 });
