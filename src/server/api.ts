@@ -251,6 +251,13 @@ export function registerApi(router: Router, store: Store, runtime: Runtime, plug
         return pluginList();
     });
 
+    // 「检查更新」 next to the version checks the plugins too.
+    router.post('/api/plugins/check', async () => {
+        if (!updater) throw Object.assign(new Error('更新不可用'), { status: 400 });
+        await updater.checkAll(id => store.settings.plugins?.[id]?.autoUpdate !== false);
+        return pluginList();
+    });
+
     router.post('/api/plugins/:id/update', async req => {
         if (!updater) throw Object.assign(new Error('更新不可用'), { status: 400 });
         const body = await req.json<{ apply?: boolean }>().catch(() => ({} as { apply?: boolean }));

@@ -126,6 +126,7 @@ export const api = {
     plugins: () => request<PluginView[]>('GET', '/api/plugins'),
     setPlugin: (id: string, patch: { enabled?: boolean; autoUpdate?: boolean }) => request<PluginView[]>('PUT', `/api/plugins/${id}`, patch),
     updatePlugin: (id: string, apply = true) => request<PluginView[]>('POST', `/api/plugins/${id}/update`, { apply }),
+    checkPlugins: () => request<PluginView[]>('POST', '/api/plugins/check'),
     installPlugin: (url: string) => request<{ installed: { id: string; name: string; version: string }; plugins: PluginView[] }>('POST', '/api/plugins/install', { url }),
     removePlugin: (id: string) => request<PluginView[]>('DELETE', `/api/plugins/${id}`),
 };

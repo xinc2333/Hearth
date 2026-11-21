@@ -344,25 +344,53 @@ function appUpdateText(u: AppUpdateStatus | null | undefined): string {
     }
 }
 
+/** What a check did to the plugins, for the line next to the version. */
+function pluginCheckText(list: PluginView[], since: number): string {
+    const fresh = list.filter(p => p.update?.checkedAt && p.update.checkedAt >= since);
+    const updated = fresh.filter(p => p.update?.updatedAt && p.update.updatedAt >= since);
+    const waiting = fresh.filter(p => !p.update?.error && p.update?.latest && p.update.latest !== p.version);
+    const failed = fresh.filter(p => p.update?.error);
+    const parts: string[] = [];
+    if (updated.length) parts.push(`已更新插件：${updated.map(p => `${p.name} ${p.version}`).join('、')}`);
+    if (waiting.length) parts.push(`插件有新版本：${waiting.map(p => `${p.name} ${p.update!.latest}`).join('、')}，在「设置 → 插件」里更新`);
+    if (failed.length) parts.push(`插件检查失败：${failed.map(p => `${p.name}（${p.update!.error}）`).join('、')}`);
+    return parts.join('；') || (fresh.length ? '插件已是最新' : '');
+}
+
 function VersionField() {
     const info = useAppState(s => s.version);
     const update = info?.update;
-    const busy = update?.state === 'checking' || update?.state === 'downloading';
+    const [plugins, setPlugins] = useState<{ checking: boolean; text: string }>({ checking: false, text: '' });
+    const busy = update?.state === 'checking' || update?.state === 'downloading' || plugins.checking;
     // While checking or downloading, follow the progress more closely than the app's minute timer.
     useEffect(() => {
         if (!busy) return;
         const timer = setInterval(() => void api.version().then(v => setState({ version: v })).catch(() => {}), 1000);
         return () => clearInterval(timer);
     }, [busy]);
-    const check = () => void api.checkAppUpdate().then(u => setState(s => ({ version: s.version && { ...s.version, update: u } }))).catch(reportError);
-    const status = appUpdateText(update);
+    // Hearth and its plugins update separately; one button checks both.
+    const check = () => {
+        const since = Date.now();
+        if (info?.desktop) void api.checkAppUpdate().then(u => setState(s => ({ version: s.version && { ...s.version, update: u } }))).catch(reportError);
+        setPlugins({ checking: true, text: '' });
+        void api.checkPlugins()
+            .then(async list => {
+                setPlugins({ checking: false, text: pluginCheckText(list, since) });
+                await refresh();
+            })
+            .catch(error => {
+                setPlugins({ checking: false, text: '' });
+                reportError(error);
+            });
+    };
+    const status = [appUpdateText(update), plugins.text].filter(Boolean).join(' · ');
     return (
         <Field label="版本">
             <div className="version-row">
                 <span className="muted small">Hearth {info?.version || '未知'}{status && ` · ${status}`}</span>
-                {info?.desktop && (update?.state === 'ready' || update?.state === 'installing'
+                {info?.desktop && (update?.state === 'ready' || update?.state === 'installing')
                     ? <Button variant="ghost" disabled={update.state === 'installing'} onClick={() => void api.installAppUpdate().catch(reportError)}>现在重启</Button>
-                    : <Button variant="ghost" disabled={busy} onClick={check}>{update?.state === 'downloading' ? '下载中…' : busy ? '检查中…' : '检查更新'}</Button>)}
+                    : <Button variant="ghost" disabled={busy} onClick={check}>{update?.state === 'downloading' ? '下载中…' : busy ? '检查中…' : '检查更新'}</Button>}
                 <a className="small" href={RELEASES_URL} target="_blank" rel="noreferrer">更新记录</a>
             </div>
         </Field>

@@ -111,7 +111,10 @@ test('updater: installs from a link, updates, rolls back a broken version, remov
         writePlugin(path.join(remote, 'probe'), '1.1.0', 'v1.1', { repository: link });
         assert.equal((await updater.update('probe', false)).latest, '1.1.0');
         assert.equal(probe(), 'builtin', 'checking alone does not install');
-        const ok = await updater.update('probe');
+        await updater.checkAll(() => false);
+        assert.equal(probe(), 'builtin', 'checking every plugin installs nothing whose automatic updates are off');
+        await updater.checkAll(() => true);
+        const ok = updater.status.get('probe')!;
         assert.equal(ok.error, undefined);
         assert.equal(ok.updatedFrom, '1.0.0');
         assert.equal(host.plugins.get('probe')?.manifest.version, '1.1.0');

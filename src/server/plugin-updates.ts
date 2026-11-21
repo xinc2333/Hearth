@@ -209,6 +209,13 @@ export class PluginUpdater {
         }
     }
 
+    /** Checks every plugin that has a source: updates those whose automatic updates are on, only looks for the rest. */
+    async checkAll(isAuto: (id: string) => boolean) {
+        for (const info of [...this.host.plugins.values()]) {
+            if (info.manifest.repository) await this.update(info.manifest.id, isAuto(info.manifest.id));
+        }
+    }
+
     /** Checks shortly after start, then every few hours. */
     schedule(isAuto: (id: string) => boolean, everyMs = 6 * 3600_000) {
         const run = () => void this.updateAll(isAuto).catch(error => console.warn('[plugins] 自动更新失败：', error));
