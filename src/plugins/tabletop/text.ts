@@ -20,27 +20,42 @@ function characterLine(name: string, state: TabletopState, userName: string): st
     return parts.join('｜');
 }
 
-/** The 跑团 data block: characters, their attitudes toward the protagonist, and how others stand with each other. */
-export function stateText(state: TabletopState, userName: string): string {
+/**
+ * The 跑团 data block: characters, their attitudes toward the protagonist, and how others stand with
+ * each other. With a scene, only the characters on it are written out; the rest are named with their
+ * attitude in words.
+ */
+export function stateText(state: TabletopState, userName: string, scene?: ReadonlySet<string>): string {
+    const on = (name: string) => !scene || name === PROTAGONIST || scene.has(name);
     const lines = ['【跑团数据】（属性以普通成年男性 = 100 为基准，按倍数理解；下面的数值是本轮的事实依据）'];
     const custom = Object.entries(state.custom);
     if (custom.length) lines.push(`本卡属性：${custom.map(([k, v]) => `${k}（${[v.note, v.anchor].filter(Boolean).join('；')}）`).join('、')}`);
     const names = Object.keys(state.characters).sort((a, b) => (a === PROTAGONIST ? -1 : b === PROTAGONIST ? 1 : 0));
-    for (const name of names) lines.push(characterLine(name, state, userName));
-    if (state.relations.length) {
+    for (const name of names.filter(on)) lines.push(characterLine(name, state, userName));
+    const relations = state.relations.filter(r => on(r.from));
+    if (relations.length) {
         lines.push('', '【对主角的态度】（六条线各自 0～100，互不抵消；主角自己的感情由玩家决定，这里不记）');
-        for (const r of state.relations) {
+        for (const r of relations) {
             const values = AXES.map(([axis, label]) => `${label}${relationValue(r, axis)}`).join(' ');
             const recent = r.reasons.slice(-3).map(x => (x.change ? `${x.text}（${x.change}）` : x.text)).filter(Boolean);
             lines.push(`${r.from}：${describe(r)}（${values}｜熟悉${r.familiarity}）${recent.length ? `｜最近：${recent.join('；')}` : ''}`);
         }
     }
-    if (state.bonds.length) {
+    const bonds = state.bonds.filter(b => on(b.between[0]) && on(b.between[1]));
+    if (bonds.length) {
         lines.push('', '【角色之间】');
-        for (const b of state.bonds) {
+        for (const b of bonds) {
             const last = b.reasons.at(-1)?.text;
             lines.push(`${b.between[0]}与${b.between[1]}：${b.text}${last ? `（${last}）` : ''}`);
         }
+    }
+    const away = names.filter(name => !on(name));
+    if (away.length) {
+        lines.push('', '【其他已登记的角色】（这一幕不在场，只列名字和对主角的态度）');
+        lines.push(away.map(name => {
+            const r = state.relations.find(x => x.from === name);
+            return r ? `${name}（${describe(r)}）` : name;
+        }).join('、'));
     }
     return lines.join('\n');
 }

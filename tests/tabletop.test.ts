@@ -10,7 +10,7 @@ import { test } from 'node:test';
 
 import { importCard } from '../src/core/compat/st-card.ts';
 import { importStPreset } from '../src/core/compat/st-preset.ts';
-import type { Character, Chat, Preset } from '../src/core/types.ts';
+import type { Character, Chat, ChatMessage, Preset } from '../src/core/types.ts';
 import { applyCardEdits, buildEditPrompt } from '../src/server/card-edit.ts';
 import { PluginHost } from '../src/server/plugins.ts';
 import { Runtime } from '../src/server/runtime.ts';
@@ -23,7 +23,9 @@ import { TABLETOP_ENTRIES } from '../src/plugins/tabletop/entries.ts';
 import { effectiveValue, resolveChecks } from '../src/plugins/tabletop/ruling.ts';
 import { DEFAULT_RULES, successChance, successLine, tierOf } from '../src/plugins/tabletop/rules.ts';
 import { applySettleArgs, applySettlement, extractSettlement } from '../src/plugins/tabletop/settle.ts';
-import { cardSheet, emptyAxes, normalizeSheet, parseSheetYaml, relationValue, sheetToYaml, stateFromSheet, type Relation, type Sheet, type SwipeData, type TabletopState } from '../src/plugins/tabletop/sheet.ts';
+import { sceneOf } from '../src/plugins/tabletop/scene.ts';
+import { cardSheet, emptyAxes, normalizeSheet, parseSheetYaml, relationValue, sheetToYaml, stateFromSheet, type CheckView, type Relation, type Sheet, type SwipeData, type TabletopState } from '../src/plugins/tabletop/sheet.ts';
+import { stateText } from '../src/plugins/tabletop/text.ts';
 import { MEOWSSIAH } from './fixtures.ts';
 
 const SHEET_YAML = `
@@ -180,6 +182,58 @@ test('跑团 settlement tool: every character on scene, bonds in words, statuses
     const attitudeLines = results.filter(r => r.ok && r.kind === 'attitude').map(r => r.who);
     assert.deepEqual(attitudeLines, ['林晚', '守卫甲']);
     assert.ok(results.some(r => r.kind === 'status' && r.who === '主角'));
+});
+
+test('跑团 scene: only characters on scene are written out, the rest by name and attitude', () => {
+    const state = stateFromSheet(parseSheetYaml(`
+角色:
+  主角: { 属性: { 力量: 100 } }
+  林晚: { 别名: [晚晚], 属性: { 力量: 70 } }
+  守卫甲: { 属性: { 力量: 160 } }
+  老陈: { 别名: [陈叔], 属性: { 智力: 130 } }
+  小柳: { 属性: { 敏捷: 140 } }
+  路人: { 属性: { 力量: 90 } }
+  掌柜: { 属性: { 口才: 120 } }
+态度:
+  - { 从: 林晚, 亲近: 60, 熟悉: 85 }
+  - { 从: 老陈, 信任: 70, 熟悉: 60 }
+  - { 从: 路人, 亲近: 45, 熟悉: 10 }
+关系:
+  - { 之间: [林晚, 老陈], 现状: 师徒 }
+  - { 之间: [小柳, 路人], 现状: 邻居 }
+`));
+    let n = 0;
+    const message = (role: 'user' | 'assistant', content: string, present?: string[]): ChatMessage => ({
+        id: `m${++n}`, role, name: role === 'user' ? '阿尘' : '林晚', activeSwipe: 0, hidden: false, createdAt: 0,
+        swipes: [{ id: `s${n}`, content, createdAt: 0, ...(present ? { plugins: { tabletop: { settle: { raw: '', results: [], present } } } } : {}) }],
+    });
+    const chat = {
+        messages: [
+            message('assistant', '雨夜，后门紧锁。'),
+            message('user', '我敲门'), message('assistant', '路人走过。', ['路人']),
+            message('user', '我进去'), message('assistant', '小柳在擦桌子。', ['小柳']),
+            message('user', '我坐下'), message('assistant', '守卫甲在门口。', ['守卫甲（后门）']),
+            message('user', '我等着'), message('assistant', '陈叔走了进来。', []),
+            message('user', '我叫了一壶酒'),
+        ],
+    };
+    const index = chat.messages.length;
+    const scene = sceneOf({ chat, index, state, characterName: '林晚', userName: '阿尘', texts: ['我叫了一壶酒'] });
+    assert.deepEqual([...scene].sort(), ['主角', '守卫甲', '小柳', '林晚', '老陈'].sort(), 'the card\'s character, the last three replies\' cast and the names in the latest reply');
+    assert.ok(sceneOf({ chat, index, state, userName: '阿尘', texts: ['我去找掌柜'] }).has('掌柜'), 'a name in this turn\'s text');
+    const check = { actor: '主角', against: { opponent: '路人', attribute: '感知', value: 90, steps: [] } } as unknown as CheckView;
+    assert.ok(sceneOf({ chat, index, state, userName: '阿尘', texts: [], ruling: { userText: '', checks: [check] } }).has('路人'), 'who this turn\'s checks involve');
+
+    const text = stateText(state, '阿尘', scene);
+    assert.match(text, /^主角（阿尘）：力量100$/m);
+    assert.match(text, /^老陈：智力130$/m);
+    assert.doesNotMatch(text, /^路人：/m);
+    assert.match(text, /^林晚：.*熟悉85/m);
+    assert.doesNotMatch(text, /熟悉10/);
+    assert.match(text, /林晚与老陈：师徒/);
+    assert.doesNotMatch(text, /邻居/);
+    assert.match(text, /【其他已登记的角色】.*\n路人（有好感）、掌柜$/);
+    assert.match(stateText(state, '阿尘'), /^路人：力量90$/m, 'without a scene everyone is written out');
 });
 
 test('跑团 older sheets: the protagonist\'s own attitudes go, attitudes between others become words', () => {

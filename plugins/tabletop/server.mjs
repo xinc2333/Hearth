@@ -7793,26 +7793,37 @@ function characterLine(name, state, userName) {
   if (c.temporary) parts.push("\u4E34\u65F6\u767B\u8BB0");
   return parts.join("\uFF5C");
 }
-function stateText(state, userName) {
+function stateText(state, userName, scene) {
+  const on = (name) => !scene || name === PROTAGONIST || scene.has(name);
   const lines = ["\u3010\u8DD1\u56E2\u6570\u636E\u3011\uFF08\u5C5E\u6027\u4EE5\u666E\u901A\u6210\u5E74\u7537\u6027 = 100 \u4E3A\u57FA\u51C6\uFF0C\u6309\u500D\u6570\u7406\u89E3\uFF1B\u4E0B\u9762\u7684\u6570\u503C\u662F\u672C\u8F6E\u7684\u4E8B\u5B9E\u4F9D\u636E\uFF09"];
   const custom = Object.entries(state.custom);
   if (custom.length) lines.push(`\u672C\u5361\u5C5E\u6027\uFF1A${custom.map(([k, v]) => `${k}\uFF08${[v.note, v.anchor].filter(Boolean).join("\uFF1B")}\uFF09`).join("\u3001")}`);
   const names = Object.keys(state.characters).sort((a, b) => a === PROTAGONIST ? -1 : b === PROTAGONIST ? 1 : 0);
-  for (const name of names) lines.push(characterLine(name, state, userName));
-  if (state.relations.length) {
+  for (const name of names.filter(on)) lines.push(characterLine(name, state, userName));
+  const relations = state.relations.filter((r) => on(r.from));
+  if (relations.length) {
     lines.push("", "\u3010\u5BF9\u4E3B\u89D2\u7684\u6001\u5EA6\u3011\uFF08\u516D\u6761\u7EBF\u5404\u81EA 0\uFF5E100\uFF0C\u4E92\u4E0D\u62B5\u6D88\uFF1B\u4E3B\u89D2\u81EA\u5DF1\u7684\u611F\u60C5\u7531\u73A9\u5BB6\u51B3\u5B9A\uFF0C\u8FD9\u91CC\u4E0D\u8BB0\uFF09");
-    for (const r of state.relations) {
+    for (const r of relations) {
       const values = AXES.map(([axis, label]) => `${label}${relationValue(r, axis)}`).join(" ");
       const recent = r.reasons.slice(-3).map((x) => x.change ? `${x.text}\uFF08${x.change}\uFF09` : x.text).filter(Boolean);
       lines.push(`${r.from}\uFF1A${describe(r)}\uFF08${values}\uFF5C\u719F\u6089${r.familiarity}\uFF09${recent.length ? `\uFF5C\u6700\u8FD1\uFF1A${recent.join("\uFF1B")}` : ""}`);
     }
   }
-  if (state.bonds.length) {
+  const bonds = state.bonds.filter((b) => on(b.between[0]) && on(b.between[1]));
+  if (bonds.length) {
     lines.push("", "\u3010\u89D2\u8272\u4E4B\u95F4\u3011");
-    for (const b of state.bonds) {
+    for (const b of bonds) {
       const last = b.reasons.at(-1)?.text;
       lines.push(`${b.between[0]}\u4E0E${b.between[1]}\uFF1A${b.text}${last ? `\uFF08${last}\uFF09` : ""}`);
     }
+  }
+  const away = names.filter((name) => !on(name));
+  if (away.length) {
+    lines.push("", "\u3010\u5176\u4ED6\u5DF2\u767B\u8BB0\u7684\u89D2\u8272\u3011\uFF08\u8FD9\u4E00\u5E55\u4E0D\u5728\u573A\uFF0C\u53EA\u5217\u540D\u5B57\u548C\u5BF9\u4E3B\u89D2\u7684\u6001\u5EA6\uFF09");
+    lines.push(away.map((name) => {
+      const r = state.relations.find((x) => x.from === name);
+      return r ? `${name}\uFF08${describe(r)}\uFF09` : name;
+    }).join("\u3001"));
   }
   return lines.join("\n");
 }
@@ -8148,6 +8159,40 @@ ${results.map((c, i) => checkResultLine(c, i)).join("\n")}` }
     ...Object.keys(added).length ? { added } : {},
     ...thinks.length ? { think: thinks.join("\n") } : {}
   };
+}
+
+// src/plugins/tabletop/scene.ts
+var RECENT_SCENES = 3;
+var MIN_NAME_LENGTH = 2;
+var isStory = (m) => m.mode !== "edit" && !m.hidden;
+var textOf = (m) => m?.swipes[m.activeSwipe]?.content ?? "";
+function mentioned(state, text) {
+  if (!text) return [];
+  return Object.entries(state.characters).filter(([name, c]) => [name, ...c.aliases].some((n) => n.length >= MIN_NAME_LENGTH && text.includes(n))).map(([name]) => name);
+}
+function sceneOf(input) {
+  const { state, userName } = input;
+  const scene = /* @__PURE__ */ new Set();
+  const add = (name) => {
+    const key = name ? resolveName(state, name, userName) : null;
+    if (key) scene.add(key);
+  };
+  add(PROTAGONIST);
+  add(input.characterName);
+  const before = input.chat.messages.slice(0, Math.max(0, input.index)).filter(isStory);
+  const replies = before.filter((m) => m.role === "assistant");
+  for (const m of replies.slice(-RECENT_SCENES)) {
+    for (const name of swipeData(m)?.settle?.present ?? []) add(name);
+  }
+  for (const text of [textOf(replies.at(-1)), ...input.texts]) {
+    for (const name of mentioned(state, text)) scene.add(name);
+  }
+  for (const c of input.ruling?.checks ?? []) {
+    add(c.actor);
+    if ("opponent" in c.against) add(c.against.opponent);
+  }
+  for (const name of Object.keys(input.ruling?.added ?? {})) add(name);
+  return scene;
 }
 
 // src/plugins/tabletop/settle.ts
@@ -8619,9 +8664,9 @@ function withAdded(state, ruling) {
 var DEFAULT_PASS = "\u3010\u672C\u8F6E\u68C0\u5B9A\u3011\u8FD9\u4E00\u8F6E\u5F00\u542F\u4E86\u300C\u68C0\u5B9A\u7EDD\u5BF9\u901A\u8FC7\u300D\uFF1A\u4E0D\u63B7\u9AB0\uFF0C\u4E3B\u89D2\u7684\u884C\u52A8\u5168\u90E8\u987A\u5229\u5B8C\u6210\u3002";
 var SETTLE_RETRIES = 2;
 var swipePath = (messageId, swipeId) => ["messages", `@${messageId}`, "swipes", `@${swipeId}`, "plugins", PLUGIN_ID];
-async function settle(api, source, state, ruling, reply, opts = {}) {
+async function settle(api, source, state, ruling, reply, scene, opts = {}) {
   const texts = source.texts;
-  const content = [texts.settle ?? "", ruling.checks.length ? rulingText(ruling) : "", stateText(state, source.userName)].filter(Boolean).join("\n\n");
+  const content = [texts.settle ?? "", ruling.checks.length ? rulingText(ruling) : "", stateText(state, source.userName, scene)].filter(Boolean).join("\n\n");
   const history = replyForHistory(reply);
   const body = forceTool(Array.isArray(source.body.messages) && source.body.messages.length ? appendStep(appendReply(source.body, history), { content, lead: texts["settle-lead"], role: texts.role }, "settle") : { messages: [{ role: "system", content }, { role: "user", content: `\u3010\u521A\u624D\u7684\u56DE\u590D\u3011
 ${history}` }] }, SETTLE_TOOL_NAME);
@@ -8685,6 +8730,7 @@ ${v}` : v;
       const userName = ctx.userName ?? "";
       const userText = lastUserText(chat.messages, index);
       const role = texts.role;
+      const scene = (state2, ruling2) => sceneOf({ chat, index, state: state2, characterName: ctx.character.name, userName, texts: [userText], ruling: ruling2 });
       let ruling = messageData(chat.messages[index])?.ruling;
       if (!ruling || ruling.userText !== userText) {
         if (passOn(chat)) {
@@ -8692,7 +8738,7 @@ ${v}` : v;
         } else {
           ctx.progress?.({ phase: "ruling", checks: [] });
           const working = structuredClone(before);
-          const content2 = [texts.ruling, stateText(working, userName), `\u3010\u8FD9\u4E00\u8F6E\u7684\u7528\u6237\u8F93\u5165\u3011
+          const content2 = [texts.ruling, stateText(working, userName, scene(working)), `\u3010\u8FD9\u4E00\u8F6E\u7684\u7528\u6237\u8F93\u5165\u3011
 ${userText || "\uFF08\u6CA1\u6709\u5199\u65B0\u7684\u884C\u52A8\uFF0C\u8BA9\u5267\u60C5\u81EA\u7136\u63A8\u8FDB\uFF09"}`].join("\n\n");
           try {
             ruling = await runRuling({
@@ -8723,7 +8769,7 @@ ${userText || "\uFF08\u6CA1\u6709\u5199\u65B0\u7684\u884C\u52A8\uFF0C\u8BA9\u526
       ctx.progress?.({ phase: "narrating", checks: ruling.checks, skipped: ruling.skipped });
       const pass = ruling.skipped === "pass";
       const state = withAdded(before, ruling);
-      const content = [pass ? texts.pass || DEFAULT_PASS : rulingText(ruling), stateText(state, userName), texts.narrate].filter(Boolean).join("\n\n");
+      const content = [pass ? texts.pass || DEFAULT_PASS : rulingText(ruling), stateText(state, userName, scene(state, ruling)), texts.narrate].filter(Boolean).join("\n\n");
       const lead = pass ? texts["pass-lead"] ?? texts["narrate-lead"] : texts["narrate-lead"];
       const reply = replyTools(appendStep(body, { content, lead, role }, pass ? "pass" : "results"));
       if (texts.settle) sources.set(chat.id, { messageId: ctx.messageId, swipeId: ctx.swipeId, body: reply, texts, userName });
@@ -8755,7 +8801,8 @@ ${userText || "\uFF08\u6CA1\u6709\u5199\u65B0\u7684\u884C\u52A8\uFF0C\u8BA9\u526
         text,
         ops: [{ op: "set", path, value: pending }, ...ops],
         background: async ({ signal, trace }) => {
-          const data = await settle(api, source, state, ruling, text, { signal, trace });
+          const scene = sceneOf({ chat: ctx.chat, index, state, characterName: ctx.character?.name, userName, texts: [lastUserText(ctx.chat.messages, index), text], ruling });
+          const data = await settle(api, source, state, ruling, text, scene, { signal, trace });
           return { ops: [{ op: "set", path, value: data }] };
         }
       };
@@ -8780,7 +8827,8 @@ ${userText || "\uFF08\u6CA1\u6709\u5199\u65B0\u7684\u884C\u52A8\uFF0C\u8BA9\u526
       const userName = chat.messages.findLast((m) => m.role === "user")?.name ?? "";
       const source = known && known.messageId === messageId && known.swipeId === swipeId ? known : { messageId, swipeId, userName, texts: { settle: entries.get(chat.id)?.settle ?? "" }, body: { messages: [] } };
       if (!source.texts.settle) throw Object.assign(new Error("\u5F53\u524D\u9884\u8BBE\u91CC\u6CA1\u6709\u8DD1\u56E2\u7684\u7ED3\u7B97\u6761\u76EE"), { status: 400 });
-      const data = await settle(api, source, state, ruling, swipe.content);
+      const scene = sceneOf({ chat, index, state, characterName: character?.name, userName, texts: [lastUserText(chat.messages, index), swipe.content], ruling });
+      const data = await settle(api, source, state, ruling, swipe.content, scene);
       if (data.settle?.status === "failed") throw Object.assign(new Error(`\u7ED3\u7B97\u6CA1\u6709\u5B8C\u6210\uFF1A${data.settle.error}`), { status: 502 });
       return { ops: [{ op: "set", path: swipePath(messageId, swipeId), value: data }] };
     });

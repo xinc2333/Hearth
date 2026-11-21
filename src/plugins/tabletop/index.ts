@@ -18,6 +18,7 @@ import { adaptTask } from './adapt.ts';
 import { decay } from './attitude.ts';
 import { rulesFrom } from './rules.ts';
 import { runRuling } from './ruling.ts';
+import { sceneOf } from './scene.ts';
 import { applySettleArgs, applySettlement, extractSettlement, parseSettleArgs, SETTLE_TOOL_NAME } from './settle.ts';
 import { appendReply, appendStep, forceTool, replyForHistory, replyTools } from './shape.ts';
 import { CHECK_TOOL_NAME } from './ruling.ts';
@@ -84,9 +85,9 @@ interface SettleSource {
 const swipePath = (messageId: string, swipeId: string) => ['messages', `@${messageId}`, 'swipes', `@${swipeId}`, 'plugins', PLUGIN_ID];
 
 /** Step 3: asks for the settlement of a written reply and applies it to `state` (the reply's state, already advanced). */
-async function settle(api: PluginApi, source: SettleSource, state: TabletopState, ruling: Ruling, reply: string, opts: { signal?: AbortSignal; trace?: (label: string, body: Record<string, unknown>) => void } = {}): Promise<SwipeData> {
+async function settle(api: PluginApi, source: SettleSource, state: TabletopState, ruling: Ruling, reply: string, scene: Set<string>, opts: { signal?: AbortSignal; trace?: (label: string, body: Record<string, unknown>) => void } = {}): Promise<SwipeData> {
     const texts = source.texts;
-    const content = [texts.settle ?? '', ruling.checks.length ? rulingText(ruling) : '', stateText(state, source.userName)].filter(Boolean).join('\n\n');
+    const content = [texts.settle ?? '', ruling.checks.length ? rulingText(ruling) : '', stateText(state, source.userName, scene)].filter(Boolean).join('\n\n');
     const history = replyForHistory(reply);
     // Without the reply request (Hearth restarted since), the step goes out on its own.
     const body = forceTool(Array.isArray(source.body.messages) && source.body.messages.length
@@ -156,6 +157,7 @@ const plugin: HearthPlugin = {
             const userName = ctx.userName ?? '';
             const userText = lastUserText(chat.messages, index);
             const role = texts.role;
+            const scene = (state: TabletopState, ruling?: Ruling) => sceneOf({ chat, index, state, characterName: ctx.character.name, userName, texts: [userText], ruling });
 
             let ruling = messageData(chat.messages[index])?.ruling;
             if (!ruling || ruling.userText !== userText) {
@@ -164,7 +166,7 @@ const plugin: HearthPlugin = {
                 } else {
                     ctx.progress?.({ phase: 'ruling', checks: [] });
                     const working = structuredClone(before);
-                    const content = [texts.ruling, stateText(working, userName), `【这一轮的用户输入】\n${userText || '（没有写新的行动，让剧情自然推进）'}`].join('\n\n');
+                    const content = [texts.ruling, stateText(working, userName, scene(working)), `【这一轮的用户输入】\n${userText || '（没有写新的行动，让剧情自然推进）'}`].join('\n\n');
                     try {
                         ruling = await runRuling({
                             body: forceTool(appendStep(body, { content, lead: texts['ruling-lead'], role }, 'ruling'), CHECK_TOOL_NAME),
@@ -194,7 +196,7 @@ const plugin: HearthPlugin = {
             ctx.progress?.({ phase: 'narrating', checks: ruling.checks, skipped: ruling.skipped });
             const pass = ruling.skipped === 'pass';
             const state = withAdded(before, ruling);
-            const content = [pass ? texts.pass || DEFAULT_PASS : rulingText(ruling), stateText(state, userName), texts.narrate].filter(Boolean).join('\n\n');
+            const content = [pass ? texts.pass || DEFAULT_PASS : rulingText(ruling), stateText(state, userName, scene(state, ruling)), texts.narrate].filter(Boolean).join('\n\n');
             const lead = pass ? texts['pass-lead'] ?? texts['narrate-lead'] : texts['narrate-lead'];
             const reply = replyTools(appendStep(body, { content, lead, role }, pass ? 'pass' : 'results'));
             if (texts.settle) sources.set(chat.id, { messageId: ctx.messageId, swipeId: ctx.swipeId, body: reply, texts, userName });
@@ -229,7 +231,8 @@ const plugin: HearthPlugin = {
                 text,
                 ops: [{ op: 'set', path, value: pending }, ...ops],
                 background: async ({ signal, trace }) => {
-                    const data = await settle(api, source, state, ruling, text, { signal, trace });
+                    const scene = sceneOf({ chat: ctx.chat, index, state, characterName: ctx.character?.name, userName, texts: [lastUserText(ctx.chat.messages, index), text], ruling });
+                    const data = await settle(api, source, state, ruling, text, scene, { signal, trace });
                     return { ops: [{ op: 'set', path, value: data }] };
                 },
             };
@@ -259,7 +262,8 @@ const plugin: HearthPlugin = {
                 ? known
                 : { messageId, swipeId, userName, texts: { settle: (entries.get(chat.id)?.settle) ?? '' }, body: { messages: [] } };
             if (!source.texts.settle) throw Object.assign(new Error('当前预设里没有跑团的结算条目'), { status: 400 });
-            const data = await settle(api, source, state, ruling, swipe.content);
+            const scene = sceneOf({ chat, index, state, characterName: character?.name, userName, texts: [lastUserText(chat.messages, index), swipe.content], ruling });
+            const data = await settle(api, source, state, ruling, swipe.content, scene);
             if (data.settle?.status === 'failed') throw Object.assign(new Error(`结算没有完成：${data.settle.error}`), { status: 502 });
             return { ops: [{ op: 'set', path: swipePath(messageId, swipeId), value: data }] };
         });
