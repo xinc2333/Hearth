@@ -819,3 +819,11 @@ input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 2px solid var
 .world-map { flex: 1; min-height: 320px; overflow: hidden; cursor: grab; touch-action: none; user-select: none; }
 .world-map:active { cursor: grabbing; }
 .world-map svg { display: block; width: 100%; height: 100%; }
+
+.people-list { list-style: none; margin: 0; padding: 0; }
+.people-list li { padding: 8px 0; border-bottom: 1px dotted var(--border); }
+.people-head { display: flex; align-items: baseline; gap: 8px; }
+.people-profile { white-space: pre-wrap; font: inherit; font-size: 12.5px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; max-height: 360px; overflow: auto; }
+.people-new { display: flex; gap: 8px; margin-top: 6px; }
+.people-new select { flex: 1; }
+.world-tab textarea { width: 100%; }

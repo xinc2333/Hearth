@@ -6,7 +6,8 @@ import type { TurnAsk } from './turn.ts';
 
 export const SCENE_TOOL_NAME = 'hearth_scene';
 export const SETUP_TOOL_NAME = 'hearth_setup';
-export const WORLD_TOOLS = [SCENE_TOOL_NAME, SETUP_TOOL_NAME];
+/** Every world tool (names written out: minds.ts defines the other three). */
+export const WORLD_TOOLS = [SCENE_TOOL_NAME, SETUP_TOOL_NAME, 'hearth_act', 'hearth_day', 'hearth_profile'];
 
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && /^\s*-?\d+(\.\d+)?\s*$/.test(v) ? Number(v) : undefined);
@@ -90,6 +91,17 @@ export const SETTLE_WORLD_PROPERTY = {
                 items: { type: 'object', properties: { to: { type: 'string' }, text: { type: 'string' } }, required: ['to', 'text'] },
             },
             contacts: { type: 'array', items: { type: 'string' }, description: '和主角交换了联系方式的人' },
+            read: { type: 'boolean', description: '主角看了手机上没看的消息' },
+            witnessed: {
+                type: 'array',
+                description: '在场的认识的人亲眼看到的、和主角有关的事（他们以后会记得）',
+                items: { type: 'object', properties: { who: { type: 'array', items: { type: 'string' } }, what: { type: 'string' } }, required: ['who', 'what'] },
+            },
+            told: {
+                type: 'array',
+                description: '主角当面告诉了谁什么（对方会记得）',
+                items: { type: 'object', properties: { to: { type: 'string' }, what: { type: 'string' } }, required: ['to', 'what'] },
+            },
             met: {
                 type: 'array',
                 description: '这一幕的场景人物里，和主角打过交道的人（说过话、有过来往）：编号和称呼，知道名字就写名字',
@@ -113,6 +125,9 @@ export interface SettleWorld {
     done: string[];
     messages: { to: string; text: string }[];
     contacts: string[];
+    read: boolean;
+    witnessed: { who: string[]; what: string }[];
+    told: { to: string; what: string }[];
     met: { id: string; name: string }[];
     places: { name: string; near?: string; about?: string }[];
 }
@@ -129,6 +144,9 @@ export function parseSettleWorld(raw: unknown): SettleWorld | null {
         done: list(raw.done).map(str).filter(Boolean),
         messages: list(raw.messages).filter(isRecord).map(m => ({ to: str(m.to), text: str(m.text) })).filter(m => m.to && m.text),
         contacts: list(raw.contacts).map(str).filter(Boolean),
+        read: raw.read === true,
+        witnessed: list(raw.witnessed).filter(isRecord).map(w => ({ who: list(w.who).map(str).filter(Boolean), what: str(w.what) })).filter(w => w.who.length && w.what),
+        told: list(raw.told).filter(isRecord).map(t => ({ to: str(t.to), what: str(t.what) })).filter(t => t.to && t.what),
         met: list(raw.met).filter(isRecord).map(m => ({ id: str(m.id), name: str(m.name) })).filter(m => m.id && m.name),
         places: list(raw.places).filter(isRecord).map(p => ({ name: str(p.name), ...(str(p.near) ? { near: str(p.near) } : {}), ...(str(p.about) ? { about: str(p.about) } : {}) })).filter(p => p.name),
     };

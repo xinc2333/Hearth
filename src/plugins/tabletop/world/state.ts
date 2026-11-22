@@ -69,6 +69,56 @@ export interface PersonWorld {
     work?: string;
     /** Working hours when they have a job, e.g. 工作日 09:00–18:00. */
     shift?: string;
+    // 重要人物 only (docs/world.md §9).
+    /** 0–100, usual 50. */
+    mood?: number;
+    /** 0–100. */
+    stress?: number;
+    /** A line about how they have been lately. */
+    recent?: string;
+    /** Their week: where they are when, e.g. 工作日 09:00–18:00 在公司. */
+    routine?: Slot[];
+    /** 拮据、紧张、普通、宽裕、富有. */
+    economy?: string;
+    income?: number;
+    /** When they last heard from or saw the protagonist. */
+    lastContact?: number;
+}
+
+/** A part of someone's week. */
+export interface Slot {
+    days: string;
+    from: string;
+    to: string;
+    place: string;
+    doing: string;
+}
+
+/** Something a person will notice at a time, or a message on its way (docs/world.md §1, 察觉). */
+export interface Pending {
+    at: number;
+    who: string;
+    kind: 'notice' | 'deliver';
+    /** What they notice, in a sentence. */
+    what: string;
+    /** For deliveries: the message or call to hand over. */
+    message?: { to: string; text: string; call?: boolean };
+}
+
+/** Something a person knows, and how they came to know it. */
+export interface Knowledge {
+    at: number;
+    text: string;
+    source: '亲眼' | '听说' | '推测';
+}
+
+/** How one 重要人物 feels about another (directed). */
+export interface Pair {
+    from: string;
+    to: string;
+    axes: Record<string, number>;
+    familiarity: number;
+    reasons: { at: number; text: string }[];
 }
 
 /** Someone in the current scene who is not a known character. */
@@ -148,6 +198,49 @@ export interface WorldState {
     events: WorldEvent[];
     /** Lapses already raised, so each is raised once. */
     noted: string[];
+    /** Things people will notice, and messages on their way. */
+    pending: Pending[];
+    /** What each person with a mind knows (latest 40), and the older part as a paragraph. */
+    knowledge: Record<string, Knowledge[]>;
+    memory: Record<string, string>;
+    /** Attitudes between 重要人物. */
+    pairs: Pair[];
+}
+
+/** Fills in what older saved worlds do not have yet. */
+export function normalizeWorld(world: WorldState): WorldState {
+    world.pending ??= [];
+    world.knowledge ??= {};
+    world.memory ??= {};
+    world.pairs ??= [];
+    return world;
+}
+
+/** Adds what a person learned, keeping the latest 40. */
+export function learn(world: WorldState, who: string, text: string, source: Knowledge['source'], at = world.now) {
+    if (!who || !text || who === '主角') return;
+    const list = (world.knowledge[who] ??= []);
+    if (list.some(k => k.text === text)) return;
+    list.push({ at, text, source });
+    if (list.length > 40) list.splice(0, list.length - 40);
+}
+
+/** Where someone with a routine is at `t`: the slot that covers it, else home at night. */
+export function routinePlace(person: PersonWorld, t: number): { place: string; doing: string } | null {
+    const m = moment(t).minute;
+    for (const s of person.routine ?? []) {
+        if (!dayMatches(s.days, t)) continue;
+        const a = minutesOf(s.from);
+        const b = minutesOf(s.to) || 1440;
+        if (a <= b ? m >= a && m < b : m >= a || m < b) return { place: s.place, doing: s.doing };
+    }
+    if (person.work && person.shift) {
+        const [days, hours] = person.shift.split(' ');
+        const [a, b] = (hours ?? '').split(/[–-]/).map(minutesOf);
+        if (days && dayMatches(days, t) && m >= a && m < b) return { place: person.work, doing: '上班' };
+    }
+    if (person.home && (m >= 22 * 60 || m < 7 * 60)) return { place: person.home, doing: '在家' };
+    return null;
 }
 
 export const LIMITS = { ledger: 100, messages: 100, events: 100, noted: 300 } as const;

@@ -8,6 +8,7 @@
 
 import { CHECK_TOOL_NAME, checkTool } from './ruling.ts';
 import { SETTLE_TOOL_NAME, settleTool } from './settle.ts';
+import { actTool, dayTool, profileTool } from './world/minds.ts';
 import { sceneTool, setupTool, WORLD_TOOLS } from './world/tools.ts';
 
 type Message = Record<string, unknown>;
@@ -117,7 +118,7 @@ export function replyForHistory(text: string): string {
 
 /** The request's own tools plus ours; a 世界 chat declares the world's tools too. */
 function withOurTools(body: Record<string, unknown>, world: boolean): Tool[] {
-    const ours = [checkTool(world), settleTool(world), ...(world ? [sceneTool(), setupTool()] : [])] as Tool[];
+    const ours = [checkTool(world), settleTool(world), ...(world ? [sceneTool(), setupTool(), actTool(), dayTool(), profileTool()] : [])] as Tool[];
     return [...toolsOf(body).filter(t => !OURS.includes(t.function?.name ?? '')), ...ours];
 }
 

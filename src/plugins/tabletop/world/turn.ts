@@ -5,6 +5,7 @@
 import { hash, rng } from './city/everyday.ts';
 import { districtAt, type City, type Place } from './city/index.ts';
 import { bestTrip, MODE_LABEL, trip, type Mode, type Trip } from './route.ts';
+import { deliverDue, followRoutines } from './minds.ts';
 import { updateScene } from './scene.ts';
 import {
     addEvent, advanceBody, clock, DAILY_COST, dateKey, dayMatches, fmtWeather, forecast, isWorkday, midnight, minutesOf, moment, note,
@@ -101,6 +102,8 @@ function runCommitments(world: WorldState, city: City, from: number, to: number,
                     if (at === e.place || !note(world, `${c.id}|${i}|${dateKey(t)}`)) return;
                     const place = placeById(world, city, e.place)?.name ?? e.place;
                     const who = counterpart(c, '主角');
+                    // The people on the other side who are there notice a little later.
+                    for (const w of who) if (world.people[w]) world.pending.push({ at: t + 15, who: w, kind: 'notice', what: `按${c.name}，主角 ${e.from} 应该在${place}（${e.days} ${e.from}–${e.to}），到 ${clock(t + 15)} 还没来` });
                     out.push({ at: t, kind: 'lapse', seen: true, text: `${clock(t)} ${c.name}：主角这时应该在${place}（${e.days} ${e.from}–${e.to}），但不在。${who.length ? `${who.join('、')}会察觉，怎么反应主角现在还不知道。` : ''}` });
                 } else if (e.kind === 'payment') {
                     if (moment(day).d !== e.day) return;
@@ -108,13 +111,22 @@ function runCommitments(world: WorldState, city: City, from: number, to: number,
                     if (t <= from || t > to || !note(world, `${c.id}|${i}|${dateKey(t)}`)) return;
                     if (e.who === '主角') {
                         if (pay(world, -e.amount, `${c.name}`, t)) out.push({ at: t, kind: 'money', seen: true, text: `${clock(t)} 按${c.name}付给${counterpart(c, '主角').join('、')} ${e.amount} 元` });
-                        else out.push({ at: t, kind: 'lapse', seen: true, text: `${clock(t)} ${c.name}：该付 ${e.amount} 元，余额不够，没付上。${counterpart(c, '主角').join('、')}会察觉。` });
+                        else {
+                            out.push({ at: t, kind: 'lapse', seen: true, text: `${clock(t)} ${c.name}：该付 ${e.amount} 元，余额不够，没付上。${counterpart(c, '主角').join('、')}会察觉。` });
+                            for (const w of counterpart(c, '主角')) if (world.people[w]) world.pending.push({ at: t + 60, who: w, kind: 'notice', what: `按${c.name}今天该收到主角 ${e.amount} 元，没收到` });
+                        }
                     } else if (e.to === '主角') {
-                        pay(world, e.amount, `${c.name}（${e.who}）`, t);
-                        out.push({ at: t, kind: 'money', seen: true, text: `${clock(t)} 收到${e.who}按${c.name}付的 ${e.amount} 元` });
+                        // Deductions the other side decided since the last payment come off.
+                        const last = c.record.filter(r => r.text.startsWith('已付')).at(-1)?.at ?? c.since;
+                        const off = c.record.filter(r => r.at > last && r.text.startsWith('扣款')).reduce((s, r) => s + Number(/扣款 (\d+)/.exec(r.text)?.[1] ?? 0), 0);
+                        const amount = Math.max(0, e.amount - off);
+                        pay(world, amount, `${c.name}（${e.who}）`, t);
+                        c.record.push({ at: t, text: `已付 ${amount} 元${off ? `（扣了 ${off} 元）` : ''}` });
+                        out.push({ at: t, kind: 'money', seen: true, text: `${clock(t)} 收到${e.who}按${c.name}付的 ${amount} 元${off ? `（扣了 ${off} 元）` : ''}` });
                     }
                 } else if (e.kind === 'deadline' && e.who === '主角') {
                     if (e.by <= from || e.by > to || c.record.some(r => r.text.startsWith('完成')) || !note(world, `${c.id}|${i}`)) return;
+                    for (const w of counterpart(c, '主角')) if (world.people[w]) world.pending.push({ at: e.by + 10, who: w, kind: 'notice', what: `主角答应在 ${clock(e.by)} 前${e.what}，没做到` });
                     out.push({ at: e.by, kind: 'lapse', seen: false, text: `${clock(e.by)} ${c.name}：说好在这之前做完「${e.what}」，没做完。${counterpart(c, '主角').join('、')}会察觉。` });
                 }
             });
@@ -178,6 +190,8 @@ export function playTurn(world: WorldState, city: City, ask: TurnAsk): TurnPlan 
 
     events.push(...runDays(world, from, to));
     events.push(...runCommitments(world, city, from, to, where));
+    events.push(...deliverDue(world, to));
+    followRoutines(world, to);
     // The body: sleep when asked, the usual day when keeping to the routine.
     const before = world.body;
     if (ask.routine && skipped) {
@@ -211,7 +225,8 @@ export function extendTurn(world: WorldState, city: City, minutes: number): Worl
     const from = world.now;
     const to = from + Math.max(0, Math.min(12 * 60, Math.round(minutes)));
     if (to === from) return [];
-    const events = [...runDays(world, from, to), ...runCommitments(world, city, from, to, () => world.at)];
+    const events = [...runDays(world, from, to), ...runCommitments(world, city, from, to, () => world.at), ...deliverDue(world, to)];
+    followRoutines(world, to);
     world.body = advanceBody(world.body, to - from, '日常', to);
     world.now = to;
     world.weather = forecast(world);

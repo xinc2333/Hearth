@@ -76,6 +76,8 @@ export function worldText(world: WorldState, city: City, step: WorldStep, plan?:
             for (const e of happened) lines.push(`- ${e.text}${e.seen ? '' : '（主角不知道，只能通过看得到、听得到的表现体现）'}`);
         }
     }
+    const known = place ? Object.entries(world.people).filter(([, p]) => p.kind !== 'bystander' && p.at === place.id) : [];
+    if (known.length) lines.push(`这里有认识的人：${known.map(([n, p]) => `${n}（${p.role ?? ''}）`).join('、')}`);
     if (world.scene && place && step !== 'ruling') {
         lines.push('', `【这里的人】${world.scene.crowd || crowdWord(place, world.now, world.weather[0])}。主角看得到的人：`);
         const people = world.scene.people;

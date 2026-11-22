@@ -9,7 +9,7 @@ import { CORE_ATTRIBUTES, PROTAGONIST } from '../rules.ts';
 import { registerPlace, extendTurn, modeOf } from './turn.ts';
 import type { SceneArgs, SettleWorld } from './tools.ts';
 import {
-    addMessage, BODY_STATUS_NAMES, bodyStatuses, dateKey, findPlace, forecast, newId, parseTime, pay, placeById, clock,
+    addMessage, BODY_STATUS_NAMES, bodyStatuses, dateKey, findPlace, forecast, learn, newId, parseTime, pay, placeById, clock,
     type Commitment, type Living, type PersonWorld, type Protagonist, type WorldState,
 } from './state.ts';
 
@@ -70,6 +70,7 @@ export function applySetup(raw: unknown, form: SetupForm, city: City, seed: numb
         me: { name: form.name || PROTAGONIST, job: { kind: form.job, title: form.jobText || form.job }, home: '', living, ...(modeOf(str(args.habit)) ? { habit: modeOf(str(args.habit)) } : {}) },
         commitments: [], people: {}, places: [], weather: [], scene: null, staff: {},
         phone: { contacts: [], messages: [] }, events: [], noted: [],
+        pending: [], knowledge: {}, memory: {}, pairs: [],
     };
     world.weather = forecast(world);
     const lines: string[] = [];
@@ -233,7 +234,21 @@ export function applySettleWorld(world: WorldState, state: TabletopState, city: 
         if (!c.expectations.some(e => e.kind === 'presence' && !/^\d{4}-/.test(e.days)) && !c.expectations.some(e => e.kind === 'payment')) c.ended = world.now;
         out.push(line(`约定完成：${c.name}`));
     }
-    for (const m of sw.messages) addMessage(world, { at: world.now, from: PROTAGONIST, to: m.to, text: m.text, read: true });
+    for (const m of sw.messages) {
+        addMessage(world, { at: world.now, from: PROTAGONIST, to: m.to, text: m.text, read: true });
+        // The other side reads it a little later, and may answer.
+        if (world.people[m.to]) {
+            world.people[m.to].lastContact = world.now;
+            world.pending.push({ at: world.now + 5 + (hash(`${m.to}|${world.now}`) % 40), who: m.to, kind: 'notice', what: `主角发来消息：「${m.text}」` });
+            learn(world, m.to, `主角发消息说：${m.text}`, '听说');
+        }
+    }
+    if (sw.read) for (const m of world.phone.messages) if (m.to === PROTAGONIST) m.read = true;
+    for (const w of sw.witnessed) for (const who of w.who) if (world.people[who]) {
+        learn(world, who, w.what, '亲眼');
+        world.people[who].lastContact = world.now;
+    }
+    for (const t of sw.told) if (world.people[t.to]) learn(world, t.to, `主角说：${t.what}`, '听说');
     for (const n of sw.contacts) if (!world.phone.contacts.includes(n)) {
         world.phone.contacts.push(n);
         out.push(line(`存了${n}的联系方式`));

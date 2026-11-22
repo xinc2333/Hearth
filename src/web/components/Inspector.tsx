@@ -13,7 +13,7 @@ import { sourceLabel } from '../labels.ts';
 import { pageEvent } from '../card-page.ts';
 import { setCardSlot } from './CardFrames.tsx';
 import { TabletopTab } from './Tabletop.tsx';
-import { HereTab, isWorldChat, MapTab, PhoneTab } from './World.tsx';
+import { HereTab, isWorldChat, MapTab, PeopleTab, PhoneTab } from './World.tsx';
 import { Button, Empty, Field, IconButton, LongText, Segmented, Toggle, timeAgo } from './common.tsx';
 
 // ---------------------------------------------------------------------------------------------
@@ -447,8 +447,8 @@ function HistoryTab({ chatId }: { chatId: string }) {
 
 // ---------------------------------------------------------------------------------------------
 
-const WORLD_TABS: InspectorTab[] = ['here', 'map', 'phone'];
-const TABS: [InspectorTab, string][] = [['here', '这里'], ['map', '地图'], ['phone', '手机'], ['card', '界面'], ['prompt', '提示词'], ['state', '变量'], ['tabletop', '跑团'], ['character', '角色卡'], ['lore', '世界书'], ['history', '历史']];
+const WORLD_TABS: InspectorTab[] = ['here', 'map', 'people', 'phone'];
+const TABS: [InspectorTab, string][] = [['here', '这里'], ['map', '地图'], ['people', '人物'], ['phone', '手机'], ['card', '界面'], ['prompt', '提示词'], ['state', '变量'], ['tabletop', '跑团'], ['character', '角色卡'], ['lore', '世界书'], ['history', '历史']];
 
 /** The 界面 tab: the card's script buttons, and the card's page (CardFrames.tsx) laid over the area below. */
 function CardTab({ chatId }: { chatId: string }) {
@@ -532,6 +532,7 @@ export function Inspector() {
             {tab === 'here' && <HereTab chat={chat} />}
             {tab === 'map' && <MapTab key={chat.id} chat={chat} />}
             {tab === 'phone' && <PhoneTab chat={chat} />}
+            {tab === 'people' && <PeopleTab chat={chat} />}
             {tab === 'prompt' && <PromptTab chatId={chatId} preset={preset} />}
             {tab === 'state' && <StateTab chat={chat} />}
             {tab === 'tabletop' && <TabletopTab chat={chat} userName={context?.userName ?? ''} presetId={context?.preset.id} />}

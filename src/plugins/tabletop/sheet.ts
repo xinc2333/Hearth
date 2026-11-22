@@ -12,6 +12,7 @@ import type { Character, Chat, ChatMessage } from '../../core/types.ts';
 import { clamp, CORE_ATTRIBUTES, PROTAGONIST, SKILL_LEVELS } from './rules.ts';
 import type { WorldState } from './world/state.ts';
 import type { TurnAsk, TurnPlan } from './world/turn.ts';
+import type { Reaction } from './world/flow.ts';
 
 export const PLUGIN_ID = 'tabletop';
 
@@ -485,7 +486,7 @@ export interface SwipeData {
 export interface MessageData {
     ruling?: Ruling;
     /** A 世界 chat: this turn's plan and the world after it, before the settlement (shared by every version). */
-    world?: { plan: TurnPlan; after: WorldState };
+    world?: { plan: TurnPlan; after: WorldState; reactions?: Reaction[] };
 }
 
 export interface CheckView {

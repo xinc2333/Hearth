@@ -12,7 +12,7 @@
 
 import type { Op } from '../../core/ops.ts';
 import { replyOptions } from '../../core/reply.ts';
-import type { Chat, ChatMessage, Preset } from '../../core/types.ts';
+import type { Character, Chat, ChatMessage, Preset } from '../../core/types.ts';
 import type { HearthPlugin, PluginApi } from '../../server/plugins.ts';
 import { adaptTask } from './adapt.ts';
 import { decay } from './attitude.ts';
@@ -22,19 +22,21 @@ import { sceneOf } from './scene.ts';
 import { applySettleArgs, applySettlement, extractSettlement, parseSettleArgs, SETTLE_TOOL_NAME } from './settle.ts';
 import { appendReply, appendStep, forceTool, replyForHistory, replyTools } from './shape.ts';
 import { CHECK_TOOL_NAME } from './ruling.ts';
-import { messageData, PLUGIN_ID, stateBefore, type MessageData, type Ruling, type SwipeData, type TabletopState } from './sheet.ts';
+import { messageData, newCharacter, PLUGIN_ID, stateBefore, type MessageData, type Ruling, type SwipeData, type TabletopState } from './sheet.ts';
 import { rulingText, stateText } from './text.ts';
 import { applySettleWorld, renameSceneIds, syncBody } from './world/apply.ts';
-import { chatWorld, city, entry, runScene, runSetup, worldBefore } from './world/flow.ts';
+import { chatWorld, city, entry, runDays, runProfile, runReactions, runScene, runSetup, worldBefore } from './world/flow.ts';
+import { MAX_IMPORTANT } from './world/minds.ts';
+import { normalizeWorld, placeById } from './world/state.ts';
 import type { WorldState } from './world/state.ts';
 import { parseSettleWorld } from './world/tools.ts';
 import { worldText } from './world/text.ts';
 import { playTurn, type TurnPlan } from './world/turn.ts';
 
-type StepKind = 'ruling' | 'narrate' | 'pass' | 'settle' | 'world-ruling' | 'world-scene' | 'world-narrate' | 'world-settle' | 'world-setup' | 'world-opening';
+type StepKind = 'ruling' | 'narrate' | 'pass' | 'settle' | 'world-ruling' | 'world-scene' | 'world-narrate' | 'world-settle' | 'world-setup' | 'world-opening' | 'world-act' | 'world-day' | 'world-profile';
 type EntryKind = StepKind | `${StepKind}-lead`;
 type Entries = Partial<Record<EntryKind, string>> & { role?: 'system' | 'user' | 'assistant' };
-const MARKER = /<<<\|\s*hearth\s*\|\s*(ruling|narrate|pass|settle|world-ruling|world-scene|world-narrate|world-settle|world-setup|world-opening)(-lead)?\s*>>>/gi;
+const MARKER = /<<<\|\s*hearth\s*\|\s*(ruling|narrate|pass|settle|world-ruling|world-scene|world-narrate|world-settle|world-setup|world-opening|world-act|world-day|world-profile)(-lead)?\s*>>>/gi;
 
 /** Splits the 跑团 entries' text out of a message: what stays, and the text of each entry kind. */
 export function takeEntries(content: string): { rest: string; found: Partial<Record<EntryKind, string>> } {
@@ -137,6 +139,28 @@ async function settle(api: PluginApi, source: SettleSource, state: TabletopState
     return { state, ...(world ? { world: world.after } : {}), settle: { raw: '', results: [], status: 'failed', error: lastError || '已中止' } };
 }
 
+/** A new 重要人物 on the 跑团 sheet: the character (made if missing), with the attributes and traits the profile gave. */
+function promoteOnSheet(state: TabletopState, made: { name: string; attributes: Record<string, number>; traits: Record<string, number>; description: string }) {
+    const c = state.characters[made.name] ?? newCharacter();
+    for (const [k, v] of Object.entries(made.attributes)) if (!c.attributes[k]) c.attributes[k] = Math.round(v);
+    for (const t of ['敏感', '记仇', '多疑'] as const) if (made.traits[t]) c.traits[t] = Math.max(0.5, Math.min(2, made.traits[t]));
+    c.description = made.description || c.description;
+    delete c.temporary;
+    state.characters[made.name] = c;
+}
+
+/** The latest reply version's state and world, or the chat's starting ones, and where they are kept. */
+function currentData(chat: Chat): { state: TabletopState | null; world: WorldState | null; path: string[] | null } {
+    for (let i = chat.messages.length - 1; i >= 0; i--) {
+        const m = chat.messages[i];
+        const swipe = m.swipes[m.activeSwipe];
+        const data = swipe?.plugins?.[PLUGIN_ID] as SwipeData | undefined;
+        if (data?.world) return { state: data.state ?? null, world: normalizeWorld(structuredClone(data.world)), path: ['messages', `@${m.id}`, 'swipes', `@${swipe.id}`, 'plugins', PLUGIN_ID] };
+    }
+    const w = chatWorld(chat);
+    return { state: (chat.plugins?.[PLUGIN_ID] as { base?: TabletopState } | undefined)?.base ?? null, world: w?.base ? normalizeWorld(structuredClone(w.base)) : null, path: null };
+}
+
 const plugin: HearthPlugin = {
     setup(api) {
         const rules = () => rulesFrom(api.config());
@@ -206,6 +230,24 @@ const plugin: HearthPlugin = {
                 opening = true;
             }
             if (!before) return;
+            // Promotions asked for while no request was at hand are done now, before the turn.
+            const queue = chatWorld(chat)?.queue ?? [];
+            if (world && queue.length) {
+                const important = { ...(chatWorld(chat)?.important ?? {}) };
+                for (const q of queue) {
+                    const made = await runProfile(body, texts, world, before, q.name, q.base, ctx.send, ctx.trace).catch(() => null);
+                    if (made) {
+                        important[made.name] = made.profile;
+                        promoteOnSheet(before, made);
+                    }
+                }
+                await api.store.apply({
+                    target: { kind: 'chat', id: chat.id },
+                    ops: [{ op: 'set', path: ['plugins', PLUGIN_ID, 'world', 'important'], value: important }, { op: 'set', path: ['plugins', PLUGIN_ID, 'world', 'queue'], value: [] }],
+                    author: `plugin:${api.id}`,
+                    journal: false,
+                });
+            }
             const scene = (state: TabletopState, ruling?: Ruling) => sceneOf({ chat, index, state, characterName: ctx.character.name, userName, texts: [userText], ruling });
 
             let ruling = stored?.ruling;
@@ -242,14 +284,17 @@ const plugin: HearthPlugin = {
                         ruling = { userText, checks: [], error: (error as Error).message };
                     }
                 }
-                // The world runs over this turn's time; then whoever is at the place gets described.
+                // The world runs over this turn's time; whoever is at the place gets described; whoever
+                // noticed something decides what to do.
                 if (world) {
                     const after = structuredClone(world);
                     const plan = playTurn(after, city(), opening ? { minutes: 5 } : ruling.ask ?? { minutes: 10 });
                     if (plan.fresh.length) ctx.progress?.({ phase: 'world-scene' });
                     const problem = await runScene(body, texts, after, plan.fresh, ctx.send, ctx.trace);
                     if (problem && !ctx.signal?.aborted) ctx.warn?.(`场景里的人没有描写出来，这一轮照常继续：${problem}`);
-                    turn = { plan, after };
+                    const important = chatWorld(chat)?.important ?? {};
+                    const reactions = await runReactions(body, texts, after, withAdded(before, ruling), important, plan, ctx.send, ctx.trace, ctx.warn);
+                    turn = { plan, after, ...(reactions.length ? { reactions } : {}) };
                 }
                 const data: MessageData = { ruling, ...(turn ? { world: turn } : {}) };
                 await api.store.apply({
@@ -263,10 +308,13 @@ const plugin: HearthPlugin = {
             const pass = ruling.skipped === 'pass';
             const state = withAdded(before, ruling);
             if (turn) syncBody(state, turn.after);
+            // 重要人物 here bring their whole profile to the narration.
+            const here = turn ? Object.entries(chatWorld(chat)?.important ?? {}).filter(([n]) => turn!.after.people[n]?.at === turn!.after.at) : [];
             const content = [
                 opening ? '' : pass ? texts.pass || DEFAULT_PASS : rulingText(ruling),
                 stateText(state, userName, scene(state, ruling)),
                 turn ? worldText(turn.after, city(), 'narrate', turn.plan) : '',
+                ...here.map(([n, p]) => `【重要人物：${n}】\n${p.profile}`),
                 texts.narrate,
                 turn ? entry(texts, 'world-narrate') : '',
                 opening ? entry(texts, 'world-opening') : '',
@@ -295,6 +343,9 @@ const plugin: HearthPlugin = {
             decay(state, turn ? { ...rules(), moodDecay: 1 - Math.pow(1 - WORLD_MOOD_DECAY, (turn.plan.to - turn.plan.from) / 60) } : rules());
             const world = turn ? structuredClone(turn.after) : undefined;
             if (world) syncBody(state, world);
+            // What people felt when they reacted this turn.
+            const feelings = (turn?.reactions ?? []).map(r => r.feelings).filter(Boolean) as unknown[];
+            if (feelings.length) applySettleArgs(state, { attitudes: feelings }, userName);
             const ops: Op[] = [];
             if (ruling.skipped === 'pass' && passOn(ctx.chat)) ops.push({ op: 'set', path: ['plugins', PLUGIN_ID, 'pass'], value: false });
             const path = swipePath(ctx.message.id, ctx.swipe.id);
@@ -312,6 +363,15 @@ const plugin: HearthPlugin = {
                 background: async ({ signal, trace }) => {
                     const scene = sceneOf({ chat: ctx.chat, index, state, characterName: ctx.character?.name, userName, texts: [lastUserText(ctx.chat.messages, index), text], ruling });
                     const data = await settle(api, source, state, ruling, text, scene, { signal, trace, ...(world && turn ? { world: { after: world, plan: turn.plan } } : {}) });
+                    // The 重要人物 who were not here live through the days that passed.
+                    if (data.world && turn && data.state) {
+                        const important = chatWorld(ctx.chat)?.important ?? {};
+                        if (Object.keys(important).length && Math.floor(data.world.now / 1440) > Math.floor(turn.plan.from / 1440)) {
+                            const present = new Set([...(data.settle?.present ?? []), ...Object.entries(data.world.people).filter(([, p]) => p.at === data.world!.at).map(([n]) => n)]);
+                            const dayBody = appendReply(source.body, replyForHistory(text));
+                            await runDays(dayBody, source.texts, data.world, data.state, important, turn.plan.from, data.world.now, present, b => api.send(b, signal), trace).catch(error => api.log('每日推演没有完成：', (error as Error).message));
+                        }
+                    }
                     return { ops: [{ op: 'set', path, value: data }] };
                 },
             };
@@ -356,6 +416,77 @@ const plugin: HearthPlugin = {
                 return [{ id: 'pass', type: 'toggle', label: '检定绝对通过', value: passOn(chat), hint: '这一轮不掷骰，主角的行动全部顺利；发出后自动关掉' }];
             },
             change: (id, value) => (id === 'pass' ? [{ op: 'set', path: ['plugins', PLUGIN_ID, 'pass'], value: value === true }] : []),
+        });
+
+        // 「设为重要人物」: from the scene, someone met, text the user wrote, or a character card (docs/world.md §9).
+        api.registerAction('world-promote', async ({ chat, payload }) => {
+            const cw = chatWorld(chat);
+            const { state, world, path } = currentData(chat);
+            if (!cw || !state || !world) throw Object.assign(new Error('这个对话还没有开始世界'), { status: 400 });
+            const important = { ...(cw.important ?? {}) };
+            if (Object.keys(important).length >= MAX_IMPORTANT) throw Object.assign(new Error(`重要人物最多 ${MAX_IMPORTANT} 位，先取消一位`), { status: 400 });
+            let name = String(payload.name ?? '').trim();
+            let base = '';
+            const sceneId = String(payload.sceneId ?? '');
+            const person = sceneId ? world.scene?.people.find(p => p.id === sceneId) : undefined;
+            if (person) {
+                name = person.name ?? name;
+                base = `【场景里看到的样子】${person.looks ?? ''}；${person.doing ?? ''}；${person.where ?? ''}（在${placeById(world, city(), world.scene!.place)?.name ?? ''}${person.role === 'staff' ? `，是这里的${person.purpose}` : ''}）`;
+            } else if (String(payload.text ?? '').trim()) {
+                base = `【原有档案】\n${String(payload.text).trim()}`;
+            } else if (payload.characterId) {
+                const card = api.store.get<Character>('character', String(payload.characterId));
+                if (!card) throw Object.assign(new Error('找不到这张角色卡'), { status: 404 });
+                name ||= card.name;
+                base = `【原有档案】\n${[card.fields.description, card.fields.personality, card.fields.scenario].filter(s => s.trim()).join('\n\n')}`;
+            } else if (name) {
+                const p = world.people[name];
+                base = `【剧情里的他】${[p?.role, p?.brief, state.characters[name]?.description].filter(Boolean).join('；')}`;
+            }
+            if (!base) throw Object.assign(new Error('不知道要把谁设为重要人物'), { status: 400 });
+            if (name && important[name]) throw Object.assign(new Error(`${name}已经是重要人物了`), { status: 400 });
+            if (name && cw.archived?.[name]) {
+                // Back again: the old profile still holds.
+                important[name] = cw.archived[name];
+                world.people[name] = { ...(world.people[name] ?? {}), kind: 'important' };
+                return { ops: [{ op: 'set', path: ['plugins', PLUGIN_ID, 'world', 'important'], value: important }, ...(path ? [{ op: 'set' as const, path: [...path, 'world'], value: world }] : [])] };
+            }
+            const source = sources.get(chat.id);
+            const last = chat.messages.at(-1);
+            if (!source?.body || !Array.isArray(source.body.messages) || !last) {
+                // No request at hand (Hearth restarted): done before the next turn.
+                return { ops: [{ op: 'set', path: ['plugins', PLUGIN_ID, 'world', 'queue'], value: [...(cw.queue ?? []), { name: name || '新的重要人物', base }] }] };
+            }
+            const body = appendReply(source.body, replyForHistory(last.swipes[last.activeSwipe]?.content ?? ''));
+            const next = structuredClone(state);
+            const made = await runProfile(body, source.texts, world, next, name || '新的重要人物', base, b => api.send(b));
+            if (!made) throw Object.assign(new Error('模型没有写出档案'), { status: 502 });
+            important[made.name] = made.profile;
+            promoteOnSheet(next, made);
+            if (person) person.name = made.name;
+            const ops: Op[] = [{ op: 'set', path: ['plugins', PLUGIN_ID, 'world', 'important'], value: important }];
+            if (path) ops.push({ op: 'set', path: [...path, 'world'], value: world }, { op: 'set', path: [...path, 'state'], value: next });
+            else ops.push({ op: 'set', path: ['plugins', PLUGIN_ID, 'world', 'base'], value: world }, { op: 'set', path: ['plugins', PLUGIN_ID, 'base'], value: next });
+            return { ops };
+        });
+
+        // 「取消重要人物」: the profile is kept for later; the person stops living their own days.
+        api.registerAction('world-demote', async ({ chat, payload }) => {
+            const cw = chatWorld(chat);
+            const name = String(payload.name ?? '');
+            const { world, path } = currentData(chat);
+            if (!cw?.important?.[name] || !world) throw Object.assign(new Error('这个人不是重要人物'), { status: 400 });
+            const important = { ...cw.important };
+            const archived = { ...(cw.archived ?? {}), [name]: important[name] };
+            delete important[name];
+            const related = world.commitments.some(c => !c.ended && c.parties.includes(name)) || world.phone.contacts.includes(name);
+            if (world.people[name]) world.people[name] = { ...world.people[name], kind: related ? 'related' : 'bystander' };
+            const ops: Op[] = [
+                { op: 'set', path: ['plugins', PLUGIN_ID, 'world', 'important'], value: important },
+                { op: 'set', path: ['plugins', PLUGIN_ID, 'world', 'archived'], value: archived },
+                path ? { op: 'set', path: [...path, 'world'], value: world } : { op: 'set', path: ['plugins', PLUGIN_ID, 'world', 'base'], value: world },
+            ];
+            return { ops };
         });
 
         api.registerEditTask(adaptTask);

@@ -15,7 +15,10 @@ import {
     bodyWords, clock, dateKey, dayMatches, fmtDay, fmtNow, fmtWeather, minutesOf, nearby, placeById, type WorldState,
 } from '../../plugins/tabletop/world/state.ts';
 import { api, type Summary } from '../api.ts';
-import { change, changeChat, getState, newChat, refresh, reportError, runGeneration, toast, toggleInspector, useAppState } from '../state.ts';
+import { change, changeChat, getState, newChat, pluginAction, refresh, reportError, runGeneration, toast, toggleInspector, useAppState } from '../state.ts';
+import { describe, findRelation } from '../../plugins/tabletop/attitude.ts';
+import { MAX_IMPORTANT, type ImportantProfile } from '../../plugins/tabletop/world/minds.ts';
+import type { TabletopState } from '../../plugins/tabletop/sheet.ts';
 import { Button, Field } from './common.tsx';
 import { Icon } from '../icons.tsx';
 
@@ -24,7 +27,28 @@ const city = () => lanjiang();
 export const isWorldCard = (c: Pick<Summary, 'name' | 'tags'> | undefined) => Boolean(c && c.name === WORLD_CARD_NAME && c.tags?.includes(WORLD_TAG));
 
 /** What the chat keeps about its world: the opening form and the starting world. */
-const chatWorld = (chat: Chat) => (chat.plugins?.tabletop as { world?: { setup?: SetupForm; base?: WorldState } } | undefined)?.world;
+const chatWorld = (chat: Chat) => (chat.plugins?.tabletop as { world?: { setup?: SetupForm; base?: WorldState; important?: Record<string, ImportantProfile>; queue?: unknown[] } } | undefined)?.world;
+
+/** The latest 跑团 state of the chat. */
+function currentState(chat: Chat): TabletopState | null {
+    for (let i = chat.messages.length - 1; i >= 0; i--) {
+        const s = swipeData(chat.messages[i])?.state;
+        if (s) return s;
+    }
+    return (chat.plugins?.tabletop as { base?: TabletopState } | undefined)?.base ?? null;
+}
+
+/** 「设为重要人物」 for someone in the scene, someone known, text or a card. */
+function promote(chat: Chat, payload: Record<string, unknown>, done?: () => void) {
+    toast('正在写档案…');
+    void pluginAction(chat.id, 'tabletop', 'world-promote', payload)
+        .then(next => {
+            const queued = ((next.plugins?.tabletop as { world?: { queue?: unknown[] } } | undefined)?.world?.queue ?? []).length;
+            toast(queued ? '下一轮开始前补全档案' : '已设为重要人物', 'success');
+            done?.();
+        })
+        .catch(reportError);
+}
 
 export const isWorldChat = (chat: Chat | undefined) => Boolean(chat && chatWorld(chat));
 
@@ -203,6 +227,7 @@ export function HereTab({ chat }: { chat: Chat }) {
     if (!place) return null;
     const district = c.districts.find(d => d.id === place.district);
     const people = world.scene?.people ?? [];
+    const known = Object.entries(world.people).filter(([, p]) => p.kind !== 'bystander' && p.at === place.id).map(([n]) => n);
     return (
         <div className="world-tab">
             <section>
@@ -224,9 +249,13 @@ export function HereTab({ chat }: { chat: Chat }) {
                             </div>
                             {p.looks && <div className="muted small">{p.looks}</div>}
                             {(p.doing || p.where) && <div className="small">{[p.where, p.doing].filter(Boolean).join('，')}</div>}
+                            {!(p.name && chatWorld(chat)?.important?.[p.name]) && (
+                                <button type="button" className="link small" onClick={() => promote(chat, { sceneId: p.id })}>设为重要人物</button>
+                            )}
                         </li>
                     ))}
                 </ul>
+                {known.length > 0 && <p className="small">认识的人：{known.join('、')}</p>}
             </section>
             <section>
                 <h4>附近</h4>
@@ -268,6 +297,10 @@ export function MapTab({ chat }: { chat: Chat }) {
                 const p = placeById(world, c, e.place);
                 if (p) out.push({ at: p.at, label: `${cm.name} ${e.from}`, kind: 'appointment' });
             }
+        }
+        for (const name of Object.keys(chatWorld(chat)?.important ?? {})) {
+            const p = placeById(world, c, world.people[name]?.at);
+            if (p) out.push({ at: p.at, label: name, kind: 'person' });
         }
         if (here) out.push({ at: here.at, label: '你', kind: 'self' });
         return out;
@@ -365,6 +398,99 @@ export function PhoneTab({ chat }: { chat: Chat }) {
             <section>
                 <h4>账单 · 余额 {world.balance.toLocaleString('zh-CN')} 元</h4>
                 <ul className="phone-list">{ledger.map((l, i) => <li key={i}><span className="muted small">{dateKey(l.at).slice(5)} {clock(l.at)}</span> {l.reason} <span className={l.amount < 0 ? 'neg' : 'pos'}>{l.amount > 0 ? '+' : ''}{l.amount}</span></li>)}</ul>
+            </section>
+        </div>
+    );
+}
+
+/** 「人物」: the 重要人物 and the people around the protagonist. */
+export function PeopleTab({ chat }: { chat: Chat }) {
+    const world = currentWorld(chat);
+    const state = currentState(chat);
+    const cards = useAppState(s => s.boot?.resources.character ?? []);
+    const [text, setText] = useState('');
+    const [cardId, setCardId] = useState('');
+    const [open, setOpen] = useState<string | null>(null);
+    if (!world) return <div className="empty-tab muted small">世界还没有开始。</div>;
+    const c = city();
+    const important = chatWorld(chat)?.important ?? {};
+    const names = Object.keys(important);
+    const others = Object.entries(world.people).filter(([n, p]) => !important[n] && p.kind !== 'bystander');
+    const met = Object.entries(world.people).filter(([n, p]) => !important[n] && p.kind === 'bystander');
+    const feel = (n: string) => {
+        const rel = state ? findRelation(state, n, '主角') : null;
+        return rel ? describe(rel) : '';
+    };
+    return (
+        <div className="world-tab">
+            <section>
+                <h4>重要人物 · {names.length}/{MAX_IMPORTANT}</h4>
+                {!names.length && <p className="muted small">还没有重要人物。可以在「这里」页或下面把遇到的人设为重要人物。</p>}
+                <ul className="people-list">
+                    {names.map(n => {
+                        const p = world.people[n];
+                        return (
+                            <li key={n}>
+                                <div className="people-head">
+                                    <strong>{n}</strong>
+                                    <span className="muted small">{p?.role}</span>
+                                    <span className="grow" />
+                                    <button type="button" className="link small" onClick={() => void pluginAction(chat.id, 'tabletop', 'world-demote', { name: n }).then(() => toast(`已取消，${n}的档案留着`, 'success')).catch(reportError)}>取消重要人物</button>
+                                </div>
+                                <div className="small">{important[n].summary}</div>
+                                <div className="muted small">
+                                    在{placeById(world, c, p?.at)?.name ?? '不知道的地方'}
+                                    {p?.mood !== undefined && ` · 心情 ${Math.round(p.mood)} · 压力 ${Math.round(p.stress ?? 0)}`}
+                                    {feel(n) && ` · 对你：${feel(n)}`}
+                                </div>
+                                {p?.recent && <div className="muted small">近况：{p.recent}</div>}
+                                <button type="button" className="link small" onClick={() => setOpen(open === n ? null : n)}>{open === n ? '收起档案' : '查看档案'}</button>
+                                {open === n && <pre className="people-profile">{important[n].profile}</pre>}
+                            </li>
+                        );
+                    })}
+                </ul>
+            </section>
+            {others.length > 0 && (
+                <section>
+                    <h4>身边的人</h4>
+                    <ul className="people-list">
+                        {others.map(([n, p]) => (
+                            <li key={n}>
+                                <div className="people-head"><strong>{n}</strong><span className="muted small">{p.role}</span><span className="grow" />
+                                    <button type="button" className="link small" onClick={() => promote(chat, { name: n })}>设为重要人物</button></div>
+                                {p.brief && <div className="muted small">{p.brief}</div>}
+                                {feel(n) && <div className="muted small">对你：{feel(n)}</div>}
+                            </li>
+                        ))}
+                    </ul>
+                </section>
+            )}
+            {met.length > 0 && (
+                <section>
+                    <h4>打过交道的人</h4>
+                    <ul className="people-list">
+                        {met.map(([n, p]) => (
+                            <li key={n}>
+                                <div className="people-head"><strong>{n}</strong><span className="grow" />
+                                    <button type="button" className="link small" onClick={() => promote(chat, { name: n })}>设为重要人物</button></div>
+                                {p.brief && <div className="muted small">{p.brief}</div>}
+                            </li>
+                        ))}
+                    </ul>
+                </section>
+            )}
+            <section>
+                <h4>新建重要人物</h4>
+                <p className="muted small">写一段介绍，或者贴进已有的人物档案（原样保留），也可以从角色卡里选一个角色。模型会补上他在澜江市的住处、工作和作息。</p>
+                <textarea rows={4} value={text} onChange={e => setText(e.target.value)} placeholder="例如：住在楼下的女大学生，学摄影，常在楼道里遇到" />
+                <div className="people-new">
+                    <select value={cardId} onChange={e => setCardId(e.target.value)}>
+                        <option value="">或者选一张角色卡</option>
+                        {cards.filter(x => !isWorldCard(x)).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+                    </select>
+                    <Button variant="primary" disabled={!text.trim() && !cardId} onClick={() => promote(chat, cardId && !text.trim() ? { characterId: cardId } : { text }, () => { setText(''); setCardId(''); })}>设为重要人物</Button>
+                </div>
             </section>
         </div>
     );
