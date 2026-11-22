@@ -10,6 +10,8 @@ import YAML from 'yaml';
 
 import type { Character, Chat, ChatMessage } from '../../core/types.ts';
 import { clamp, CORE_ATTRIBUTES, PROTAGONIST, SKILL_LEVELS } from './rules.ts';
+import type { WorldState } from './world/state.ts';
+import type { TurnAsk, TurnPlan } from './world/turn.ts';
 
 export const PLUGIN_ID = 'tabletop';
 
@@ -464,13 +466,15 @@ export interface SettleLine {
     ok: boolean;
     text: string;
     /** What changed, for the line under the reply. */
-    kind?: 'attitude' | 'familiarity' | 'bond' | 'status' | 'new' | 'growth';
+    kind?: 'attitude' | 'familiarity' | 'bond' | 'status' | 'new' | 'growth' | 'world';
     /** Whose it is (the character whose attitude, status or growth changed). */
     who?: string;
 }
 
 export interface SwipeData {
     state?: TabletopState;
+    /** A 世界 chat's world after this reply version (docs/world.md). */
+    world?: WorldState;
     /**
      * The settlement of this reply version: what the model reported (as it wrote it) and what came of
      * each item. `status` is pending while the settlement step runs, failed when it could not finish.
@@ -480,6 +484,8 @@ export interface SwipeData {
 
 export interface MessageData {
     ruling?: Ruling;
+    /** A 世界 chat: this turn's plan and the world after it, before the settlement (shared by every version). */
+    world?: { plan: TurnPlan; after: WorldState };
 }
 
 export interface CheckView {
@@ -513,6 +519,8 @@ export interface Ruling {
     rounds?: number;
     think?: string;
     error?: string;
+    /** A 世界 chat: how long the turn takes and where the protagonist goes. */
+    ask?: TurnAsk;
 }
 
 export function swipeData(message: ChatMessage | undefined): SwipeData | undefined {

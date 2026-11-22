@@ -8,6 +8,7 @@
 
 import { CHECK_TOOL_NAME, checkTool } from './ruling.ts';
 import { SETTLE_TOOL_NAME, settleTool } from './settle.ts';
+import { sceneTool, setupTool, WORLD_TOOLS } from './world/tools.ts';
 
 type Message = Record<string, unknown>;
 type ToolCall = { id?: string; type?: string; function?: { name?: string; arguments?: string }; [k: string]: unknown };
@@ -21,7 +22,7 @@ export interface StepText {
     role?: 'system' | 'user' | 'assistant';
 }
 
-const OURS = [CHECK_TOOL_NAME, SETTLE_TOOL_NAME];
+const OURS = [CHECK_TOOL_NAME, SETTLE_TOOL_NAME, ...WORLD_TOOLS];
 const messagesOf = (body: Record<string, unknown>) => (Array.isArray(body.messages) ? body.messages as Message[] : []);
 const toolsOf = (body: Record<string, unknown>) => (Array.isArray(body.tools) ? body.tools as Tool[] : []);
 
@@ -114,15 +115,17 @@ export function replyForHistory(text: string): string {
         .trim();
 }
 
-function withOurTools(body: Record<string, unknown>): Tool[] {
-    return [...toolsOf(body).filter(t => !OURS.includes(t.function?.name ?? '')), checkTool() as Tool, settleTool() as Tool];
+/** The request's own tools plus ours; a 世界 chat declares the world's tools too. */
+function withOurTools(body: Record<string, unknown>, world: boolean): Tool[] {
+    const ours = [checkTool(world), settleTool(world), ...(world ? [sceneTool(), setupTool()] : [])] as Tool[];
+    return [...toolsOf(body).filter(t => !OURS.includes(t.function?.name ?? '')), ...ours];
 }
 
 /** A step that answers through one of 跑团's tools: the request's tools plus ours, that one forced. */
-export function forceTool(body: Record<string, unknown>, name: string): Record<string, unknown> {
+export function forceTool(body: Record<string, unknown>, name: string, world = false): Record<string, unknown> {
     return {
         ...body,
-        tools: withOurTools(body),
+        tools: withOurTools(body, world),
         tool_choice: { type: 'function', function: { name } },
         toolConfig: { functionCallingConfig: { mode: 'ANY', allowedFunctionNames: [name] } },
     };
@@ -133,12 +136,12 @@ export function forceTool(body: Record<string, unknown>, name: string): Record<s
  * are declared too (and the reply tool is named as the forced one), so all three steps send the same
  * tools; otherwise the request's tools stay as they are.
  */
-export function replyTools(body: Record<string, unknown>): Record<string, unknown> {
+export function replyTools(body: Record<string, unknown>, world = false): Record<string, unknown> {
     const tool = replyTool(body);
     if (!tool || !isToolConversation(body)) return body;
     return {
         ...body,
-        tools: withOurTools(body),
+        tools: withOurTools(body, world),
         tool_choice: { type: 'function', function: { name: tool } },
         toolConfig: { functionCallingConfig: { mode: 'ANY', allowedFunctionNames: [tool] } },
     };

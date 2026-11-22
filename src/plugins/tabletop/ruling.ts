@@ -5,12 +5,14 @@
 import { clampModifiers, CORE_ATTRIBUTES, DIFFICULTIES, fmt, PROTAGONIST, rollD100, SKILL_LEVELS, successChance, successLine, TIER_LABEL, TIERS, tierOf, type Rules, type Tier } from './rules.ts';
 import { canonicalName, newCharacter, resolveName, type CharacterSheet, type CheckView, type Ruling, type TabletopState } from './sheet.ts';
 import { checkResultLine } from './text.ts';
+import { CHECK_WORLD_PROPERTIES, parseTurnAsk } from './world/tools.ts';
 
 export const CHECK_TOOL_NAME = 'hearth_check';
 
 const OUTCOME_KEYS: Record<Tier, string> = { critical: 'critical', success: 'success', failure: 'failure', fumble: 'fumble' };
 
-export function checkTool() {
+/** The ruling tool; a 世界 chat adds how long the turn takes and where the protagonist goes. */
+export function checkTool(world = false) {
     const outcome = (label: string) => ({ type: 'string', description: `${label}时会发生什么（一两句）` });
     return {
         type: 'function',
@@ -62,6 +64,7 @@ export function checkTool() {
                         },
                     },
                     done: { type: 'boolean', description: 'true：本轮裁定结束；false：还有要看这次结果才能决定的检定' },
+                    ...(world ? CHECK_WORLD_PROPERTIES : {}),
                 },
                 required: ['checks', 'done'],
             },
@@ -203,6 +206,7 @@ export async function runRuling(deps: RulingDeps): Promise<Ruling> {
     const checks: CheckView[] = [];
     const added: Record<string, CharacterSheet> = {};
     const thinks: string[] = [];
+    let ask: Ruling['ask'];
     let body = deps.body;
     let rounds = 0;
     for (let round = 1; round <= deps.rules.maxRounds; round++) {
@@ -216,6 +220,7 @@ export async function runRuling(deps: RulingDeps): Promise<Ruling> {
             break;
         }
         if (str(args.think)) thinks.push(str(args.think));
+        ask ??= parseTurnAsk(args as Record<string, unknown>);
         const results = resolveChecks(args, deps.state, deps.userName, deps.rules, added, deps.random);
         checks.push(...results);
         deps.onRound?.(round, body, [...checks]);
@@ -237,5 +242,6 @@ export async function runRuling(deps: RulingDeps): Promise<Ruling> {
         rounds,
         ...(Object.keys(added).length ? { added } : {}),
         ...(thinks.length ? { think: thinks.join('\n') } : {}),
+        ...(ask ? { ask } : {}),
     };
 }

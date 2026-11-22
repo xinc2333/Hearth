@@ -17,6 +17,7 @@
 import { applyAttitude, changeFamiliarity } from './attitude.ts';
 import { clamp, fmt, PROTAGONIST, SKILL_LEVELS } from './rules.ts';
 import { AXES, canonicalName, newCharacter, resolveName, sameBond, upsertBond, type Axis, type SettleLine, type TabletopState } from './sheet.ts';
+import { SETTLE_WORLD_PROPERTY } from './world/tools.ts';
 
 export const SETTLE_TOOL_NAME = 'hearth_settle';
 const BLOCK = /<结算>([\s\S]*?)(?:<\/结算>|$)/;
@@ -29,7 +30,8 @@ export type SettleResult = SettleLine;
 // The tool
 // ---------------------------------------------------------------------------------------------
 
-export function settleTool() {
+/** The settlement tool; a 世界 chat adds the world's bookkeeping. */
+export function settleTool(world = false) {
     const axis = (label: string) => ({ type: 'number', description: `${label}的变化：日常 0～2，留下印象 3～8，明显的好意或冒犯 8～15，重大事件 15～30，可正可负；没变写 0` });
     return {
         type: 'function',
@@ -110,6 +112,7 @@ export function settleTool() {
                             required: ['who', 'item', 'change'],
                         },
                     },
+                    ...(world ? SETTLE_WORLD_PROPERTY : {}),
                 },
                 required: ['present', 'attitudes'],
             },
@@ -125,6 +128,7 @@ export interface SettleArgs {
     status?: unknown[];
     new_characters?: unknown[];
     growth?: unknown[];
+    world?: unknown;
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
