@@ -22,12 +22,12 @@ import { sceneOf } from './scene.ts';
 import { applySettleArgs, applySettlement, extractSettlement, parseSettleArgs, SETTLE_TOOL_NAME } from './settle.ts';
 import { appendReply, appendStep, forceTool, replyForHistory, replyTools } from './shape.ts';
 import { CHECK_TOOL_NAME } from './ruling.ts';
-import { messageData, newCharacter, PLUGIN_ID, stateBefore, type MessageData, type Ruling, type SwipeData, type TabletopState } from './sheet.ts';
+import { messageData, newCharacter, PLUGIN_ID, renameCharacter, stateBefore, type MessageData, type Ruling, type SwipeData, type TabletopState } from './sheet.ts';
 import { rulingText, stateText } from './text.ts';
-import { applySettleWorld, renameSceneIds, syncBody } from './world/apply.ts';
+import { addNewcomers, applySettleWorld, renameSceneIds, syncBody } from './world/apply.ts';
 import { chatWorld, city, entry, runDays, runProfile, runReactions, runScene, runSetup, worldBefore } from './world/flow.ts';
 import { MAX_IMPORTANT } from './world/minds.ts';
-import { normalizeWorld, placeById } from './world/state.ts';
+import { normalizeWorld, placeById, renamePerson } from './world/state.ts';
 import type { WorldState } from './world/state.ts';
 import { parseSettleWorld } from './world/tools.ts';
 import { worldText } from './world/text.ts';
@@ -120,14 +120,17 @@ async function settle(api: PluginApi, source: SettleSource, state: TabletopState
             const args = parseSettleArgs(call?.function?.arguments ?? res.text);
             if (!args) throw new Error(res.toolCalls.length ? `模型调用了 ${res.toolCalls.map(c => c.function?.name).join('、')}，没有调用结算工具` : '模型没有调用结算工具');
             const next = structuredClone(state);
-            const sw = world ? parseSettleWorld(args.world) : null;
+            const sw = world ? parseSettleWorld(args.world ?? {}) : null;
             if (world) renameSceneIds(args as Record<string, unknown>, world.after, sw);
             const results = applySettleArgs(next, args, source.userName);
             const present = Array.isArray(args.present) ? args.present.map(String).filter(Boolean) : [];
             let nextWorld: WorldState | undefined;
             if (world) {
                 nextWorld = structuredClone(world.after);
-                if (sw) results.push(...applySettleWorld(nextWorld, next, city(), sw, world.plan.from));
+                if (sw) {
+                    addNewcomers(sw, nextWorld, next, present);
+                    results.push(...applySettleWorld(nextWorld, next, city(), sw, world.plan.from));
+                }
                 syncBody(next, nextWorld);
             }
             return { state: next, ...(nextWorld ? { world: nextWorld } : {}), settle: { raw: JSON.stringify(args), results, present } };
@@ -147,6 +150,18 @@ function promoteOnSheet(state: TabletopState, made: { name: string; attributes: 
     c.description = made.description || c.description;
     delete c.temporary;
     state.characters[made.name] = c;
+}
+
+/**
+ * A new 重要人物 takes over what was kept under the name they had until now (often a description
+ * such as 「穿风衣的女生」: attitudes, what they know, the scene), then gets their sheet.
+ */
+function adopt(world: WorldState, state: TabletopState, made: { name: string; attributes: Record<string, number>; traits: Record<string, number>; description: string }, was: string, sceneId?: string) {
+    renamePerson(world, was, made.name);
+    renameCharacter(state, was, made.name);
+    promoteOnSheet(state, made);
+    const person = sceneId ? world.scene?.people.find(p => p.id === sceneId) : undefined;
+    if (person) person.name = made.name;
 }
 
 /** The latest reply version's state and world, or the chat's starting ones, and where they are kept. */
@@ -238,7 +253,7 @@ const plugin: HearthPlugin = {
                     const made = await runProfile(body, texts, world, before, q.name, q.base, ctx.send, ctx.trace).catch(() => null);
                     if (made) {
                         important[made.name] = made.profile;
-                        promoteOnSheet(before, made);
+                        adopt(world, before, made, q.name, q.sceneId);
                     }
                 }
                 await api.store.apply({
@@ -453,17 +468,17 @@ const plugin: HearthPlugin = {
             }
             const source = sources.get(chat.id);
             const last = chat.messages.at(-1);
+            const was = name || '新的重要人物';
             if (!source?.body || !Array.isArray(source.body.messages) || !last) {
                 // No request at hand (Hearth restarted): done before the next turn.
-                return { ops: [{ op: 'set', path: ['plugins', PLUGIN_ID, 'world', 'queue'], value: [...(cw.queue ?? []), { name: name || '新的重要人物', base }] }] };
+                return { ops: [{ op: 'set', path: ['plugins', PLUGIN_ID, 'world', 'queue'], value: [...(cw.queue ?? []), { name: was, base, ...(person ? { sceneId: person.id } : {}) }] }] };
             }
             const body = appendReply(source.body, replyForHistory(last.swipes[last.activeSwipe]?.content ?? ''));
             const next = structuredClone(state);
-            const made = await runProfile(body, source.texts, world, next, name || '新的重要人物', base, b => api.send(b));
+            const made = await runProfile(body, source.texts, world, next, was, base, b => api.send(b));
             if (!made) throw Object.assign(new Error('模型没有写出档案'), { status: 502 });
             important[made.name] = made.profile;
-            promoteOnSheet(next, made);
-            if (person) person.name = made.name;
+            adopt(world, next, made, was, person?.id);
             const ops: Op[] = [{ op: 'set', path: ['plugins', PLUGIN_ID, 'world', 'important'], value: important }];
             if (path) ops.push({ op: 'set', path: [...path, 'world'], value: world }, { op: 'set', path: [...path, 'state'], value: next });
             else ops.push({ op: 'set', path: ['plugins', PLUGIN_ID, 'world', 'base'], value: world }, { op: 'set', path: ['plugins', PLUGIN_ID, 'base'], value: next });

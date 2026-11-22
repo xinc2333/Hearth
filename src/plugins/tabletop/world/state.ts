@@ -225,6 +225,44 @@ export function learn(world: WorldState, who: string, text: string, source: Know
     if (list.length > 40) list.splice(0, list.length - 40);
 }
 
+/**
+ * Someone known by a description gets a real name: what the world keeps about them under the old
+ * one (what they know, commitments, messages, the scene) follows. Changes `world`.
+ */
+export function renamePerson(world: WorldState, from: string, to: string) {
+    if (!from || !to || from === to) return;
+    const swap = (s: string) => (s === from ? to : s);
+    if (world.people[from]) {
+        world.people[to] = { ...world.people[from], ...(world.people[to] ?? {}) };
+        delete world.people[from];
+    }
+    if (world.knowledge[from]) {
+        world.knowledge[to] = [...world.knowledge[from], ...(world.knowledge[to] ?? [])].slice(-40);
+        delete world.knowledge[from];
+    }
+    if (world.memory[from]) {
+        world.memory[to] ??= world.memory[from];
+        delete world.memory[from];
+    }
+    for (const c of world.commitments) {
+        c.parties = c.parties.map(swap);
+        for (const e of c.expectations) {
+            e.who = swap(e.who);
+            if (e.kind === 'payment') e.to = swap(e.to);
+        }
+    }
+    world.phone.contacts = [...new Set(world.phone.contacts.map(swap))];
+    for (const m of world.phone.messages) {
+        m.from = swap(m.from);
+        m.to = swap(m.to);
+    }
+    for (const p of world.pending) {
+        p.who = swap(p.who);
+        if (p.message) p.message.to = swap(p.message.to);
+    }
+    for (const p of world.scene?.people ?? []) if (p.name === from) p.name = to;
+}
+
 /** Where someone with a routine is at `t`: the slot that covers it, else home at night. */
 export function routinePlace(person: PersonWorld, t: number): { place: string; doing: string } | null {
     const m = moment(t).minute;

@@ -105,8 +105,20 @@ export const SETTLE_WORLD_PROPERTY = {
             },
             met: {
                 type: 'array',
-                description: '这一幕的场景人物里，和主角打过交道的人（说过话、有过来往）：编号和称呼，知道名字就写名字',
-                items: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' } }, required: ['id', 'name'] },
+                description: '和主角打过交道（说过话、有过来往）或主角特意留意的人：【这里的人】里的写编号和称呼；正文里出现、【这里的人】里没有的，不写编号，写称呼和看到的样子。知道名字就写名字',
+                items: {
+                    type: 'object',
+                    properties: {
+                        id: { type: 'string', description: '【这里的人】里的编号；不在里面的不写' },
+                        name: { type: 'string', description: '名字，不知道就写称呼，例如「穿米色风衣的女生」' },
+                        looks: { type: 'string', description: '不在【这里的人】里的才写：正文里写到的样子（大概的年纪、性别、穿着、显眼的特征）' },
+                        gender: { type: 'string', enum: ['男', '女'] },
+                        age: { type: 'number', description: '看起来的岁数' },
+                        doing: { type: 'string', description: '此刻在做什么' },
+                        gone: { type: 'boolean', description: '这一段结束时已经离开主角身边' },
+                    },
+                    required: ['name'],
+                },
             },
             places: {
                 type: 'array',
@@ -129,7 +141,8 @@ export interface SettleWorld {
     read: boolean;
     witnessed: { who: string[]; what: string }[];
     told: { to: string; what: string }[];
-    met: { id: string; name: string }[];
+    /** People met: from the scene (id), or new ones the reply brought in (looks). */
+    met: { id?: string; name: string; looks?: string; gender?: '男' | '女'; age?: number; doing?: string; gone?: boolean }[];
     places: { name: string; near?: string; about?: string }[];
 }
 
@@ -148,7 +161,15 @@ export function parseSettleWorld(raw: unknown): SettleWorld | null {
         read: raw.read === true,
         witnessed: list(raw.witnessed).filter(isRecord).map(w => ({ who: list(w.who).map(str).filter(Boolean), what: str(w.what) })).filter(w => w.who.length && w.what),
         told: list(raw.told).filter(isRecord).map(t => ({ to: str(t.to), what: str(t.what) })).filter(t => t.to && t.what),
-        met: list(raw.met).filter(isRecord).map(m => ({ id: str(m.id), name: str(m.name) })).filter(m => m.id && m.name),
+        met: list(raw.met).filter(isRecord).map(m => ({
+            ...(str(m.id) ? { id: str(m.id) } : {}),
+            name: str(m.name),
+            ...(str(m.looks) ? { looks: str(m.looks) } : {}),
+            ...(m.gender === '男' || m.gender === '女' ? { gender: m.gender as '男' | '女' } : {}),
+            ...(num(m.age) ? { age: num(m.age) } : {}),
+            ...(str(m.doing) ? { doing: str(m.doing) } : {}),
+            ...(m.gone === true ? { gone: true } : {}),
+        })).filter(m => m.name),
         places: list(raw.places).filter(isRecord).map(p => ({ name: str(p.name), ...(str(p.near) ? { near: str(p.near) } : {}), ...(str(p.about) ? { about: str(p.about) } : {}) })).filter(p => p.name),
     };
 }

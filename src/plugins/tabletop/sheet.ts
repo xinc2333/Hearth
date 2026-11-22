@@ -353,6 +353,21 @@ export function removeCharacter(sheet: Sheet, name: string): Sheet {
     return next;
 }
 
+/**
+ * Someone known by a description (「穿风衣的女生」) gets a real name: their sheet entry, attitudes and
+ * bonds move to it. Nothing moves when the name is already someone else's. Changes `sheet`.
+ */
+export function renameCharacter(sheet: Sheet, from: string, to: string) {
+    if (!from || !to || from === to || !sheet.characters[from] || sheet.characters[to]) return;
+    sheet.characters[to] = sheet.characters[from];
+    delete sheet.characters[from];
+    for (const r of sheet.relations) {
+        if (r.from === from) r.from = to;
+        if (r.to === from) r.to = to;
+    }
+    for (const b of sheet.bonds) b.between = b.between.map(x => (x === from ? to : x)) as [string, string];
+}
+
 // ---------------------------------------------------------------------------------------------
 // Writing the YAML form
 // ---------------------------------------------------------------------------------------------

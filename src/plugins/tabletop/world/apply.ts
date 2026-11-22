@@ -216,6 +216,8 @@ export function applySettleWorld(world: WorldState, state: TabletopState, city: 
     for (const m of sw.moves) {
         const place = findPlace(world, city, m.to) ?? registerPlace(world, city, m.to, placeById(world, city, world.at));
         world.people[m.who] = { ...(world.people[m.who] ?? { kind: 'bystander' }), at: place.id, seenAt: world.now };
+        // Someone who walked off is no longer among the people here.
+        if (world.scene && place.id !== world.scene.place) world.scene.people = world.scene.people.filter(p => p.name !== m.who);
     }
     for (const c of sw.commitments) {
         const at = c.at ? parseTime(c.at) : null;
@@ -260,18 +262,7 @@ export function applySettleWorld(world: WorldState, state: TabletopState, city: 
         world.phone.contacts.push(n);
         out.push(line(`存了${n}的联系方式`));
     }
-    for (const m of sw.met) {
-        const p = world.scene?.people.find(x => x.id === m.id);
-        if (!p) continue;
-        p.name = m.name;
-        world.people[m.name] = { ...(world.people[m.name] ?? { kind: 'bystander' }), brief: p.looks ?? world.people[m.name]?.brief, at: world.scene!.place, seenAt: world.now };
-        if (!state.characters[m.name]) {
-            const c = newCharacter();
-            c.description = [p.looks, p.role === 'staff' ? `这里的${p.purpose}` : ''].filter(Boolean).join('，');
-            c.temporary = true;
-            state.characters[m.name] = c;
-        }
-    }
+    for (const m of sw.met) meet(world, state, m);
     for (const p of sw.places) {
         if (findPlace(world, city, p.name)) continue;
         const near = p.near ? findPlace(world, city, p.near) : placeById(world, city, world.at);
@@ -279,6 +270,65 @@ export function applySettleWorld(world: WorldState, state: TabletopState, city: 
         out.push(line(`地图上加了${place.name}（${city.districts.find(d => d.id === (districtAt(city, place.at)?.id ?? ''))?.name ?? ''}）`));
     }
     return out;
+}
+
+const WOMAN = /女|姑娘|阿姨|大妈|大婶|奶奶|姐|妹|妈|太太|小姐|妇/;
+
+/**
+ * Someone the protagonist dealt with. A person from the scene gets the name the settlement gave
+ * them; someone the reply brought in who is not in the scene (the player went up to a stranger, or
+ * the story had someone walk by) joins it as they were written, so 「这里」 lists them and they can
+ * become 重要人物 like anyone the scene step described.
+ */
+function meet(world: WorldState, state: TabletopState, m: SettleWorld['met'][number]) {
+    const scene = world.scene;
+    const known = world.people[m.name];
+    let p = (m.id ? scene?.people.find(x => x.id === m.id) : undefined) ?? scene?.people.find(x => x.name === m.name);
+    if (!p && m.id && !m.looks) return;
+    // People the protagonist already knows are listed apart from strangers.
+    if (!p && scene && !m.gone && (!known || known.kind === 'bystander')) {
+        const looks = m.looks || known?.brief;
+        p = {
+            id: `b-${hash(`${world.seed}|met|${m.name}|${world.now}`).toString(36)}`,
+            role: 'visitor',
+            gender: m.gender ?? (WOMAN.test(`${m.name}${looks ?? ''}`) ? '女' : '男'),
+            age: Math.round(m.age ?? 30),
+            purpose: '剧情里出现的人',
+            leaveAt: world.now + 60,
+            ...(looks ? { looks } : {}),
+            ...(m.doing ? { doing: m.doing } : {}),
+        };
+        scene.people.push(p);
+    }
+    if (p) {
+        p.name = m.name;
+        if (m.doing) p.doing = m.doing;
+        if (m.gone && scene) scene.people = scene.people.filter(x => x !== p);
+    }
+    // Someone known who is not in the scene may have been dealt with by phone: where they are stays as it was.
+    if (!p && known && known.kind !== 'bystander') return;
+    const looks = p?.looks ?? m.looks;
+    const kind = known?.kind ?? 'bystander';
+    world.people[m.name] = { ...(known ?? { kind }), ...(kind === 'bystander' && looks ? { brief: looks } : {}), at: scene?.place ?? world.at, seenAt: world.now };
+    if (!state.characters[m.name]) {
+        const c = newCharacter();
+        c.description = [looks, p?.role === 'staff' ? `这里的${p.purpose}` : ''].filter(Boolean).join('，');
+        c.temporary = true;
+        state.characters[m.name] = c;
+    }
+}
+
+/**
+ * Characters the 跑团 part of the settlement has as here, that the world does not know and the
+ * world part left out of `met`: they are people the story brought in, and join the scene too.
+ */
+export function addNewcomers(sw: SettleWorld, world: WorldState, state: TabletopState, present: string[]) {
+    for (const name of present) {
+        const c = state.characters[name];
+        if (!c || name === PROTAGONIST || world.people[name] || sw.met.some(m => m.name === name)) continue;
+        if (world.scene?.people.some(p => p.name === name)) continue;
+        sw.met.push({ name, ...(c.description ? { looks: c.description } : {}) });
+    }
 }
 
 export const worldSeed = (chatId: string) => hash(chatId);
@@ -293,7 +343,7 @@ const SCENE_ID = /^[sb]-[0-9a-z-]+$/;
 export function renameSceneIds(args: Record<string, unknown>, world: WorldState, sw: SettleWorld | null) {
     const names = new Map<string, string>();
     for (const p of world.scene?.people ?? []) if (p.name) names.set(p.id, p.name);
-    for (const m of sw?.met ?? []) names.set(m.id, m.name);
+    for (const m of sw?.met ?? []) if (m.id) names.set(m.id, m.name);
     const fix = (v: unknown) => (typeof v === 'string' && SCENE_ID.test(v.trim()) ? names.get(v.trim()) ?? null : v);
     if (Array.isArray(args.present)) args.present = args.present.map(fix).filter(Boolean);
     for (const key of ['attitudes', 'status', 'growth'] as const) {

@@ -22,7 +22,7 @@ export interface ChatWorld {
     /** Profiles of people no longer 重要人物, kept for when they are again. */
     archived?: Record<string, ImportantProfile>;
     /** Promotions waiting for the next turn (asked while no request was at hand). */
-    queue?: { name: string; base: string }[];
+    queue?: { name: string; base: string; sceneId?: string }[];
 }
 
 export const city = (): City => lanjiang();

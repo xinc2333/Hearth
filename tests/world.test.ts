@@ -16,12 +16,15 @@ import { Store } from '../src/server/store.ts';
 import tabletop from '../src/plugins/tabletop/index.ts';
 import { TABLETOP_ENTRIES } from '../src/plugins/tabletop/entries.ts';
 import type { MessageData, SwipeData } from '../src/plugins/tabletop/sheet.ts';
-import { applySetup } from '../src/plugins/tabletop/world/apply.ts';
+import { applySettleArgs } from '../src/plugins/tabletop/settle.ts';
+import { newCharacter, renameCharacter } from '../src/plugins/tabletop/sheet.ts';
+import { addNewcomers, applySettleWorld, applySetup } from '../src/plugins/tabletop/world/apply.ts';
+import { parseSettleWorld } from '../src/plugins/tabletop/world/tools.ts';
 import { lanjiang } from '../src/plugins/tabletop/world/city/index.ts';
 import { WORLD_ENTRIES } from '../src/plugins/tabletop/world/entries.ts';
 import { bestTrip, trip } from '../src/plugins/tabletop/world/route.ts';
 import { staffOf, updateScene } from '../src/plugins/tabletop/world/scene.ts';
-import { advanceBody, bodyWords, fmtNow, parseTime, weatherOn, type WorldState } from '../src/plugins/tabletop/world/state.ts';
+import { advanceBody, bodyWords, fmtNow, learn, parseTime, renamePerson, weatherOn, type WorldState } from '../src/plugins/tabletop/world/state.ts';
 import { playTurn } from '../src/plugins/tabletop/world/turn.ts';
 import { applyAct, applyDay, applyProfile, deliverDue, takeNotices, timeAt } from '../src/plugins/tabletop/world/minds.ts';
 
@@ -173,6 +176,50 @@ test('世界 profiles: someone from the scene becomes a 重要人物 with a week
     assert.equal(applyProfile(world, city, { name: '阿青', profile: 'x', summary: 'y', routine: [] }, '阿青', '用户写的档案')!.profile.profile, '用户写的档案');
 });
 
+test('世界 settlement: people the reply brought in join the scene; a real name replaces a description', () => {
+    const { world, state } = applySetup(SETUP, FORM, city, 42);
+    playTurn(world, city, { minutes: 20, move: { to: '衡梧路' } });
+    const before = world.scene!.people.length;
+    const sw = parseSettleWorld({
+        met: [
+            { name: '穿红裙的女生', looks: '二十出头，红色连衣裙，背着帆布包', gender: '女', age: 22, doing: '在等咖啡' },
+            { name: '王经理' },
+            { id: 'b-nobody', name: '编错的编号' },
+        ],
+    })!;
+    // On the 跑团 sheet as here, but left out of met.
+    state.characters['戴眼镜的男生'] = { ...newCharacter(), description: '戴黑框眼镜的男生', temporary: true };
+    addNewcomers(sw, world, state, ['戴眼镜的男生', '王经理', '穿红裙的女生']);
+    applySettleWorld(world, state, city, sw);
+    const red = world.scene!.people.find(p => p.name === '穿红裙的女生')!;
+    assert.equal(red.looks, '二十出头，红色连衣裙，背着帆布包');
+    assert.equal(red.gender, '女');
+    assert.equal(red.doing, '在等咖啡');
+    assert.ok(world.scene!.people.some(p => p.name === '戴眼镜的男生' && p.looks === '戴黑框眼镜的男生'));
+    assert.equal(world.scene!.people.length, before + 2, 'known people and unknown numbers add nobody');
+    assert.equal(world.people['穿红裙的女生'].kind, 'bystander');
+    assert.equal(world.people['穿红裙的女生'].at, place('衡梧路').id);
+    assert.notEqual(world.people['王经理'].at, place('衡梧路').id, 'a call with the boss does not bring him here');
+    assert.ok(state.characters['穿红裙的女生'].temporary);
+    // Named people stay while the protagonist does.
+    playTurn(world, city, { minutes: 90 });
+    assert.ok(world.scene!.people.some(p => p.name === '穿红裙的女生'));
+    // Someone who walks off is no longer here.
+    applySettleWorld(world, state, city, parseSettleWorld({ moves: [{ who: '戴眼镜的男生', to: '共和新村' }] })!);
+    assert.ok(!world.scene!.people.some(p => p.name === '戴眼镜的男生'));
+
+    // She gets her name: attitudes, what she knows and the scene follow it.
+    applySettleArgs(state, { attitudes: [{ who: '穿红裙的女生', attraction: 4, reason: '主角上前搭话' }] }, '林舟');
+    learn(world, '穿红裙的女生', '主角上前搭过话', '亲眼');
+    renamePerson(world, '穿红裙的女生', '苏晴');
+    renameCharacter(state, '穿红裙的女生', '苏晴');
+    assert.equal(red.name, '苏晴');
+    assert.ok(world.people['苏晴'] && !world.people['穿红裙的女生']);
+    assert.deepEqual(world.knowledge['苏晴'].map(k => k.text), ['主角上前搭过话']);
+    assert.ok(state.characters['苏晴'] && !state.characters['穿红裙的女生']);
+    assert.ok(state.relations.some(r => r.from === '苏晴' && r.reasons.some(x => x.text === '主角上前搭话')));
+});
+
 // ---------------------------------------------------------------------------------------------
 // Whole turns with a mock model
 // ---------------------------------------------------------------------------------------------
@@ -199,7 +246,7 @@ async function mockModel(t: { after: (fn: () => unknown) => void }, rulings: unk
             return answer(forced, { crowd: '下午的咖啡馆，人不多', people: ids.map((id, i) => ({ id, looks: i ? `第 ${i} 个客人，穿灰色卫衣` : '扎马尾的店员', doing: '在忙', where: i ? '靠窗' : '吧台后面' })) });
         }
         if (forced === 'hearth_act') return answer(forced, { think: '要问问', actions: [{ do: 'message', at: '09:20', to: '主角', text: '人呢？' }], feelings: { trust: -5, reason: '没来上班' } });
-        if (forced === 'hearth_profile') return answer(forced, { name: '许棠', profile: '许棠的完整档案', summary: '咖啡师', role: '咖啡师', gender: '女', age: 25, home: '鹿鸣路洋房', work: '衡梧路', routine: [{ days: '工作日', from: '08:00', to: '17:00', place: '衡梧路', doing: '上班' }] });
+        if (forced === 'hearth_profile') return answer(forced, { name: '许棠', profile: '许棠的完整档案', summary: '咖啡师', role: '咖啡师', gender: '女', age: 25, home: '鹿鸣路洋房', work: '衡梧路', routine: [{ days: '每天', from: '06:30', to: '07:40', place: '鹿鸣路洋房', doing: '起床' }, { days: '工作日', from: '08:00', to: '17:00', place: '衡梧路', doing: '上班' }] });
         if (forced === 'hearth_day') return answer(forced, { day: ['上班'], recent: '还好', contact: { at: '2026-03-03 12:30', how: '消息', text: '今天还来喝咖啡吗？' } });
         if (forced === 'hearth_settle') {
             const next = settles.shift() as Record<string, any> | undefined;
@@ -259,6 +306,8 @@ test('世界 chat: opening, going out, the scene, settling the world', async t =
         [
             { world: { ate: '' } },
             { present: ['FIRST'], attitudes: [{ who: 'FIRST', familiarity: 2, reason: '点了一杯拿铁' }], world: { ate: '点心', money: [{ amount: -32, reason: '一杯拿铁' }], met: [{ id: 'FIRST', name: '扎马尾的店员' }], commitments: [{ with: '王经理', what: '下午交方案', at: '2026-03-02 15:00', place: '望江嘴金融城' }] } },
+            // The other version: the protagonist also talks to a stranger the scene did not have.
+            { present: ['穿红裙的女生'], attitudes: [{ who: 'FIRST', familiarity: 2, reason: '点了一杯拿铁' }, { who: '穿红裙的女生', attraction: 3, reason: '主角上前搭话' }], world: { met: [{ id: 'FIRST', name: '扎马尾的店员' }] } },
         ]);
     const { store, runtime, chat, host } = await worldRuntime(dir, mock.url);
 
@@ -307,6 +356,10 @@ test('世界 chat: opening, going out, the scene, settling the world', async t =
     // Swiping keeps the turn: no new ruling or scene, a new reply and settlement.
     await runtime.generate(chat.id, { type: 'swipe' }, () => {});
     assert.deepEqual(mock.calls.slice(7), ['reply', 'hearth_settle']);
+    // The stranger the reply brought in is listed with the people here.
+    current = store.require<Chat>('chat', chat.id);
+    assert.ok(swipeOf(current).world!.scene!.people.some(p => p.name === '穿红裙的女生'));
+    assert.equal(swipeOf(current).world!.people['穿红裙的女生'].kind, 'bystander');
 
     // The barista becomes a 重要人物, straight from the scene.
     current = store.require<Chat>('chat', chat.id);
@@ -318,6 +371,10 @@ test('世界 chat: opening, going out, the scene, settling the world', async t =
     assert.equal((current.plugins?.tabletop as any).world.important['许棠'].profile, '许棠的完整档案');
     assert.equal(swipeOf(current).world!.people['许棠'].kind, 'important');
     assert.ok(swipeOf(current).state!.characters['许棠']);
+    // What was kept under 「扎马尾的店员」 is hers now.
+    assert.ok(!swipeOf(current).state!.characters['扎马尾的店员'] && !swipeOf(current).world!.people['扎马尾的店员']);
+    assert.ok(swipeOf(current).state!.relations.some(r => r.from === '许棠' && r.familiarity > 0));
+    assert.equal(swipeOf(current).world!.scene!.people.find(p => p.id === barista.id)!.name, '许棠');
 
     // Sitting through nine: the boss notices and writes; the night passes and 许棠 lives her day.
     await runtime.generate(chat.id, { type: 'normal', text: '在咖啡馆一直坐到第二天早上' }, () => {});

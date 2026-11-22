@@ -13,7 +13,7 @@ const OUTCOME_KEYS: Record<Tier, string> = { critical: 'critical', success: 'suc
 
 /** The ruling tool; a 世界 chat adds how long the turn takes and where the protagonist goes. */
 export function checkTool(world = false) {
-    const outcome = (label: string) => ({ type: 'string', description: `${label}时会发生什么（一两句）` });
+    const outcome = (label: string) => ({ type: 'string', description: `${label}时确定会发生的事（一两句）：只写一种情形，不写「或者」「也许」` });
     return {
         type: 'function',
         function: {
@@ -55,7 +55,7 @@ export function checkTool(world = false) {
                                 hidden: { type: 'boolean', description: '暗骰：主角察觉不到这个检定（例如守卫有没有注意到主角）' },
                                 outcomes: {
                                     type: 'object',
-                                    description: '先写好四种结果各自会发生什么；掷骰后只采用掷中的那一种',
+                                    description: '先写好四种结果各自会发生什么，每种是一件确定的事；掷骰后只采用掷中的那一种，原样当作事实',
                                     properties: { critical: outcome('大成功'), success: outcome('成功'), failure: outcome('失败'), fumble: outcome('大失败') },
                                     required: ['critical', 'success', 'failure', 'fumble'],
                                 },

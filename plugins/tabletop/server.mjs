@@ -7592,6 +7592,16 @@ function removeCharacter(sheet, name) {
   next.bonds = next.bonds.filter((b) => !b.between.includes(key));
   return next;
 }
+function renameCharacter(sheet, from, to) {
+  if (!from || !to || from === to || !sheet.characters[from] || sheet.characters[to]) return;
+  sheet.characters[to] = sheet.characters[from];
+  delete sheet.characters[from];
+  for (const r of sheet.relations) {
+    if (r.from === from) r.from = to;
+    if (r.to === from) r.to = to;
+  }
+  for (const b of sheet.bonds) b.between = b.between.map((x) => x === from ? to : x);
+}
 function relationValue(r, axis) {
   return clamp(Math.round(r.base[axis] + r.mood[axis]), 0, 100);
 }
@@ -8042,8 +8052,20 @@ var SETTLE_WORLD_PROPERTY = {
       },
       met: {
         type: "array",
-        description: "\u8FD9\u4E00\u5E55\u7684\u573A\u666F\u4EBA\u7269\u91CC\uFF0C\u548C\u4E3B\u89D2\u6253\u8FC7\u4EA4\u9053\u7684\u4EBA\uFF08\u8BF4\u8FC7\u8BDD\u3001\u6709\u8FC7\u6765\u5F80\uFF09\uFF1A\u7F16\u53F7\u548C\u79F0\u547C\uFF0C\u77E5\u9053\u540D\u5B57\u5C31\u5199\u540D\u5B57",
-        items: { type: "object", properties: { id: { type: "string" }, name: { type: "string" } }, required: ["id", "name"] }
+        description: "\u548C\u4E3B\u89D2\u6253\u8FC7\u4EA4\u9053\uFF08\u8BF4\u8FC7\u8BDD\u3001\u6709\u8FC7\u6765\u5F80\uFF09\u6216\u4E3B\u89D2\u7279\u610F\u7559\u610F\u7684\u4EBA\uFF1A\u3010\u8FD9\u91CC\u7684\u4EBA\u3011\u91CC\u7684\u5199\u7F16\u53F7\u548C\u79F0\u547C\uFF1B\u6B63\u6587\u91CC\u51FA\u73B0\u3001\u3010\u8FD9\u91CC\u7684\u4EBA\u3011\u91CC\u6CA1\u6709\u7684\uFF0C\u4E0D\u5199\u7F16\u53F7\uFF0C\u5199\u79F0\u547C\u548C\u770B\u5230\u7684\u6837\u5B50\u3002\u77E5\u9053\u540D\u5B57\u5C31\u5199\u540D\u5B57",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string", description: "\u3010\u8FD9\u91CC\u7684\u4EBA\u3011\u91CC\u7684\u7F16\u53F7\uFF1B\u4E0D\u5728\u91CC\u9762\u7684\u4E0D\u5199" },
+            name: { type: "string", description: "\u540D\u5B57\uFF0C\u4E0D\u77E5\u9053\u5C31\u5199\u79F0\u547C\uFF0C\u4F8B\u5982\u300C\u7A7F\u7C73\u8272\u98CE\u8863\u7684\u5973\u751F\u300D" },
+            looks: { type: "string", description: "\u4E0D\u5728\u3010\u8FD9\u91CC\u7684\u4EBA\u3011\u91CC\u7684\u624D\u5199\uFF1A\u6B63\u6587\u91CC\u5199\u5230\u7684\u6837\u5B50\uFF08\u5927\u6982\u7684\u5E74\u7EAA\u3001\u6027\u522B\u3001\u7A7F\u7740\u3001\u663E\u773C\u7684\u7279\u5F81\uFF09" },
+            gender: { type: "string", enum: ["\u7537", "\u5973"] },
+            age: { type: "number", description: "\u770B\u8D77\u6765\u7684\u5C81\u6570" },
+            doing: { type: "string", description: "\u6B64\u523B\u5728\u505A\u4EC0\u4E48" },
+            gone: { type: "boolean", description: "\u8FD9\u4E00\u6BB5\u7ED3\u675F\u65F6\u5DF2\u7ECF\u79BB\u5F00\u4E3B\u89D2\u8EAB\u8FB9" }
+          },
+          required: ["name"]
+        }
       },
       places: {
         type: "array",
@@ -8068,7 +8090,15 @@ function parseSettleWorld(raw) {
     read: raw.read === true,
     witnessed: list2(raw.witnessed).filter(isRecord2).map((w) => ({ who: list2(w.who).map(str2).filter(Boolean), what: str2(w.what) })).filter((w) => w.who.length && w.what),
     told: list2(raw.told).filter(isRecord2).map((t) => ({ to: str2(t.to), what: str2(t.what) })).filter((t) => t.to && t.what),
-    met: list2(raw.met).filter(isRecord2).map((m) => ({ id: str2(m.id), name: str2(m.name) })).filter((m) => m.id && m.name),
+    met: list2(raw.met).filter(isRecord2).map((m) => ({
+      ...str2(m.id) ? { id: str2(m.id) } : {},
+      name: str2(m.name),
+      ...str2(m.looks) ? { looks: str2(m.looks) } : {},
+      ...m.gender === "\u7537" || m.gender === "\u5973" ? { gender: m.gender } : {},
+      ...num2(m.age) ? { age: num2(m.age) } : {},
+      ...str2(m.doing) ? { doing: str2(m.doing) } : {},
+      ...m.gone === true ? { gone: true } : {}
+    })).filter((m) => m.name),
     places: list2(raw.places).filter(isRecord2).map((p) => ({ name: str2(p.name), ...str2(p.near) ? { near: str2(p.near) } : {}, ...str2(p.about) ? { about: str2(p.about) } : {} })).filter((p) => p.name)
   };
 }
@@ -8196,7 +8226,7 @@ function parseJson(text) {
 var CHECK_TOOL_NAME = "hearth_check";
 var OUTCOME_KEYS = { critical: "critical", success: "success", failure: "failure", fumble: "fumble" };
 function checkTool(world = false) {
-  const outcome = (label) => ({ type: "string", description: `${label}\u65F6\u4F1A\u53D1\u751F\u4EC0\u4E48\uFF08\u4E00\u4E24\u53E5\uFF09` });
+  const outcome = (label) => ({ type: "string", description: `${label}\u65F6\u786E\u5B9A\u4F1A\u53D1\u751F\u7684\u4E8B\uFF08\u4E00\u4E24\u53E5\uFF09\uFF1A\u53EA\u5199\u4E00\u79CD\u60C5\u5F62\uFF0C\u4E0D\u5199\u300C\u6216\u8005\u300D\u300C\u4E5F\u8BB8\u300D` });
   return {
     type: "function",
     function: {
@@ -8238,7 +8268,7 @@ function checkTool(world = false) {
                 hidden: { type: "boolean", description: "\u6697\u9AB0\uFF1A\u4E3B\u89D2\u5BDF\u89C9\u4E0D\u5230\u8FD9\u4E2A\u68C0\u5B9A\uFF08\u4F8B\u5982\u5B88\u536B\u6709\u6CA1\u6709\u6CE8\u610F\u5230\u4E3B\u89D2\uFF09" },
                 outcomes: {
                   type: "object",
-                  description: "\u5148\u5199\u597D\u56DB\u79CD\u7ED3\u679C\u5404\u81EA\u4F1A\u53D1\u751F\u4EC0\u4E48\uFF1B\u63B7\u9AB0\u540E\u53EA\u91C7\u7528\u63B7\u4E2D\u7684\u90A3\u4E00\u79CD",
+                  description: "\u5148\u5199\u597D\u56DB\u79CD\u7ED3\u679C\u5404\u81EA\u4F1A\u53D1\u751F\u4EC0\u4E48\uFF0C\u6BCF\u79CD\u662F\u4E00\u4EF6\u786E\u5B9A\u7684\u4E8B\uFF1B\u63B7\u9AB0\u540E\u53EA\u91C7\u7528\u63B7\u4E2D\u7684\u90A3\u4E00\u79CD\uFF0C\u539F\u6837\u5F53\u4F5C\u4E8B\u5B9E",
                   properties: { critical: outcome("\u5927\u6210\u529F"), success: outcome("\u6210\u529F"), failure: outcome("\u5931\u8D25"), fumble: outcome("\u5927\u5931\u8D25") },
                   required: ["critical", "success", "failure", "fumble"]
                 }
@@ -10365,6 +10395,39 @@ function learn(world, who, text, source, at = world.now) {
   list4.push({ at, text, source });
   if (list4.length > 40) list4.splice(0, list4.length - 40);
 }
+function renamePerson(world, from, to) {
+  if (!from || !to || from === to) return;
+  const swap = (s) => s === from ? to : s;
+  if (world.people[from]) {
+    world.people[to] = { ...world.people[from], ...world.people[to] ?? {} };
+    delete world.people[from];
+  }
+  if (world.knowledge[from]) {
+    world.knowledge[to] = [...world.knowledge[from], ...world.knowledge[to] ?? []].slice(-40);
+    delete world.knowledge[from];
+  }
+  if (world.memory[from]) {
+    world.memory[to] ??= world.memory[from];
+    delete world.memory[from];
+  }
+  for (const c of world.commitments) {
+    c.parties = c.parties.map(swap);
+    for (const e of c.expectations) {
+      e.who = swap(e.who);
+      if (e.kind === "payment") e.to = swap(e.to);
+    }
+  }
+  world.phone.contacts = [...new Set(world.phone.contacts.map(swap))];
+  for (const m of world.phone.messages) {
+    m.from = swap(m.from);
+    m.to = swap(m.to);
+  }
+  for (const p of world.pending) {
+    p.who = swap(p.who);
+    if (p.message) p.message.to = swap(p.message.to);
+  }
+  for (const p of world.scene?.people ?? []) if (p.name === from) p.name = to;
+}
 function routinePlace(person, t) {
   const m = moment(t).minute;
   for (const s of person.routine ?? []) {
@@ -11612,6 +11675,7 @@ function applySettleWorld(world, state, city2, sw, turnStart = world.now) {
   for (const m of sw.moves) {
     const place = findPlace(world, city2, m.to) ?? registerPlace(world, city2, m.to, placeById(world, city2, world.at));
     world.people[m.who] = { ...world.people[m.who] ?? { kind: "bystander" }, at: place.id, seenAt: world.now };
+    if (world.scene && place.id !== world.scene.place) world.scene.people = world.scene.people.filter((p) => p.name !== m.who);
   }
   for (const c of sw.commitments) {
     const at = c.at ? parseTime(c.at) : null;
@@ -11660,18 +11724,7 @@ function applySettleWorld(world, state, city2, sw, turnStart = world.now) {
     world.phone.contacts.push(n);
     out.push(line(`\u5B58\u4E86${n}\u7684\u8054\u7CFB\u65B9\u5F0F`));
   }
-  for (const m of sw.met) {
-    const p = world.scene?.people.find((x) => x.id === m.id);
-    if (!p) continue;
-    p.name = m.name;
-    world.people[m.name] = { ...world.people[m.name] ?? { kind: "bystander" }, brief: p.looks ?? world.people[m.name]?.brief, at: world.scene.place, seenAt: world.now };
-    if (!state.characters[m.name]) {
-      const c = newCharacter();
-      c.description = [p.looks, p.role === "staff" ? `\u8FD9\u91CC\u7684${p.purpose}` : ""].filter(Boolean).join("\uFF0C");
-      c.temporary = true;
-      state.characters[m.name] = c;
-    }
-  }
+  for (const m of sw.met) meet(world, state, m);
   for (const p of sw.places) {
     if (findPlace(world, city2, p.name)) continue;
     const near = p.near ? findPlace(world, city2, p.near) : placeById(world, city2, world.at);
@@ -11680,12 +11733,56 @@ function applySettleWorld(world, state, city2, sw, turnStart = world.now) {
   }
   return out;
 }
+var WOMAN = /女|姑娘|阿姨|大妈|大婶|奶奶|姐|妹|妈|太太|小姐|妇/;
+function meet(world, state, m) {
+  const scene = world.scene;
+  const known = world.people[m.name];
+  let p = (m.id ? scene?.people.find((x) => x.id === m.id) : void 0) ?? scene?.people.find((x) => x.name === m.name);
+  if (!p && m.id && !m.looks) return;
+  if (!p && scene && !m.gone && (!known || known.kind === "bystander")) {
+    const looks2 = m.looks || known?.brief;
+    p = {
+      id: `b-${hash(`${world.seed}|met|${m.name}|${world.now}`).toString(36)}`,
+      role: "visitor",
+      gender: m.gender ?? (WOMAN.test(`${m.name}${looks2 ?? ""}`) ? "\u5973" : "\u7537"),
+      age: Math.round(m.age ?? 30),
+      purpose: "\u5267\u60C5\u91CC\u51FA\u73B0\u7684\u4EBA",
+      leaveAt: world.now + 60,
+      ...looks2 ? { looks: looks2 } : {},
+      ...m.doing ? { doing: m.doing } : {}
+    };
+    scene.people.push(p);
+  }
+  if (p) {
+    p.name = m.name;
+    if (m.doing) p.doing = m.doing;
+    if (m.gone && scene) scene.people = scene.people.filter((x) => x !== p);
+  }
+  if (!p && known && known.kind !== "bystander") return;
+  const looks = p?.looks ?? m.looks;
+  const kind = known?.kind ?? "bystander";
+  world.people[m.name] = { ...known ?? { kind }, ...kind === "bystander" && looks ? { brief: looks } : {}, at: scene?.place ?? world.at, seenAt: world.now };
+  if (!state.characters[m.name]) {
+    const c = newCharacter();
+    c.description = [looks, p?.role === "staff" ? `\u8FD9\u91CC\u7684${p.purpose}` : ""].filter(Boolean).join("\uFF0C");
+    c.temporary = true;
+    state.characters[m.name] = c;
+  }
+}
+function addNewcomers(sw, world, state, present) {
+  for (const name of present) {
+    const c = state.characters[name];
+    if (!c || name === PROTAGONIST || world.people[name] || sw.met.some((m) => m.name === name)) continue;
+    if (world.scene?.people.some((p) => p.name === name)) continue;
+    sw.met.push({ name, ...c.description ? { looks: c.description } : {} });
+  }
+}
 var worldSeed = (chatId) => hash(chatId);
 var SCENE_ID = /^[sb]-[0-9a-z-]+$/;
 function renameSceneIds(args, world, sw) {
   const names = /* @__PURE__ */ new Map();
   for (const p of world.scene?.people ?? []) if (p.name) names.set(p.id, p.name);
-  for (const m of sw?.met ?? []) names.set(m.id, m.name);
+  for (const m of sw?.met ?? []) if (m.id) names.set(m.id, m.name);
   const fix = (v) => typeof v === "string" && SCENE_ID.test(v.trim()) ? names.get(v.trim()) ?? null : v;
   if (Array.isArray(args.present)) args.present = args.present.map(fix).filter(Boolean);
   for (const key of ["attitudes", "status", "growth"]) {
@@ -11751,7 +11848,7 @@ var WORLD_ENTRIES = [
 - \u989D\u5916\u7684\u82B1\u9500\u548C\u6536\u5165\uFF08\u4E09\u9910\u65E5\u7528\u6BCF\u5929\u5DF2\u7ECF\u6309\u751F\u6D3B\u6C34\u5E73\u6263\u8FC7\uFF0C\u8F66\u8D39\u5DF2\u7ECF\u7B97\u8FC7\uFF0C\u90FD\u4E0D\u8981\u518D\u5199\uFF09\u3002\u4E3B\u89D2\u5403\u4E86\u4E1C\u897F\u5199 ate\u3002
 - \u65B0\u7B54\u5E94\u3001\u7EA6\u597D\u7684\u4E8B\u5199 commitments\uFF0C\u6709\u5177\u4F53\u65F6\u95F4\u5C31\u5199 at\uFF0C\u6709\u5730\u70B9\u5C31\u5199 place\uFF1B\u505A\u5B8C\u4E86\u7684\u7EA6\u5B9A\u5199 done\u3002
 - \u4E3B\u89D2\u7528\u624B\u673A\u53D1\u51FA\u7684\u6D88\u606F\u5199 messages\uFF1B\u4EA4\u6362\u4E86\u8054\u7CFB\u65B9\u5F0F\u5199 contacts\u3002
-- \u3010\u8FD9\u91CC\u7684\u4EBA\u3011\u91CC\u548C\u4E3B\u89D2\u6253\u8FC7\u4EA4\u9053\u7684\u4EBA\u5199 met\uFF08\u7F16\u53F7\u548C\u79F0\u547C\uFF0C\u95EE\u5230\u540D\u5B57\u5C31\u5199\u540D\u5B57\uFF09\u3002
+- \u548C\u4E3B\u89D2\u6253\u8FC7\u4EA4\u9053\u3001\u6216\u8005\u4E3B\u89D2\u7279\u610F\u7559\u610F\u7684\u4EBA\u5199 met\uFF1A\u3010\u8FD9\u91CC\u7684\u4EBA\u3011\u91CC\u7684\u5199\u7F16\u53F7\u548C\u79F0\u547C\uFF1B\u6B63\u6587\u91CC\u51FA\u73B0\u3001\u3010\u8FD9\u91CC\u7684\u4EBA\u3011\u91CC\u6CA1\u6709\u7684\uFF0C\u5199\u79F0\u547C\u548C\u6B63\u6587\u91CC\u5199\u5230\u7684\u6837\u5B50\u3002\u95EE\u5230\u540D\u5B57\u5C31\u5199\u540D\u5B57\u3002
 - \u5728\u573A\u7684\u89D2\u8272\u53BB\u4E86\u522B\u5904\u5199 moves\uFF1B\u6B63\u6587\u91CC\u51FA\u73B0\u3001\u5730\u56FE\u4E0A\u6CA1\u6709\u7684\u5730\u70B9\u5199 places\u3002
 - \u6B63\u6587\u6BD4\u8BA1\u5212\u7684\u65F6\u95F4\u6BB5\u591A\u5199\u4E86\u65F6\u95F4\uFF08\u7761\u7740\u4E86\u3001\u804A\u8FC7\u4E86\u5934\uFF09\uFF0C\u5199 extra_minutes\u3002
 - \u53EA\u8BB0\u8FD9\u6BB5\u56DE\u590D\u91CC\u771F\u7684\u53D1\u751F\u7684\u4E8B\uFF0C\u6CA1\u53D1\u751F\u7684\u4E0D\u8981\u7F16\u3002`
@@ -12083,14 +12180,17 @@ ${history}` }] }, SETTLE_TOOL_NAME, Boolean(world));
       const args = parseSettleArgs(call?.function?.arguments ?? res.text);
       if (!args) throw new Error(res.toolCalls.length ? `\u6A21\u578B\u8C03\u7528\u4E86 ${res.toolCalls.map((c) => c.function?.name).join("\u3001")}\uFF0C\u6CA1\u6709\u8C03\u7528\u7ED3\u7B97\u5DE5\u5177` : "\u6A21\u578B\u6CA1\u6709\u8C03\u7528\u7ED3\u7B97\u5DE5\u5177");
       const next = structuredClone(state);
-      const sw = world ? parseSettleWorld(args.world) : null;
+      const sw = world ? parseSettleWorld(args.world ?? {}) : null;
       if (world) renameSceneIds(args, world.after, sw);
       const results = applySettleArgs(next, args, source.userName);
       const present = Array.isArray(args.present) ? args.present.map(String).filter(Boolean) : [];
       let nextWorld;
       if (world) {
         nextWorld = structuredClone(world.after);
-        if (sw) results.push(...applySettleWorld(nextWorld, next, city(), sw, world.plan.from));
+        if (sw) {
+          addNewcomers(sw, nextWorld, next, present);
+          results.push(...applySettleWorld(nextWorld, next, city(), sw, world.plan.from));
+        }
         syncBody(next, nextWorld);
       }
       return { state: next, ...nextWorld ? { world: nextWorld } : {}, settle: { raw: JSON.stringify(args), results, present } };
@@ -12108,6 +12208,13 @@ function promoteOnSheet(state, made) {
   c.description = made.description || c.description;
   delete c.temporary;
   state.characters[made.name] = c;
+}
+function adopt(world, state, made, was, sceneId) {
+  renamePerson(world, was, made.name);
+  renameCharacter(state, was, made.name);
+  promoteOnSheet(state, made);
+  const person = sceneId ? world.scene?.people.find((p) => p.id === sceneId) : void 0;
+  if (person) person.name = made.name;
 }
 function currentData(chat) {
   for (let i = chat.messages.length - 1; i >= 0; i--) {
@@ -12190,7 +12297,7 @@ ${v}` : v;
           const made = await runProfile(body, texts, world, before, q.name, q.base, ctx.send, ctx.trace).catch(() => null);
           if (made) {
             important[made.name] = made.profile;
-            promoteOnSheet(before, made);
+            adopt(world, before, made, q.name, q.sceneId);
           }
         }
         await api.store.apply({
@@ -12392,16 +12499,16 @@ ${[card.fields.description, card.fields.personality, card.fields.scenario].filte
       }
       const source = sources.get(chat.id);
       const last = chat.messages.at(-1);
+      const was = name || "\u65B0\u7684\u91CD\u8981\u4EBA\u7269";
       if (!source?.body || !Array.isArray(source.body.messages) || !last) {
-        return { ops: [{ op: "set", path: ["plugins", PLUGIN_ID, "world", "queue"], value: [...cw.queue ?? [], { name: name || "\u65B0\u7684\u91CD\u8981\u4EBA\u7269", base }] }] };
+        return { ops: [{ op: "set", path: ["plugins", PLUGIN_ID, "world", "queue"], value: [...cw.queue ?? [], { name: was, base, ...person ? { sceneId: person.id } : {} }] }] };
       }
       const body = appendReply(source.body, replyForHistory(last.swipes[last.activeSwipe]?.content ?? ""));
       const next = structuredClone(state);
-      const made = await runProfile(body, source.texts, world, next, name || "\u65B0\u7684\u91CD\u8981\u4EBA\u7269", base, (b) => api.send(b));
+      const made = await runProfile(body, source.texts, world, next, was, base, (b) => api.send(b));
       if (!made) throw Object.assign(new Error("\u6A21\u578B\u6CA1\u6709\u5199\u51FA\u6863\u6848"), { status: 502 });
       important[made.name] = made.profile;
-      promoteOnSheet(next, made);
-      if (person) person.name = made.name;
+      adopt(world, next, made, was, person?.id);
       const ops = [{ op: "set", path: ["plugins", PLUGIN_ID, "world", "important"], value: important }];
       if (path2) ops.push({ op: "set", path: [...path2, "world"], value: world }, { op: "set", path: [...path2, "state"], value: next });
       else ops.push({ op: "set", path: ["plugins", PLUGIN_ID, "world", "base"], value: world }, { op: "set", path: ["plugins", PLUGIN_ID, "base"], value: next });
