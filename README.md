@@ -2,7 +2,7 @@
 
 轻量的桌面角色扮演对话工具，兼容 SillyTavern（酒馆）的角色卡、世界书和预设。
 
-![版本](https://img.shields.io/badge/version-0.8.0-c2410c) ![平台](https://img.shields.io/badge/platform-Windows-0078d4) ![许可证](https://img.shields.io/badge/license-AGPL--3.0-blue)
+![版本](https://img.shields.io/badge/version-0.9.0-c2410c) ![平台](https://img.shields.io/badge/platform-Windows-0078d4) ![许可证](https://img.shields.io/badge/license-AGPL--3.0-blue)
 
 ## 主要功能
 
@@ -11,6 +11,7 @@
 - **前端卡和变量**：角色卡的状态栏、开局面板、小手机等界面可以正常显示和操作，MVU 变量跟随回复的版本切换。
 - **AI 改卡**：在对话里告诉 AI 想怎么改角色卡或世界书，每一处改动都能对照和撤销。
 - **剧场、聊天和跑团**：在剧场里写故事，切到聊天和 AI 讨论剧情；跑团给行动加上掷骰检定，别人对主角的态度随事件变化。
+- **世界玩法**：在一座按上海缩小的城市里过日子。时间、路程和钱按实际计算，身边的人会对发生的事做出自己的反应。
 - **安装即用**：Windows 安装包，自带运行环境，有新版本时自动更新。
 
 ## 下载安装
@@ -37,7 +38,7 @@
 
 关闭窗口时，Hearth 会留在屏幕右下角的通知区域继续运行。要退出，右键点那里的图标，选「退出 Hearth」。
 
-预设、快捷键、AI 改卡、跑团、插件和网络代理的用法，见[使用说明](docs/guide.md)。
+预设、快捷键、AI 改卡、跑团、世界玩法、插件和网络代理的用法，见[使用说明](docs/guide.md)。
 
 ## 兼容情况
 
