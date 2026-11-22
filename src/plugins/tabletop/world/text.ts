@@ -4,6 +4,7 @@
 import { KIND_LABEL, type City } from './city/index.ts';
 import { ageWords, crowdWord, isOpen } from './scene.ts';
 import type { TurnPlan } from './turn.ts';
+import { bestTrip, MODE_LABEL } from './route.ts';
 import { PROTAGONIST } from '../rules.ts';
 import {
     bodyWords, clock, dateKey, dayMatches, fmtNow, fmtWeather, isWorkday, minutesOf, moment, nearby, placeById,
@@ -57,6 +58,12 @@ export function worldText(world: WorldState, city: City, step: WorldStep, plan?:
     lines.push(`主角：余额 ${world.balance} 元；${feel.length ? feel.join('、') : '身体状况正常'}；${world.me.job.kind === '无业' ? '没有工作' : `${world.me.job.title}`}`);
     const todo = agenda(world, city);
     if (todo.length) lines.push(`安排：${todo.join('；')}`);
+    // The way to work, as the program would route it, so the story does not invent one.
+    const work = placeById(world, city, world.me.job.place);
+    if (work && place && work.id !== place.id && step !== 'settle') {
+        const t = bestTrip(city, place.at, work.at, { minute: moment(world.now).minute, workday: isWorkday(world.now) }, world.me.habit);
+        lines.push(`去${work.name}：${MODE_LABEL[t.mode]}约 ${t.minutes} 分钟（${t.legs.join('，')}）`);
+    }
     const unread = world.phone.messages.filter(m => !m.read && m.to === PROTAGONIST);
     if (unread.length) lines.push(`没看的消息：${unread.map(m => `${clock(m.at)} ${m.from}：${m.text}`).join('；')}`);
 

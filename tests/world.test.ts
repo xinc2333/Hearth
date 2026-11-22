@@ -153,8 +153,10 @@ async function mockModel(t: { after: (fn: () => unknown) => void }, rulings: unk
         if (forced === 'hearth_settle') {
             const next = settles.shift() as Record<string, any> | undefined;
             const firstId = /^- ([sb]-[0-9a-z-]+)｜/m.exec(last)?.[1];
-            const world = next?.world ? { ...next.world, met: next.world.met?.map((m: any) => ({ ...m, id: m.id === 'FIRST' ? firstId : m.id })) } : undefined;
-            return answer(forced, { present: [], attitudes: [], ...next, ...(world ? { world } : {}) });
+            const id = (v: string) => (v === 'FIRST' ? firstId : v);
+            const world = next?.world ? { ...next.world, met: next.world.met?.map((m: any) => ({ ...m, id: id(m.id) })) } : undefined;
+            const attitudes = (next?.attitudes ?? []).map((a: any) => ({ ...a, who: id(a.who) }));
+            return answer(forced, { present: (next?.present ?? []).map(id), ...next, attitudes, ...(world ? { world } : {}) });
         }
         res.writeHead(200, { 'Content-Type': 'text/event-stream' });
         res.end(`data: ${JSON.stringify({ choices: [{ delta: { content: '（正文）' } }] })}\n\ndata: [DONE]\n\n`);
@@ -202,7 +204,7 @@ test('世界 chat: opening, going out, the scene, settling the world', async t =
         [{ think: '出门', checks: [], done: true, time: { minutes: 30, activity: '日常' }, move: { to: '衡梧路', by: '地铁' } }],
         [
             { world: { ate: '' } },
-            { world: { ate: '点心', money: [{ amount: -32, reason: '一杯拿铁' }], met: [{ id: 'FIRST', name: '扎马尾的店员' }], commitments: [{ with: '王经理', what: '下午交方案', at: '2026-03-02 15:00', place: '望江嘴金融城' }] } },
+            { present: ['FIRST'], attitudes: [{ who: 'FIRST', familiarity: 2, reason: '点了一杯拿铁' }], world: { ate: '点心', money: [{ amount: -32, reason: '一杯拿铁' }], met: [{ id: 'FIRST', name: '扎马尾的店员' }], commitments: [{ with: '王经理', what: '下午交方案', at: '2026-03-02 15:00', place: '望江嘴金融城' }] } },
         ]);
     const { store, runtime, chat } = await worldRuntime(dir, mock.url);
 
@@ -243,6 +245,8 @@ test('世界 chat: opening, going out, the scene, settling the world', async t =
     assert.ok(world.ledger.some(l => /地铁去衡梧路/.test(l.reason)));
     assert.equal(world.scene!.people[0].name, '扎马尾的店员');
     assert.ok(data.state!.characters['扎马尾的店员'], 'the barista is on the sheet now');
+    assert.ok(data.state!.relations.some(r => r.from === '扎马尾的店员'), 'numbers in the settlement became her name');
+    assert.ok(!Object.keys(data.state!.characters).some(n => /^[sb]-/.test(n)));
     assert.ok(world.commitments.some(c => c.name === '下午交方案' && c.expectations.length === 2));
     assert.ok(data.settle!.results.some(r => r.kind === 'world' && /一杯拿铁/.test(r.text)));
 

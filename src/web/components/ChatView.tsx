@@ -15,6 +15,7 @@ import { AutoTextarea, Avatar, Button, clockTime, Empty, IconButton, isModalOpen
 import { SandboxFrame } from './CardFrames.tsx';
 import { EditResults } from './EditResults.tsx';
 import { CheckBar, hideSettlement, SettleNote, type TabletopProgress } from './Tabletop.tsx';
+import { isWorldCard, isWorldChat, WorldBar, WorldSetup, WorldTurn } from './World.tsx';
 import { ReadingControls } from './Reading.tsx';
 import { pickImportFiles } from './Sidebar.tsx';
 
@@ -121,6 +122,7 @@ const MessageView = memo(function MessageView({ chat, message, index, isLast, co
                 </header>
             )}
             {isUser && isEdit && <span className="msg-mode-label">编辑</span>}
+            {!isUser && !isEdit && <WorldTurn message={message} />}
             {!isUser && !isEdit && <CheckBar message={message} live={live?.progress?.tabletop as TabletopProgress | undefined} />}
             {reasoning && <Reasoning text={reasoning} live={thinking} />}
             <div className="msg-body">
@@ -512,7 +514,8 @@ export function ChatView() {
                             setLimit(limit + PAGE);
                         }}>显示更早的 {Math.min(PAGE, start)} 条（还有 {start} 条）</button>
                     )}
-                    {!chat.messages.length && <Empty title="开始对话吧">这个角色没有开场白，发一句话开始。</Empty>}
+                    {!chat.messages.length && !live && isWorldCard(character) && <WorldSetup chat={chat} />}
+                    {!chat.messages.length && !(isWorldCard(character) && !live) && <Empty title="开始对话吧">{isWorldCard(character) ? '正在开局…' : '这个角色没有开场白，发一句话开始。'}</Empty>}
                     {chat.messages.slice(start).map((m, i) => {
                         const index = start + i;
                         const swipe = m.swipes[m.activeSwipe] ?? m.swipes[0];
@@ -543,7 +546,9 @@ export function ChatView() {
                         <span>{live ? '正在生成，回到最新' : '回到最新'}</span>
                     </button>
                 )}
-                <Composer key={chat.id} chatId={chat.id} />
+                {isWorldChat(chat) && <WorldBar chat={chat} />}
+                {/* A new world starts from its opening form, not from a message. */}
+                {!(isWorldCard(character) && !chat.messages.length && !live) && <Composer key={chat.id} chatId={chat.id} />}
             </div>
         </main>
     );

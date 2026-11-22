@@ -101,7 +101,7 @@ function runCommitments(world: WorldState, city: City, from: number, to: number,
                     if (at === e.place || !note(world, `${c.id}|${i}|${dateKey(t)}`)) return;
                     const place = placeById(world, city, e.place)?.name ?? e.place;
                     const who = counterpart(c, '主角');
-                    out.push({ at: t, kind: 'lapse', seen: false, text: `${clock(t)} ${c.name}：主角这时应该在${place}（${e.days} ${e.from}–${e.to}），但不在。${who.length ? `${who.join('、')}会察觉。` : ''}` });
+                    out.push({ at: t, kind: 'lapse', seen: true, text: `${clock(t)} ${c.name}：主角这时应该在${place}（${e.days} ${e.from}–${e.to}），但不在。${who.length ? `${who.join('、')}会察觉，怎么反应主角现在还不知道。` : ''}` });
                 } else if (e.kind === 'payment') {
                     if (moment(day).d !== e.day) return;
                     const t = day + 9 * 60;

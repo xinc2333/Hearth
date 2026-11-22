@@ -24,7 +24,7 @@ import { appendReply, appendStep, forceTool, replyForHistory, replyTools } from 
 import { CHECK_TOOL_NAME } from './ruling.ts';
 import { messageData, PLUGIN_ID, stateBefore, type MessageData, type Ruling, type SwipeData, type TabletopState } from './sheet.ts';
 import { rulingText, stateText } from './text.ts';
-import { applySettleWorld, syncBody } from './world/apply.ts';
+import { applySettleWorld, renameSceneIds, syncBody } from './world/apply.ts';
 import { chatWorld, city, entry, runScene, runSetup, worldBefore } from './world/flow.ts';
 import type { WorldState } from './world/state.ts';
 import { parseSettleWorld } from './world/tools.ts';
@@ -118,12 +118,13 @@ async function settle(api: PluginApi, source: SettleSource, state: TabletopState
             const args = parseSettleArgs(call?.function?.arguments ?? res.text);
             if (!args) throw new Error(res.toolCalls.length ? `模型调用了 ${res.toolCalls.map(c => c.function?.name).join('、')}，没有调用结算工具` : '模型没有调用结算工具');
             const next = structuredClone(state);
+            const sw = world ? parseSettleWorld(args.world) : null;
+            if (world) renameSceneIds(args as Record<string, unknown>, world.after, sw);
             const results = applySettleArgs(next, args, source.userName);
             const present = Array.isArray(args.present) ? args.present.map(String).filter(Boolean) : [];
             let nextWorld: WorldState | undefined;
             if (world) {
                 nextWorld = structuredClone(world.after);
-                const sw = parseSettleWorld(args.world);
                 if (sw) results.push(...applySettleWorld(nextWorld, next, city(), sw));
                 syncBody(next, nextWorld);
             }

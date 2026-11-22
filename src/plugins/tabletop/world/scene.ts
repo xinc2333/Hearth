@@ -66,6 +66,9 @@ const VISITORS: Partial<Record<Kind, Visitor[]>> = {
     industry: [['上班的工人', 20, 55, 0.25, [30, 120], 3]],
 };
 
+const OUTDOORS: Kind[] = ['mall', 'sight', 'park', 'market', 'fun', 'residence', 'office', 'school'];
+const PASSERS_BY: Visitor[] = [['路过的人', 18, 70, 0.5, [2, 8], 3], ['赶着上班的人', 22, 45, 0.5, [1, 5], 2], ['遛弯的老人', 60, 78, 0.5, [5, 20], 1]];
+
 /** The people who work at a kind of place: [role, minAge, maxAge, share of women]. */
 const STAFF: Partial<Record<Kind, [string, number, number, number][]>> = {
     cafe: [['咖啡师', 20, 32, 0.6], ['店员', 18, 28, 0.6]],
@@ -157,11 +160,13 @@ export function updateScene(world: WorldState, place: Place, now: number): { sce
     const open = isOpen(place, now);
     const staff = open ? staffOf(world, place).filter(s => !kept.some(k => k.id === s.id)) : [];
     const m = moment(now);
-    const busy = open ? busyness(place.kind, m.hh, isWorkday(now)) * weatherFactor(place.kind, world.weather[0]) : place.kind === 'park' || place.kind === 'sight' ? 0.05 : 0;
-    const target = Math.round((CAPACITY[place.kind] ?? 6) * busy * (0.8 + rand() * 0.4));
+    // A street, a square or a shopping street outside opening hours still has people walking by.
+    const street = !open && OUTDOORS.includes(place.kind) && m.hh >= 6 && m.hh < 23;
+    const busy = open ? busyness(place.kind, m.hh, isWorkday(now)) * weatherFactor(place.kind, world.weather[0]) : street ? 0.03 * weatherFactor('park', world.weather[0]) : 0;
+    const target = street ? Math.round(3 + rand() * 4) : Math.round((CAPACITY[place.kind] ?? 6) * busy * (0.8 + rand() * 0.4));
     const visitors = kept.filter(p => p.role === 'visitor');
     const room = Math.max(0, Math.min(target, MAX_DESCRIBED - staff.length - kept.filter(p => p.role === 'staff').length) - visitors.length);
-    const types = VISITORS[place.kind] ?? [['路过的人', 18, 70, 0.5, [5, 30], 1] as Visitor];
+    const types = street ? PASSERS_BY : VISITORS[place.kind] ?? PASSERS_BY;
     const total = types.reduce((s, t) => s + t[5], 0);
     const added: Bystander[] = [];
     for (let i = 0; i < room; i++) {

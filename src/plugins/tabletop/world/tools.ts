@@ -58,7 +58,7 @@ export const SETTLE_WORLD_PROPERTY = {
         description: '世界的记账：这段回复里主角这边发生的事',
         properties: {
             extra_minutes: { type: 'number', description: '正文比计划的时间段多写了多少分钟（例如睡着了、聊过了头）；没有写 0' },
-            ate: { type: 'string', enum: ['', '正餐', '点心'], description: '主角吃了东西' },
+            ate: { type: 'string', enum: ['正餐', '点心'], description: '主角这段时间吃了东西才写' },
             money: {
                 type: 'array',
                 description: '额外的收支（三餐日用每天已经按生活水平扣过，车费 Hearth 已经算过，都不要再写）',

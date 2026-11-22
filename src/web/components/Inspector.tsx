@@ -13,6 +13,7 @@ import { sourceLabel } from '../labels.ts';
 import { pageEvent } from '../card-page.ts';
 import { setCardSlot } from './CardFrames.tsx';
 import { TabletopTab } from './Tabletop.tsx';
+import { HereTab, isWorldChat, MapTab, PhoneTab } from './World.tsx';
 import { Button, Empty, Field, IconButton, LongText, Segmented, Toggle, timeAgo } from './common.tsx';
 
 // ---------------------------------------------------------------------------------------------
@@ -446,7 +447,8 @@ function HistoryTab({ chatId }: { chatId: string }) {
 
 // ---------------------------------------------------------------------------------------------
 
-const TABS: [InspectorTab, string][] = [['card', '界面'], ['prompt', '提示词'], ['state', '变量'], ['tabletop', '跑团'], ['character', '角色卡'], ['lore', '世界书'], ['history', '历史']];
+const WORLD_TABS: InspectorTab[] = ['here', 'map', 'phone'];
+const TABS: [InspectorTab, string][] = [['here', '这里'], ['map', '地图'], ['phone', '手机'], ['card', '界面'], ['prompt', '提示词'], ['state', '变量'], ['tabletop', '跑团'], ['character', '角色卡'], ['lore', '世界书'], ['history', '历史']];
 
 /** The 界面 tab: the card's script buttons, and the card's page (CardFrames.tsx) laid over the area below. */
 function CardTab({ chatId }: { chatId: string }) {
@@ -520,13 +522,16 @@ export function Inspector() {
             <div className="inspector-resize" title="拖动调整宽度，双击恢复" onPointerDown={startDrag} onDoubleClick={reset} />
             <header className="inspector-head">
                 <div className="tabs" role="tablist">
-                    {TABS.filter(([id]) => (id !== 'tabletop' || tabletop) && (id !== 'card' || cardPage)).map(([id, label]) => (
+                    {TABS.filter(([id]) => (id !== 'tabletop' || tabletop) && (id !== 'card' || cardPage) && (!WORLD_TABS.includes(id) || (tabletop && isWorldChat(chat)))).map(([id, label]) => (
                         <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? 'active' : ''} onClick={() => tab !== id && toggleInspector(id)}>{label}</button>
                     ))}
                 </div>
                 <IconButton icon="x" label="关闭面板（Ctrl+I）" onClick={() => setState({ inspector: null })} />
             </header>
             {tab === 'card' && (cardPage ? <CardTab chatId={chatId} /> : <div className="empty-tab muted small">这张角色卡没有自己的界面。</div>)}
+            {tab === 'here' && <HereTab chat={chat} />}
+            {tab === 'map' && <MapTab key={chat.id} chat={chat} />}
+            {tab === 'phone' && <PhoneTab chat={chat} />}
             {tab === 'prompt' && <PromptTab chatId={chatId} preset={preset} />}
             {tab === 'state' && <StateTab chat={chat} />}
             {tab === 'tabletop' && <TabletopTab chat={chat} userName={context?.userName ?? ''} presetId={context?.preset.id} />}

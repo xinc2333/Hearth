@@ -116,7 +116,7 @@ export function SettleNote({ chat, message }: { chat: Chat; message: ChatMessage
     }
     const done = settle.results.filter(r => r.ok);
     if (!done.length) return null;
-    const mine = done.filter(r => r.who === PROTAGONIST && (r.kind === 'status' || r.kind === 'growth'));
+    const mine = done.filter(r => (r.who === PROTAGONIST && (r.kind === 'status' || r.kind === 'growth')) || r.kind === 'world');
     const remember = [...new Set(done.filter(r => r.kind === 'attitude' && r.who).map(r => r.who as string))];
     const rest = done.filter(r => !mine.includes(r));
     return (

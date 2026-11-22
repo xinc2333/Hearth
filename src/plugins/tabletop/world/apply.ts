@@ -260,3 +260,37 @@ export function applySettleWorld(world: WorldState, state: TabletopState, city: 
 }
 
 export const worldSeed = (chatId: string) => hash(chatId);
+
+const SCENE_ID = /^[sb]-[0-9a-z-]+$/;
+
+/**
+ * The model sometimes names scene people by their number in the 跑团 part of the settlement
+ * (attitudes, present, status). Numbers become the names the settlement gave them (met) or already
+ * had; entries about scene people still without a name are dropped.
+ */
+export function renameSceneIds(args: Record<string, unknown>, world: WorldState, sw: SettleWorld | null) {
+    const names = new Map<string, string>();
+    for (const p of world.scene?.people ?? []) if (p.name) names.set(p.id, p.name);
+    for (const m of sw?.met ?? []) names.set(m.id, m.name);
+    const fix = (v: unknown) => (typeof v === 'string' && SCENE_ID.test(v.trim()) ? names.get(v.trim()) ?? null : v);
+    if (Array.isArray(args.present)) args.present = args.present.map(fix).filter(Boolean);
+    for (const key of ['attitudes', 'status', 'growth'] as const) {
+        if (!Array.isArray(args[key])) continue;
+        args[key] = (args[key] as unknown[]).filter(x => {
+            if (!isRecord(x)) return true;
+            const who = fix(x.who);
+            if (who === null) return false;
+            x.who = who;
+            return true;
+        });
+    }
+    if (Array.isArray(args.bonds)) {
+        args.bonds = (args.bonds as unknown[]).filter(b => {
+            if (!isRecord(b) || !Array.isArray(b.between)) return true;
+            const between = b.between.map(fix);
+            if (between.includes(null)) return false;
+            b.between = between;
+            return true;
+        });
+    }
+}

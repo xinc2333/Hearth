@@ -5,6 +5,7 @@ import { Icon } from '../icons.tsx';
 import { confirmAction, deleteChat, getState, newChat, openChat, refresh, reportError, setState, toast, toggleSidebar, useAppState } from '../state.ts';
 import { Avatar, IconButton, timeAgo } from './common.tsx';
 import { setGlobalPreset } from './PresetManager.tsx';
+import { NewWorldButton } from './World.tsx';
 
 const KIND_LABEL: Record<string, string> = { character: '角色卡', lorebook: '世界书', preset: '预设', persona: '用户角色', chat: '对话' };
 
@@ -99,6 +100,7 @@ export function Sidebar() {
                     <button className="kbd-btn" title="快速查找角色、对话和功能" onClick={() => setState({ paletteOpen: true })}><kbd>Ctrl</kbd><kbd>K</kbd></button>
                 </div>
 
+                <NewWorldButton />
                 <nav className="char-list" aria-label="角色">
                     {!characters.length && (
                         <div className="sidebar-empty">

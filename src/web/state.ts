@@ -8,8 +8,8 @@ import { api, generate, type Bootstrap, type ChatContext, type PromptSnapshot, t
 import { askPage, broadcast } from './card-page.ts';
 
 export type GenerationKind = 'normal' | 'swipe' | 'regenerate' | 'continue';
-export type InspectorTab = 'prompt' | 'state' | 'tabletop' | 'character' | 'lore' | 'history' | 'card';
-const INSPECTOR_TABS: InspectorTab[] = ['prompt', 'state', 'tabletop', 'character', 'lore', 'history', 'card'];
+export type InspectorTab = 'prompt' | 'state' | 'tabletop' | 'character' | 'lore' | 'history' | 'card' | 'here' | 'map' | 'phone';
+const INSPECTOR_TABS: InspectorTab[] = ['prompt', 'state', 'tabletop', 'character', 'lore', 'history', 'card', 'here', 'map', 'phone'];
 
 export interface Streaming {
     chatId: string;
