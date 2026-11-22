@@ -467,7 +467,9 @@ export function applyProfile(world: WorldState, city: City, raw: unknown, fallba
     const before = world.people[fallbackName] ?? world.people[name];
     const near = placeById(world, city, before?.at ?? world.at);
     const place = (text: string) => (text ? findPlace(world, city, text) ?? registerPlace(world, city, text, near) : undefined);
-    const home = place(str(args.home));
+    // A home is somewhere people live: a street or a shop named as home becomes a flat near it.
+    const homeFound = place(str(args.home));
+    const home = homeFound && homeFound.kind !== 'residence' ? registerPlace(world, city, `${homeFound.name}一带的住处`, homeFound) : homeFound;
     const work = place(str(args.work));
     const routine: Slot[] = list(args.routine).filter(isRecord).map(s => ({ days: str(s.days) || '每天', from: str(s.from), to: str(s.to), place: place(str(s.place))?.id ?? home?.id ?? '', doing: str(s.doing) })).filter(s => s.from && s.to && s.place);
     const person: PersonWorld = {

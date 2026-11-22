@@ -127,7 +127,7 @@ async function settle(api: PluginApi, source: SettleSource, state: TabletopState
             let nextWorld: WorldState | undefined;
             if (world) {
                 nextWorld = structuredClone(world.after);
-                if (sw) results.push(...applySettleWorld(nextWorld, next, city(), sw));
+                if (sw) results.push(...applySettleWorld(nextWorld, next, city(), sw, world.plan.from));
                 syncBody(next, nextWorld);
             }
             return { state: next, ...(nextWorld ? { world: nextWorld } : {}), settle: { raw: JSON.stringify(args), results, present } };

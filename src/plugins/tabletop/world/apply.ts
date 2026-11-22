@@ -118,7 +118,12 @@ export function applySetup(raw: unknown, form: SetupForm, city: City, seed: numb
     // Work or school, and the commitment that comes with it.
     const job = isRecord(args.job) ? args.job : {};
     if (form.job !== '无业' && str(job.employer || job.place)) {
-        const place = resolvePlace(world, city, str(job.place) || str(job.employer), str(job.near), district, str(job.employer));
+        // The employer is a place of its own (a company inside a street or a mall), unless the map already has it.
+        const named = findPlace(world, city, str(job.place) || str(job.employer));
+        const fits = named && (named.name === str(job.employer) || ['office', 'industry', 'school', 'hospital', 'government', 'police'].includes(named.kind));
+        const place = fits ? named! : str(job.employer)
+            ? registerPlace(world, city, str(job.employer), named ?? (str(job.near) ? findPlace(world, city, str(job.near)) : undefined) ?? city.places.find(p => p.landmark && p.district === district), str(job.title))
+            : resolvePlace(world, city, str(job.place), str(job.near), district, '');
         world.me.job.place = place.id;
         world.me.job.title = str(job.title) || world.me.job.title;
         const employer = str(job.employer) || place.name;
@@ -195,8 +200,10 @@ export function syncBody(state: TabletopState, world: WorldState) {
 const line = (text: string, ok = true): SettleLine => ({ line: text, ok, text, kind: 'world' });
 
 /** The world part of the settlement. Changes `world` (and `state` for people met) and says what came of each item. */
-export function applySettleWorld(world: WorldState, state: TabletopState, city: City, sw: SettleWorld): SettleLine[] {
+export function applySettleWorld(world: WorldState, state: TabletopState, city: City, sw: SettleWorld, turnStart = world.now): SettleLine[] {
     const out: SettleLine[] = [];
+    // Messages and words of a long turn happened early in it, not at its end.
+    const said = Math.min(world.now, turnStart + 5);
     if (sw.extraMinutes > 0) {
         extendTurn(world, city, sw.extraMinutes);
         out.push(line(`时间多过了 ${Math.round(sw.extraMinutes)} 分钟，现在 ${clock(world.now)}`));
@@ -235,12 +242,12 @@ export function applySettleWorld(world: WorldState, state: TabletopState, city: 
         out.push(line(`约定完成：${c.name}`));
     }
     for (const m of sw.messages) {
-        addMessage(world, { at: world.now, from: PROTAGONIST, to: m.to, text: m.text, read: true });
+        addMessage(world, { at: said, from: PROTAGONIST, to: m.to, text: m.text, read: true });
         // The other side reads it a little later, and may answer.
         if (world.people[m.to]) {
-            world.people[m.to].lastContact = world.now;
-            world.pending.push({ at: world.now + 5 + (hash(`${m.to}|${world.now}`) % 40), who: m.to, kind: 'notice', what: `主角发来消息：「${m.text}」` });
-            learn(world, m.to, `主角发消息说：${m.text}`, '听说');
+            world.people[m.to].lastContact = said;
+            world.pending.push({ at: said + 5 + (hash(`${m.to}|${said}`) % 40), who: m.to, kind: 'notice', what: `主角发来消息：「${m.text}」` });
+            learn(world, m.to, `主角发消息说：${m.text}`, '听说', said);
         }
     }
     if (sw.read) for (const m of world.phone.messages) if (m.to === PROTAGONIST) m.read = true;

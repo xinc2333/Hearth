@@ -33,6 +33,7 @@ export const CHECK_WORLD_PROPERTIES = {
             to: { type: 'string', description: '去哪：地图上的地点名，或者「家」「公司」；地图上没有的地方写一个具体的名字' },
             by: { type: 'string', description: '怎么去：步行、骑车、地铁、公交、打车、开车；不写就按主角的习惯' },
             with: { type: 'array', items: { type: 'string' }, description: '一起去的角色' },
+            leave: { type: 'string', description: '不马上走、过一阵才出发时写出发的时刻 HH:MM（出发前主角还在原地）' },
         },
         required: ['to'],
     },
@@ -48,7 +49,7 @@ export function parseTurnAsk(args: Record<string, unknown> | null | undefined): 
     if (str(time.until)) ask.until = str(time.until);
     if (['日常', '睡觉', '体力活'].includes(str(time.activity))) ask.activity = str(time.activity) as TurnAsk['activity'];
     if (time.routine === true) ask.routine = true;
-    if (move && str(move.to)) ask.move = { to: str(move.to), ...(str(move.by) ? { by: str(move.by) } : {}), with: list(move.with).map(str).filter(Boolean) };
+    if (move && str(move.to)) ask.move = { to: str(move.to), ...(str(move.by) ? { by: str(move.by) } : {}), with: list(move.with).map(str).filter(Boolean), ...(str(move.leave) ? { leave: str(move.leave) } : {}) };
     return Object.keys(ask).length ? ask : undefined;
 }
 

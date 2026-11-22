@@ -5,7 +5,7 @@
 import { hash, rng } from './city/everyday.ts';
 import { districtAt, type City, type Place } from './city/index.ts';
 import { bestTrip, MODE_LABEL, trip, type Mode, type Trip } from './route.ts';
-import { deliverDue, followRoutines } from './minds.ts';
+import { deliverDue, followRoutines, timeAt } from './minds.ts';
 import { updateScene } from './scene.ts';
 import {
     addEvent, advanceBody, clock, DAILY_COST, dateKey, dayMatches, fmtWeather, forecast, isWorkday, midnight, minutesOf, moment, note,
@@ -20,7 +20,8 @@ export interface TurnAsk {
     activity?: Activity;
     /** The protagonist keeps to their usual routine while time is skipped. */
     routine?: boolean;
-    move?: { to: string; by?: string; with?: string[] };
+    /** `leave`: when the protagonist sets off (HH:MM); until then they stay where they are. */
+    move?: { to: string; by?: string; with?: string[]; leave?: string };
 }
 
 export interface TurnPlan {
@@ -57,8 +58,8 @@ export function registerPlace(world: WorldState, city: City, name: string, near:
     const d = 0.08 + rand() * 0.25;
     const at: [number, number] = [Math.round((base[0] + Math.cos(a) * d) * 1000) / 1000, Math.round((base[1] + Math.sin(a) * d) * 1000) / 1000];
     const kind: Place['kind'] = /咖啡/.test(name) ? 'cafe' : /酒吧|酒馆/.test(name) ? 'bar' : /餐|面|饭|馆|烧烤|火锅/.test(name) ? 'food'
-        : /超市|便利|店/.test(name) ? 'shop' : /公园/.test(name) ? 'park' : /医院|诊所/.test(name) ? 'hospital' : /小区|公寓|新村|家/.test(name) ? 'residence'
-            : /公司|大厦|中心/.test(name) ? 'office' : 'sight';
+        : /超市|便利|店/.test(name) ? 'shop' : /公园/.test(name) ? 'park' : /医院|诊所/.test(name) ? 'hospital' : /小区|公寓|新村|家|住处|花园|苑/.test(name) ? 'residence'
+            : /公司|大厦|中心|广告|传媒|科技|集团|事务所|工作室|设计/.test(name) ? 'office' : 'sight';
     const place: Place = {
         id: `x${(hash(`${world.seed}|${name}|${world.places.length}`) % 1e8).toString(36)}`,
         name, kind, at,
@@ -157,6 +158,8 @@ export function playTurn(world: WorldState, city: City, ask: TurnAsk): TurnPlan 
     const startPlace = world.at;
     let move: TurnPlan['move'];
     let travel = 0;
+    // Setting off later: stay where they are until then.
+    const leave = ask.move?.leave ? Math.min(from + MAX_TURN * 4, timeAt(ask.move.leave, from)) : from;
     // Movement first: the trip's time and fare.
     if (ask.move?.to) {
         const here = placeById(world, city, world.at);
@@ -167,26 +170,28 @@ export function playTurn(world: WorldState, city: City, ask: TurnAsk): TurnPlan 
             newPlace = true;
         }
         if (dest.id !== world.at && here) {
-            const when = { minute: moment(from).minute, workday: isWorkday(from) };
+            const when = { minute: moment(leave).minute, workday: isWorkday(leave) };
             const asked = modeOf(ask.move.by);
             let t = asked ? trip(city, here.at, dest.at, asked, when) : bestTrip(city, here.at, dest.at, when, world.me.habit);
             if (!t.ok) t = bestTrip(city, here.at, dest.at, when);
-            if (t.cost && !pay(world, -t.cost, `${MODE_LABEL[t.mode]}去${dest.name}`, from)) {
-                events.push({ at: from, kind: 'money', seen: true, text: `钱不够${MODE_LABEL[t.mode]}，只能走过去` });
+            if (t.cost && !pay(world, -t.cost, `${MODE_LABEL[t.mode]}去${dest.name}`, leave)) {
+                events.push({ at: leave, kind: 'money', seen: true, text: `钱不够${MODE_LABEL[t.mode]}，只能走过去` });
                 t = trip(city, here.at, dest.at, 'walk', when);
             }
             travel = t.minutes;
             move = { from: world.at, to: dest.id, trip: { mode: t.mode, minutes: t.minutes, cost: t.cost, legs: t.legs }, with: ask.move.with ?? [], newPlace };
-            events.push({ at: from + travel, kind: 'move', seen: true, text: `${clock(from + travel)} 到了${dest.name}（${t.legs.join('，')}${t.cost ? `，花了 ${t.cost} 元` : ''}）` });
+            events.push({ at: leave + travel, kind: 'move', seen: true, text: `${clock(leave)} 出发，${clock(leave + travel)} 到了${dest.name}（${t.legs.join('，')}${t.cost ? `，花了 ${t.cost} 元` : ''}）` });
         }
     }
     // How long the turn lasts.
     const until = ask.until ? parseTime(ask.until) : null;
-    let to = until && until > from ? Math.min(until, from + MAX_SKIP) : from + travel + Math.max(1, Math.min(MAX_TURN, Math.round(ask.minutes ?? 10)));
-    to = Math.max(to, from + travel + 1);
-    const skipped = to - from > MAX_TURN + travel;
+    const arrive = leave + travel;
+    let to = until && until > from ? Math.min(until, from + MAX_SKIP) : arrive + Math.max(1, Math.min(MAX_TURN, Math.round(ask.minutes ?? 10)));
+    to = Math.max(to, arrive + 1);
+    const skipped = to - from > MAX_TURN + (arrive - from);
     const dest = move?.to ?? world.at;
-    const where: Where = t => (ask.routine && skipped ? expectedPlace(world, t) ?? world.me.home : t < from + travel ? null : dest);
+    const origin = world.at;
+    const where: Where = t => (ask.routine && skipped ? expectedPlace(world, t) ?? world.me.home : t < leave ? origin : t < arrive ? null : dest);
 
     events.push(...runDays(world, from, to));
     events.push(...runCommitments(world, city, from, to, where));
