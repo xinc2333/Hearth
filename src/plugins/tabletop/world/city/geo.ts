@@ -60,3 +60,35 @@ export function centroid(polygon: readonly Point[]): Point {
     a /= 2;
     return a ? [round(cx / (6 * a)), round(cy / (6 * a))] : polygon[0];
 }
+
+/** Shortest distance from a point to a polyline. */
+export function distanceToLine(p: Point, line: readonly Point[]): number {
+    let best = Infinity;
+    for (let i = 1; i < line.length; i++) {
+        const [ax, ay] = line[i - 1];
+        const [bx, by] = line[i];
+        const dx = bx - ax;
+        const dy = by - ay;
+        const t = dx || dy ? Math.max(0, Math.min(1, ((p[0] - ax) * dx + (p[1] - ay) * dy) / (dx * dx + dy * dy))) : 0;
+        best = Math.min(best, Math.hypot(p[0] - (ax + t * dx), p[1] - (ay + t * dy)));
+    }
+    return best;
+}
+
+/** A blob from detail.ts as a polygon: an explicit outline, or a slightly irregular ellipse. */
+export function blobOutline(blob: { at?: LonLat; r?: number; stretch?: number; outline?: readonly LonLat[] }, seed = 0): LonLat[] {
+    if (blob.outline) return [...blob.outline];
+    const [lon, lat] = blob.at!;
+    const r = blob.r!;
+    const k = Math.cos((lat * Math.PI) / 180);
+    const n = 18;
+    return Array.from({ length: n }, (_, i) => {
+        const a = (i / n) * Math.PI * 2;
+        // A gentle wobble so parks and towns do not look like perfect circles.
+        const wobble = 1 + 0.12 * Math.sin(3 * a + seed) + 0.06 * Math.cos(5 * a + seed * 1.7);
+        return [
+            Math.round((lon + ((r * (blob.stretch ?? 1) * wobble * Math.cos(a)) / k)) * 100000) / 100000,
+            Math.round((lat + r * wobble * Math.sin(a)) * 100000) / 100000,
+        ] as LonLat;
+    });
+}

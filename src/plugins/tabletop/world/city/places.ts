@@ -5,12 +5,12 @@ import type { LonLat } from './geo.ts';
 
 export type PlaceKind =
     | 'residence' | 'office' | 'industry' | 'mall' | 'market' | 'food' | 'cafe' | 'bar' | 'park' | 'sight'
-    | 'fun' | 'school' | 'hospital' | 'police' | 'government' | 'station' | 'airport' | 'hotel';
+    | 'fun' | 'school' | 'hospital' | 'police' | 'government' | 'station' | 'airport' | 'hotel' | 'shop' | 'gym';
 
 export const KIND_LABEL: Record<PlaceKind, string> = {
     residence: '住宅', office: '写字楼', industry: '工业区', mall: '商业', market: '菜市场', food: '餐馆', cafe: '咖啡馆',
     bar: '酒吧', park: '公园', sight: '景点', fun: '娱乐', school: '学校', hospital: '医院', police: '派出所',
-    government: '政府机关', station: '车站', airport: '机场', hotel: '酒店',
+    government: '政府机关', station: '车站', airport: '机场', hotel: '酒店', shop: '商店', gym: '健身房',
 };
 
 export interface PlaceShape {

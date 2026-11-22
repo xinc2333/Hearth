@@ -1,10 +1,13 @@
-// 澜江市 in map coordinates: everything from shape.ts, transit.ts and places.ts projected to
-// kilometres around 市民广场 (see geo.ts), with each place's district worked out from where it is.
+// 澜江市 in map coordinates: everything from shape.ts, detail.ts, transit.ts and places.ts projected
+// to kilometres around 市民广场 (see geo.ts), each place's district worked out from where it is, and
+// the everyday places generated around stations, landmarks and towns (everyday.ts).
 
-import { area, centroid, inside, project, type LonLat, type Point } from './geo.ts';
+import { AIRPORTS, CANALS, GREENS, INDUSTRY, RESERVOIRS, SHOALS, TOWNS, URBAN, type Blob } from './detail.ts';
+import { everydayPlaces, hash, type Anchor } from './everyday.ts';
+import { area, blobOutline, centroid, distance, distanceToLine, inside, project, type LonLat, type Point } from './geo.ts';
 import { LANDMARKS, type PlaceKind } from './places.ts';
 import { COAST, DISTRICTS, HILLS, LAKES, MAINLAND, RIVERS, SEAS } from './shape.ts';
-import { LINES, METRO_HOURS, ROADS } from './transit.ts';
+import { CROSSINGS, LINES, METRO_HOURS, RAILS, ROADS, type RoadShape } from './transit.ts';
 
 export { SCALE, distance, inside, type Point } from './geo.ts';
 export { KIND_LABEL, type PlaceKind } from './places.ts';
@@ -47,18 +50,35 @@ export interface Place {
     district: string;
     hours: string;
     about: string;
+    /** A landmark written by hand, rather than an everyday place. */
+    landmark: boolean;
+}
+
+export interface Area {
+    name: string;
+    outline: Point[];
 }
 
 export interface City {
     name: string;
     districts: District[];
     mainland: Point[];
+    /** Islands, including the offshore port. */
+    islands: Point[][];
     coast: Point[][];
-    lakes: { name: string; outline: Point[] }[];
-    rivers: { name: string; width: [number, number][]; course: Point[] }[];
+    lakes: Area[];
+    rivers: { name: string; width: [number, number][]; course: Point[]; minor: boolean }[];
     hills: { name: string; at: Point; r: number; height: number }[];
     seas: { name: string; at: Point }[];
-    roads: { name: string; kind: 'ring' | 'elevated' | 'bridge'; loop: boolean; course: Point[] }[];
+    urban: Area[];
+    industry: Area[];
+    greens: Area[];
+    shoals: Area[];
+    airports: { name: string; area: Point[]; runways: [Point, Point][] }[];
+    towns: { name: string; at: Point }[];
+    roads: { name: string; kind: RoadShape['kind']; loop: boolean; course: Point[] }[];
+    rails: { name: string; course: Point[] }[];
+    crossings: { name: string; kind: 'bridge' | 'tunnel'; at: Point }[];
     lines: Line[];
     stations: Map<string, Station>;
     metroHours: { first: string; last: string };
@@ -69,11 +89,9 @@ export interface City {
 
 const projectAll = (points: readonly LonLat[]) => points.map(project);
 /** A degree of latitude in map kilometres. */
-const kmPerDegree = (() => {
-    const [, y0] = project([0, 0]);
-    const [, y1] = project([0, 1]);
-    return Math.abs(y0 - y1);
-})();
+const kmPerDegree = Math.abs(project([0, 0])[1] - project([0, 1])[1]);
+
+const areas = (blobs: Blob[]): Area[] => blobs.map(b => ({ name: b.name, outline: projectAll(blobOutline(b, hash(b.name) % 7)) }));
 
 /** The district a point lies in, if any. */
 export function districtAt(city: Pick<City, 'districts'>, point: Point): District | undefined {
@@ -103,29 +121,80 @@ export function lanjiang(): City {
         }
         return { id: l.id, name: l.name, color: l.color, loop: Boolean(l.loop), speed: l.speed, interval: l.interval, stations: l.stations.map(([n]) => n) };
     });
-    const city: Omit<City, 'places' | 'bounds'> = {
+    const mainland = projectAll(MAINLAND);
+    const rivers = [
+        ...RIVERS.map(r => ({ name: r.name, width: r.width, course: projectAll(r.course), minor: false })),
+        ...CANALS.map(([name, width, course]) => ({ name, width: [[0, width]] as [number, number][], course: projectAll(course), minor: true })),
+    ];
+    const lakes = [...LAKES.map(l => ({ name: l.name, outline: projectAll(l.outline) })), ...areas(RESERVOIRS)];
+    const airports = AIRPORTS.map(a => ({ name: a.name, area: projectAll(a.area), runways: a.runways.map(([p, q]) => [project(p), project(q)] as [Point, Point]) }));
+    const urban = areas(URBAN);
+    const base = { districts };
+    const landmarks: Place[] = LANDMARKS.map((p, i) => {
+        const at = project(p.at);
+        return { id: `p${i + 1}`, name: p.name, kind: p.kind, at, district: districtAt(base, at)?.id ?? '', hours: p.hours, about: p.about, landmark: true };
+    });
+    const towns = TOWNS.map(([name, at]) => ({ name, at: project(at) }));
+
+    // Everyday places, around stations, landmarks (not airports or industry) and towns.
+    const centre = urban[0].outline;
+    const density = (at: Point): Anchor['density'] => (inside(at, centre) ? (distance(at, [0, 0]) < 6 ? 3 : 2) : urban.some(u => inside(at, u.outline)) ? 2 : 1);
+    const anchors: Anchor[] = [];
+    const named = new Set<string>();
+    const addAnchor = (name: string, at: Point) => {
+        if (named.has(name)) return;
+        const district = districtAt(base, at)?.id;
+        if (!district) return;
+        named.add(name);
+        anchors.push({ name, at, district, density: density(at) });
+    };
+    for (const s of stations.values()) addAnchor(s.name, s.at);
+    for (const p of landmarks) if (p.kind !== 'airport' && p.kind !== 'industry') addAnchor(p.name, p.at);
+    for (const t of towns) addAnchor(t.name, t.at);
+    const taken: Point[] = landmarks.map(p => p.at);
+    const free = (at: Point) => {
+        if (!districtAt(base, at)) return false;
+        if (lakes.some(l => inside(at, l.outline))) return false;
+        if (airports.some(a => inside(at, a.area))) return false;
+        for (const r of rivers) {
+            const half = (Math.max(...r.width.map(w => w[1])) / 1000) * 0.25;
+            if (distanceToLine(at, r.course) < half + 0.06) return false;
+        }
+        if (taken.some(p => distance(p, at) < 0.09)) return false;
+        taken.push(at);
+        return true;
+    };
+    const everyday: Place[] = everydayPlaces(anchors, free, [...landmarks.map(p => p.name), ...stations.keys(), ...towns.map(t => t.name)]).map(p => ({ ...p, district: districtAt(base, p.at)!.id, landmark: false }));
+
+    // The map's bounds leave out the offshore port, which would shrink everything else.
+    const all = [...mainland, ...districts.filter(d => d.id === 'cangzhou').flatMap(d => d.outline.flat())];
+    built = {
         name: '澜江市',
         districts,
-        mainland: projectAll(MAINLAND),
+        mainland,
+        islands: districts.flatMap(d => (d.id === 'cangzhou' ? d.outline : d.outline.slice(1))),
         coast: COAST.map(projectAll),
-        lakes: LAKES.map(l => ({ name: l.name, outline: projectAll(l.outline) })),
-        rivers: RIVERS.map(r => ({ name: r.name, width: r.width, course: projectAll(r.course) })),
+        lakes,
+        rivers,
         hills: HILLS.map(h => ({ name: h.name, at: project(h.at), r: h.r * kmPerDegree, height: h.height })),
         seas: SEAS.map(s => ({ name: s.name, at: project(s.at) })),
+        urban,
+        industry: areas(INDUSTRY),
+        greens: areas(GREENS),
+        shoals: areas(SHOALS),
+        airports,
+        towns,
         roads: ROADS.map(r => ({ name: r.name, kind: r.kind, loop: Boolean(r.loop), course: projectAll(r.course) })),
+        rails: RAILS.map(([name, course]) => ({ name, course: projectAll(course) })),
+        crossings: CROSSINGS.map(([name, kind, at]) => ({ name, kind, at: project(at) })),
         lines,
         stations,
         metroHours: METRO_HOURS,
+        places: [...landmarks, ...everyday],
+        bounds: [
+            Math.min(...all.map(p => p[0])), Math.min(...all.map(p => p[1])),
+            Math.max(...all.map(p => p[0])), Math.max(...all.map(p => p[1])),
+        ],
     };
-    const places: Place[] = LANDMARKS.map((p, i) => {
-        const at = project(p.at);
-        return { id: `p${i + 1}`, name: p.name, kind: p.kind, at, district: districtAt(city, at)?.id ?? '', hours: p.hours, about: p.about };
-    });
-    const all = [...city.mainland, ...districts.flatMap(d => d.outline.flat())];
-    const bounds: City['bounds'] = [
-        Math.min(...all.map(p => p[0])), Math.min(...all.map(p => p[1])),
-        Math.max(...all.map(p => p[0])), Math.max(...all.map(p => p[1])),
-    ];
-    built = { ...city, places, bounds };
     return built;
 }

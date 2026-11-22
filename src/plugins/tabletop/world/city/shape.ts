@@ -2,6 +2,7 @@
 // Districts share their borders through named vertices, so neighbouring districts never overlap or
 // leave a gap, and the river 澜江 is itself the border wherever it separates two districts.
 
+import { PORT_ISLAND } from './detail.ts';
 import type { LonLat } from './geo.ts';
 
 /** Shared vertices. R: 澜江 from 云湖 to the sea; C: 青溪 from the west to 澜江; O: the coast and the outer border; others: district borders. */
@@ -87,9 +88,9 @@ export const DISTRICTS: DistrictShape[] = [
     },
     {
         id: 'jiangdong', name: '江东区', model: '浦东', population: 145,
-        about: '澜江东岸一直到东海：望江嘴金融城正对江滩，还有中央公园、科学城、港区、乐园、东部机场和临海新城。',
+        about: '澜江东岸一直到东海：望江嘴金融城正对江滩，还有中央公园、科学城、港区、乐园、东部机场、临海新城，以及海上的远洋港。',
         outline: [path(`R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R20 R20b R21 R22 R23 R24 R25 R26 R27 R28
-            O5 O6 O7 O8 O9 O10 O11 O12 O13 O14 O15 O16 O17 O18 J3 J2 J1`)],
+            O5 O6 O7 O8 O9 O10 O11 O12 O13 O14 O15 O16 O17 O18 J3 J2 J1`), PORT_ISLAND],
     },
     {
         id: 'xinzhuang', name: '新庄区', model: '闵行', population: 67,

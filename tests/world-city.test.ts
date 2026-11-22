@@ -48,9 +48,27 @@ test('lines stop at known stations and transfers are shared', () => {
     assert.ok(city.stations.get('世纪广场')!.lines.length >= 3);
 });
 
-test('the map draws', () => {
-    const svg = mapSvg(city, { view: [-5, -5, 5, 5], stationNames: true, placeNames: true, markers: [{ at: [3, 3], label: '你', kind: 'self' }] });
-    assert.match(svg, /^<svg /);
-    assert.match(svg, /市民广场/);
-    assert.doesNotMatch(svg, /NaN|undefined/);
+test('everyday places fill the streets, each with its own name and id', () => {
+    const everyday = city.places.filter(p => !p.landmark);
+    assert.ok(everyday.length > 600, `${everyday.length} everyday places`);
+    assert.equal(new Set(city.places.map(p => p.id)).size, city.places.length);
+    assert.equal(new Set(city.places.map(p => p.name)).size, city.places.length);
+    for (const p of everyday) assert.ok(!city.lakes.some(l => inside(p.at, l.outline)), `${p.name} is in a lake`);
+    // The same build makes the same places.
+    assert.deepEqual(everyday.slice(0, 5).map(p => p.name), lanjiang().places.filter(p => !p.landmark).slice(0, 5).map(p => p.name));
+});
+
+test('the map draws at every level of detail', () => {
+    const marker = { at: [3, 3] as const, label: '你', kind: 'self' as const };
+    const whole = mapSvg(city, { markers: [marker] });
+    const part = mapSvg(city, { view: [-10, -8, 10, 7], markers: [marker] });
+    const streets = mapSvg(city, { view: [-1.5, -1, 1.5, 1], markers: [marker] });
+    for (const svg of [whole, part, streets]) {
+        assert.match(svg, /^<svg /);
+        assert.doesNotMatch(svg, /NaN|undefined/);
+    }
+    assert.doesNotMatch(whole, /市民广场</);
+    assert.match(part, /市民广场</);
+    assert.match(streets, /pattern id="grid-zhongcheng"/);
+    assert.ok(streets.length > part.length / 4);
 });
